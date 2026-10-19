@@ -9,7 +9,7 @@
 
 import { Router, Request, Response } from 'express';
 import { foodDb } from '../db';
-import { OrderStatus } from '../../types';
+import { OrderStatus, PaymentStatus } from '../../types';
 import { requireRole } from '../auth';
 
 export const orderRouter = Router();
@@ -79,6 +79,29 @@ orderRouter.put('/:id', async (req: Request, res: Response) => {
   delete updates.deliveryFee;
   delete updates.merchantId;
   delete updates.id;
+
+  // Prevent unauthorized payment verification or rejection
+  if (
+    updates.status === OrderStatus.PAYMENT_VERIFIED ||
+    updates.paymentStatus === PaymentStatus.PAID
+  ) {
+    if (!user || user.role !== 'ADMIN') {
+      return res.status(403).json({
+        error: 'Akses ditolak: Hanya Admin yang berwenang memverifikasi pembayaran menjadi lunas (PAID).'
+      });
+    }
+  }
+
+  if (
+    updates.status === OrderStatus.PAYMENT_REJECTED ||
+    updates.paymentStatus === PaymentStatus.REJECTED
+  ) {
+    if (!user || user.role !== 'ADMIN') {
+      return res.status(403).json({
+        error: 'Akses ditolak: Hanya Admin yang berwenang menolak bukti pembayaran.'
+      });
+    }
+  }
 
   // 1. UNAUTHENTICATED REQUEST (Customer Cancellation only)
   if (!user) {
@@ -217,8 +240,13 @@ orderRouter.post('/:id/assign-driver', requireRole(['ADMIN']), async (req: Reque
 // Customer payment proof upload - Enforces 10-minute expiry
 orderRouter.post('/:id/upload-payment', async (req: Request, res: Response) => {
   const { paymentProof } = req.body;
-  if (!paymentProof) {
-    return res.status(400).json({ error: 'Bukti pembayaran wajib diunggah.' });
+  if (!paymentProof || typeof paymentProof !== 'string' || paymentProof.trim().length < 10) {
+    return res.status(400).json({ error: 'Bukti pembayaran wajib diunggah dalam format gambar atau foto yang sah.' });
+  }
+
+  const cleanProof = paymentProof.trim();
+  if (!cleanProof.startsWith('data:image/') && !cleanProof.startsWith('http://') && !cleanProof.startsWith('https://')) {
+    return res.status(400).json({ error: 'Format file tidak didukung. Mohon unggah bukti berformat gambar (JPEG/PNG/WebP).' });
   }
 
   const order = await foodDb.findOrder(req.params.id);
@@ -231,9 +259,12 @@ orderRouter.post('/:id/upload-payment', async (req: Request, res: Response) => {
   const expiryTime = order.paymentExpiresAt ? new Date(order.paymentExpiresAt).getTime() : 0;
 
   if (expiryTime && now > expiryTime && order.status === OrderStatus.WAITING_PAYMENT) {
-    await foodDb.updateOrder('SYSTEM', order.id, { status: OrderStatus.EXPIRED }, 'SYSTEM');
+    await foodDb.updateOrder('SYSTEM', order.id, { 
+      status: OrderStatus.EXPIRED,
+      paymentStatus: PaymentStatus.EXPIRED
+    }, 'SYSTEM');
     return res.status(400).json({
-      error: 'Waktu pembayaran untuk pesanan ini telah kedaluwarsa (melebihi 10 menit). Pesanan ditandai sebagai KEDALUWARSA dan tidak dapat diproses lagi.'
+      error: 'Waktu pembayaran untuk pesanan ini telah kedaluwarsa. Pesanan ditandai sebagai KEDALUWARSA dan tidak dapat diproses lagi.'
     });
   }
 
@@ -254,14 +285,44 @@ orderRouter.post('/:id/upload-payment', async (req: Request, res: Response) => {
       'CUSTOMER',
       req.params.id,
       {
-        paymentProof,
-        status: OrderStatus.WAITING_PAYMENT_VERIFICATION
+        paymentProof: cleanProof,
+        paymentProofUploadedAt: new Date().toISOString(),
+        paymentStatus: PaymentStatus.WAITING_VERIFICATION,
+        status: OrderStatus.WAITING_PAYMENT_VERIFICATION,
+        paymentRejectionReason: undefined
       },
       'CUSTOMER'
     );
     res.json(updated);
   } catch (e: any) {
     res.status(400).json({ error: e.message });
+  }
+});
+
+// Admin payment verification endpoint - Authoritative verification
+orderRouter.post('/:id/verify-payment', requireRole(['ADMIN']), async (req: Request, res: Response) => {
+  try {
+    const adminId = req.user?.userId || req.user?.email || 'admin';
+    const updated = await foodDb.verifyOrderPayment(adminId, req.params.id);
+    res.json({ success: true, order: updated });
+  } catch (e: any) {
+    res.status(400).json({ error: e.message || 'Gagal memverifikasi pembayaran.' });
+  }
+});
+
+// Admin payment rejection endpoint with mandatory reason
+orderRouter.post('/:id/reject-payment', requireRole(['ADMIN']), async (req: Request, res: Response) => {
+  const { reason } = req.body;
+  if (!reason || !String(reason).trim()) {
+    return res.status(400).json({ error: 'Alasan penolakan bukti pembayaran wajib disertakan agar pelanggan dapat memperbaikinya.' });
+  }
+
+  try {
+    const adminId = req.user?.userId || req.user?.email || 'admin';
+    const updated = await foodDb.rejectOrderPayment(adminId, req.params.id, String(reason).trim());
+    res.json({ success: true, order: updated });
+  } catch (e: any) {
+    res.status(400).json({ error: e.message || 'Gagal menolak bukti pembayaran.' });
   }
 });
 

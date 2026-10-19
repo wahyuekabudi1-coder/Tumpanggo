@@ -16,6 +16,15 @@ export enum OrderStatus {
   PAYMENT_REJECTED = 'PAYMENT_REJECTED'
 }
 
+export enum PaymentStatus {
+  PENDING = 'PENDING',
+  WAITING_VERIFICATION = 'WAITING_VERIFICATION',
+  PAID = 'PAID',
+  REJECTED = 'REJECTED',
+  EXPIRED = 'EXPIRED',
+  REFUNDED = 'REFUNDED'
+}
+
 export enum SettlementStatus {
   WAITING_CONFIRMATION = 'WAITING_CONFIRMATION',
   SETTLEMENT_COMPLETED = 'SETTLEMENT_COMPLETED'
@@ -50,6 +59,10 @@ export interface Merchant {
   createdAt: string;
   updatedAt: string;
   
+  // Merchant Static QRIS for payments
+  qrisImage?: string;
+  qrisUpdatedAt?: string;
+
   // Pre-order and Delivery Settings (Available for all merchants natively)
   preOrderOnly?: boolean;
   allowInstantAndPreOrder?: boolean;
@@ -106,12 +119,17 @@ export interface Order {
   latitude: number;
   longitude: number;
   status: OrderStatus;
+  paymentStatus?: PaymentStatus;
   items: OrderItem[];
   subtotal: number;
   deliveryFee: number;
   serviceFee: number;
   total: number; // subtotal + deliveryFee + serviceFee + uniqueCode/1000 or similar, let's add uniqueCode as integer to total
   paymentProof?: string; // Cloudinary or base64 URL
+  paymentProofUploadedAt?: string;
+  paymentRejectionReason?: string;
+  paymentVerifiedBy?: string;
+  paymentVerifiedAt?: string;
   deliveryProof?: string; // Cloudinary or base64 URL
   merchantId: string;
   merchantName: string;
@@ -124,7 +142,8 @@ export interface Order {
   paymentExpiresAt: string; // ISO string (createdAt + 10 mins)
   preOrderDate?: string; // e.g. "2026-07-03" (YYYY-MM-DD)
   clientRequestId?: string;
-  paymentMethod?: 'MANUAL_TRANSFER' | 'ARTOPAY_QRIS';
+  paymentMethod?: 'MERCHANT_QRIS' | 'MANUAL_TRANSFER' | 'ARTOPAY_QRIS';
+  merchantQrisImage?: string;
   artopayPaymentId?: string;
   artopayCheckoutUrl?: string;
   artopayStatus?: 'PENDING' | 'SUCCESS' | 'FAILED' | 'EXPIRED';
@@ -135,7 +154,6 @@ export interface Order {
   artopayPublicKey?: string;
   artopayOrderId?: string;
   artopaySandbox?: boolean;
-  paymentVerifiedAt?: string;
 }
 
 export interface Driver {

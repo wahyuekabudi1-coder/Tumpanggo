@@ -57,6 +57,71 @@ merchantRouter.put('/:id', requireMerchantOwner('id'), async (req: Request, res:
   }
 });
 
+// Dedicated endpoint to upload or update Merchant Static QRIS
+merchantRouter.put('/:id/qris', requireMerchantOwner('id'), async (req: Request, res: Response) => {
+  const { qrisImage } = req.body;
+  if (!qrisImage || typeof qrisImage !== 'string' || qrisImage.trim().length < 10) {
+    return res.status(400).json({ error: 'Gambar QRIS statis wajib diunggah dalam format gambar yang sah.' });
+  }
+
+  const cleanQris = qrisImage.trim();
+  if (!cleanQris.startsWith('data:image/') && !cleanQris.startsWith('http://') && !cleanQris.startsWith('https://')) {
+    return res.status(400).json({ error: 'Format QRIS tidak didukung. Unggah gambar berformat JPEG, PNG, atau WebP.' });
+  }
+
+  // Size guard: ~5MB base64 limit
+  if (cleanQris.length > 7 * 1024 * 1024) {
+    return res.status(400).json({ error: 'Ukuran file gambar QRIS melebihi batas maksimal 5MB. Silakan gunakan gambar yang lebih kecil.' });
+  }
+
+  try {
+    const actorId = req.user?.userId || req.user?.entityId || req.params.id;
+    const actorRole = (req.user?.role === 'ADMIN' ? 'ADMIN' : 'MERCHANT') as 'ADMIN' | 'MERCHANT';
+    const updated = await foodDb.updateMerchant(
+      actorId,
+      req.params.id,
+      {
+        qrisImage: cleanQris,
+        qrisUpdatedAt: new Date().toISOString()
+      },
+      actorRole
+    );
+    res.json({
+      success: true,
+      message: 'QRIS statis merchant berhasil disimpan.',
+      qrisImage: updated.qrisImage,
+      qrisUpdatedAt: updated.qrisUpdatedAt,
+      merchant: updated
+    });
+  } catch (e: any) {
+    res.status(400).json({ error: e.message || 'Gagal menyimpan QRIS merchant.' });
+  }
+});
+
+// Remove Merchant Static QRIS
+merchantRouter.delete('/:id/qris', requireMerchantOwner('id'), async (req: Request, res: Response) => {
+  try {
+    const actorId = req.user?.userId || req.user?.entityId || req.params.id;
+    const actorRole = (req.user?.role === 'ADMIN' ? 'ADMIN' : 'MERCHANT') as 'ADMIN' | 'MERCHANT';
+    const updated = await foodDb.updateMerchant(
+      actorId,
+      req.params.id,
+      {
+        qrisImage: '',
+        qrisUpdatedAt: new Date().toISOString()
+      },
+      actorRole
+    );
+    res.json({
+      success: true,
+      message: 'QRIS statis merchant berhasil dihapus.',
+      merchant: updated
+    });
+  } catch (e: any) {
+    res.status(400).json({ error: e.message || 'Gagal menghapus QRIS merchant.' });
+  }
+});
+
 merchantRouter.delete('/:id', requireRole(['ADMIN']), async (req: Request, res: Response) => {
   const actorId = req.user?.userId || 'admin';
   try {

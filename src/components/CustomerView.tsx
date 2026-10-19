@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { 
-  Merchant, MenuItem, Category, Order, OrderItem, OrderStatus, SystemConfig, calculateTieredServiceFee
+  Merchant, MenuItem, Category, Order, OrderItem, OrderStatus, PaymentStatus, SystemConfig, calculateTieredServiceFee
 } from '../types.ts';
 import MapPicker from './MapPicker.tsx';
 import Logo from './Logo.tsx';
@@ -10,13 +10,13 @@ import ErrorBoundary from './ErrorBoundary.tsx';
 import { compressImage, compressBase64 } from '../utils/imageCompressor.ts';
 import { safeStorage } from '../utils/safeStorage.ts';
 import { apiFetch as fetch, extractArrayResponse } from '../utils/apiClient.ts';
-import { openPayment, configure } from '@arto-pay/js-sdk';
+import { calculateDeliveryFee, FLAT_TUMPANG_DELIVERY_FEE, isDestinationInKecamatanTumpang } from '../utils/deliveryFee.ts';
 import { 
-  Search, ShoppingBag, Store, MapPin, Clock, Star, ArrowLeft, Plus, Minus, Trash2, 
+  Search, ShoppingBag, Store, MapPin, Clock, Star, ArrowLeft, Plus, Minus, Trash2, Check, 
   CheckCircle2, ArrowRight, Share2, Phone, Calendar, ClipboardList, RefreshCw, X,
   Download, Smartphone, Info, Home, UserPlus, Bike, Users, XCircle, Key, ShieldCheck,
   Wifi, Utensils, Car, Wallet, QrCode, Send, CreditCard, ArrowUpRight, ArrowDownLeft,
-  ExternalLink, Globe, Lock, Crown, Sparkles, Building2, BadgeCheck, Award, TrendingUp, ChevronLeft, ChevronRight, Heart, AlertCircle
+  ExternalLink, Globe, Lock, Crown, Sparkles, Building2, BadgeCheck, Award, TrendingUp, ChevronLeft, ChevronRight, Heart, AlertCircle, ZoomIn, Upload
 } from 'lucide-react';
 
 interface CustomerViewProps {
@@ -47,29 +47,6 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
       setActiveTab(initialTab);
     }
   }, [initialTab]);
-
-  // Load ArtoPay public gateway configuration on mount
-  useEffect(() => {
-    fetch('/api/artopay/config')
-      .then(async res => {
-        if (!res.ok) return;
-        const cfg = await res.json();
-        if (cfg.publicKey) {
-          (window as any).__ARTOPAY_PUBLIC_KEY__ = cfg.publicKey;
-          (window as any).VITE_ARTOPAY_PUBLIC_KEY = cfg.publicKey;
-          const scriptEl = document.getElementById('arto-pay-sdk-script');
-          if (scriptEl) {
-            scriptEl.setAttribute('data-client-key', cfg.publicKey);
-            scriptEl.setAttribute('data-sandbox', String(cfg.sandbox));
-          }
-        }
-        (window as any).__ARTOPAY_SANDBOX__ = cfg.sandbox;
-        if (typeof configure === 'function') {
-          configure({ sandbox: cfg.sandbox, publicKey: cfg.publicKey } as any);
-        }
-      })
-      .catch(() => {});
-  }, []);
   
   // Home layout sub-view: 'main' (GoFood/ShopeeFood style landing) | 'food' (existing food view) | 'taxi' (Taksi Lokal view) | 'shop' (Tumpang Shop view) | 'pay' (Tumpang Pay view) | 'bike' (Tumpang Bike coming soon)
   const [homeSubView, setHomeSubView] = useState<'main' | 'food' | 'taxi' | 'shop' | 'pay' | 'bike'>('main');
@@ -559,16 +536,12 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
   }, [activeOrder]);
 
   const [trackingOrderId, setTrackingOrderId] = useState<string>('');
-  const [paymentProofUrl, setPaymentProofUrl] = useState('');
   const [paymentProofFile, setPaymentProofFile] = useState<string | null>(null);
+  const [paymentProofUrl, setPaymentProofUrl] = useState<string>('');
   const [uploadLoading, setUploadLoading] = useState(false);
-
-  // ArtoPay Dynamic QRIS states
-  const [paymentMethodTab, setPaymentMethodTab] = useState<'ARTOPAY' | 'MANUAL'>('ARTOPAY');
-  const [artopayLoading, setArtopayLoading] = useState(false);
-  const [artopayChecking, setArtopayChecking] = useState(false);
-  const [artopayStatusMsg, setArtopayStatusMsg] = useState<{ type: 'success' | 'error' | 'info'; text: string } | null>(null);
-  const [showArtopayModal, setShowArtopayModal] = useState<boolean>(false);
+  const [proofUploadError, setProofUploadError] = useState<string | null>(null);
+  const [proofUploadSuccess, setProofUploadSuccess] = useState<string | null>(null);
+  const [proofZoomModalImage, setProofZoomModalImage] = useState<string | null>(null);
 
   // History search state
   const [historyPhone, setHistoryPhone] = useState('');
@@ -1091,9 +1064,21 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
     return cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
   };
 
+  const getDeliveryCalculation = () => {
+    return calculateDeliveryFee({
+      address: checkoutAddress,
+      details: checkoutDetails,
+      landmark: checkoutLandmark,
+      latitude: checkoutLat,
+      longitude: checkoutLng,
+      merchantLatitude: cartMerchant?.latitude,
+      merchantLongitude: cartMerchant?.longitude,
+      systemConfig
+    });
+  };
+
   const getDeliveryFee = () => {
-    // 5000 flat standard, or configured
-    return systemConfig?.defaultDeliveryFee || 5000;
+    return getDeliveryCalculation().deliveryFee;
   };
 
   const getServiceFee = (subtotalVal?: number) => {
@@ -1180,7 +1165,7 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
       items: cart,
       merchantId: cartMerchantId,
       subtotal: getSubtotal(),
-      deliveryFee: isPreOrder ? 0 : getDeliveryFee(),
+      deliveryFee: getDeliveryFee(),
       serviceFee: getServiceFee(),
       preOrderDate: isPreOrder ? preOrderDate : undefined
     };
@@ -1243,225 +1228,7 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
     }
   };
 
-  // Open official ArtoPay SDK Modal
-  const handleOpenArtopaySdk = (paymentId?: string, clientSecret?: string, token?: string, publicKey?: string, sandbox?: boolean, orderId?: string) => {
-    if (!activeOrder) return;
 
-    // Check if previous payment intent session has expired; if so, regenerate a fresh Payment Intent
-    const isSessionExpired = Boolean(!paymentId && activeOrder.artopayExpiredAt && new Date(activeOrder.artopayExpiredAt).getTime() < Date.now());
-    if (isSessionExpired) {
-      setArtopayStatusMsg({ type: 'info', text: 'Sesi transaksi sebelumnya telah kedaluwarsa. Memperbarui sesi baru dari gateway...' });
-      handleCreateArtoPayPayment();
-      return;
-    }
-
-    const targetPaymentId = (paymentId || activeOrder.artopayPaymentId || '').trim();
-    if (!targetPaymentId) {
-      setArtopayStatusMsg({ type: 'error', text: 'ID transaksi ArtoPay belum dibuat. Silakan klik tombol pembayaran terlebih dahulu.' });
-      return;
-    }
-
-    const targetClientSecret = (clientSecret || activeOrder.artopayClientSecret || '').trim();
-    const targetToken = (token || activeOrder.artopayCustomerToken || '').trim() || undefined;
-    const rawPublicKey = publicKey || activeOrder.artopayPublicKey || (window as any).__ARTOPAY_PUBLIC_KEY__ || (window as any).VITE_ARTOPAY_PUBLIC_KEY || undefined;
-    const targetPublicKey = typeof rawPublicKey === 'string' && !rawPublicKey.startsWith('%') && !rawPublicKey.includes('%VITE_') && rawPublicKey !== 'undefined' && rawPublicKey !== 'null' && rawPublicKey.trim().length > 4 ? rawPublicKey.trim() : undefined;
-    const isSandbox = sandbox !== undefined ? sandbox : (activeOrder.artopaySandbox !== undefined ? activeOrder.artopaySandbox : ((window as any).__ARTOPAY_SANDBOX__ !== undefined ? (window as any).__ARTOPAY_SANDBOX__ : true));
-    const targetOrderId = (orderId || activeOrder.artopayOrderId || activeOrder.id || '').trim();
-
-    if (!targetClientSecret) {
-      setArtopayStatusMsg({ type: 'error', text: 'Client secret transaksi ArtoPay tidak ditemukan. Silakan buat sesi pembayaran ulang.' });
-      return;
-    }
-
-    if (!targetPublicKey) {
-      setArtopayStatusMsg({ 
-        type: 'error', 
-        text: 'Public key ArtoPay (ARTOPAY_PUBLIC_KEY) belum terkonfigurasi. Pastikan ARTOPAY_PUBLIC_KEY diisi dengan kunci publik resmi dari Dashboard ArtoPay.' 
-      });
-      return;
-    }
-
-    // Safe diagnostic logging (No full secret/token exposed)
-    console.log('[ArtoPay Modal Diagnostics - CustomerView]', {
-      environment: isSandbox ? 'sandbox' : 'production',
-      orderId: targetOrderId,
-      paymentIntentId: targetPaymentId,
-      hasClientSecret: Boolean(targetClientSecret),
-      clientSecretPrefix: targetClientSecret ? `${targetClientSecret.substring(0, 7)}...` : 'missing',
-      hasCustomerToken: Boolean(targetToken),
-      customerTokenPrefix: targetToken ? `${targetToken.substring(0, 7)}...` : 'missing',
-      hasPublicKey: Boolean(targetPublicKey),
-      publicKeyPrefix: targetPublicKey ? `${targetPublicKey.substring(0, 6)}...` : 'missing',
-      isSessionExpired,
-      sdkParameters: ['clientSecret', 'secret', 'paymentId', 'paymentIntentId', 'orderId', 'token', 'customerToken', 'publicKey', 'clientKey', 'sandbox']
-    });
-
-    try {
-      setArtopayStatusMsg({ type: 'info', text: 'Membuka modal pembayaran resmi ArtoPay (QRIS)...' });
-      // Ensure SDK configuration is synchronously set before opening modal
-      if (typeof configure === 'function') {
-        configure({ sandbox: isSandbox, publicKey: targetPublicKey } as any);
-      }
-
-      openPayment({
-        clientSecret: targetClientSecret,
-        secret: targetClientSecret,
-        paymentId: targetPaymentId,
-        paymentIntentId: targetPaymentId,
-        orderId: targetOrderId,
-        token: targetToken,
-        customerToken: targetToken,
-        sandbox: isSandbox,
-        publicKey: targetPublicKey,
-        clientKey: targetPublicKey,
-        onSuccess: async () => {
-          setArtopayStatusMsg({ type: 'success', text: 'Pembayaran terdeteksi! Memverifikasi status ke backend...' });
-          // Strictly verify via backend API to prevent client-side spoofing
-          await handleCheckArtoPayStatus();
-        },
-        onPending: () => {
-          setArtopayStatusMsg({ type: 'info', text: 'Pembayaran pending / sedang diproses oleh gateway.' });
-          handleCheckArtoPayStatus();
-        },
-        onError: (err: any) => {
-          console.warn('[ArtoPay SDK Error]', err);
-          const errMsg = err?.message || err?.transactionStatus || 'Gagal memproses pembayaran di gateway ArtoPay.';
-          let userHint = `Gateway: ${errMsg}`;
-          if (typeof errMsg === 'string' && (errMsg.includes('oapi') || errMsg.includes('authentication'))) {
-            userHint = 'Autentikasi gateway ArtoPay gagal (OAPI). Pastikan ARTOPAY_PUBLIC_KEY dan ARTOPAY_SECRET_KEY berasal dari akun merchant dan environment yang sama di Dashboard ArtoPay, serta domain aplikasi telah diizinkan (whitelisted) di dashboard merchant.';
-          }
-          setArtopayStatusMsg({ type: 'error', text: userHint });
-          handleCheckArtoPayStatus();
-        },
-        onClose: () => {
-          handleCheckArtoPayStatus();
-        }
-      } as any);
-    } catch (e: any) {
-      console.error('[ArtoPay SDK openPayment failed]', e);
-      setArtopayStatusMsg({ type: 'error', text: `Gagal membuka checkout ArtoPay: ${e?.message || 'Error internal SDK'}` });
-    }
-  };
-
-  // ArtoPay Payment Intent Generation
-  const handleCreateArtoPayPayment = async () => {
-    if (!activeOrder?.id || !activeOrder.id.trim()) {
-      setArtopayStatusMsg({ type: 'error', text: 'ID pesanan tidak ditemukan. Pastikan pesanan telah tersimpan.' });
-      return;
-    }
-    setArtopayLoading(true);
-    setArtopayStatusMsg(null);
-
-    const abortCtrl = new AbortController();
-    const timeoutTimer = setTimeout(() => abortCtrl.abort(), 20000);
-
-    try {
-      const res = await fetch('/api/artopay/payment-intent', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          orderId: activeOrder.id.trim(),
-          serviceType: 'FOOD'
-        }),
-        signal: abortCtrl.signal
-      });
-      clearTimeout(timeoutTimer);
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error || 'Gagal membuat sesi transaksi ArtoPay.');
-      }
-
-      // Cross-validate that response belongs to this exact order
-      if (data.orderId && data.orderId !== activeOrder.id.trim()) {
-        throw new Error(`Inkonsistensi respons transaksi: order ID gateway (${data.orderId}) tidak cocok dengan pesanan aktif (${activeOrder.id}).`);
-      }
-
-      const checkoutUrl = String(data.checkoutUrl || '').trim();
-      const paymentIntentId = data.paymentIntentId || data.id;
-
-      const updatedOrder: Order = {
-        ...activeOrder,
-        artopayPaymentId: paymentIntentId,
-        artopayCheckoutUrl: checkoutUrl,
-        artopayClientSecret: data.clientSecret,
-        artopayCustomerToken: data.customerToken,
-        artopayPublicKey: data.publicKey,
-        artopayOrderId: data.orderId || activeOrder.id,
-        artopaySandbox: data.sandbox,
-        artopayStatus: 'PENDING',
-        paymentMethod: 'ARTOPAY_QRIS',
-        artopayExpiredAt: data.expiresAt
-      };
-      setActiveOrder(updatedOrder);
-
-      // If gateway returns a hosted checkout URL, redirect
-      if (checkoutUrl && checkoutUrl.startsWith('http')) {
-        setArtopayStatusMsg({
-          type: 'success',
-          text: 'Mengalihkan ke halaman checkout resmi gateway...'
-        });
-        window.location.href = checkoutUrl;
-        return;
-      }
-
-      // Standard ArtoPay SDK modal flow (Smart Journey reference mechanism)
-      setArtopayStatusMsg({
-        type: 'info',
-        text: 'Membuka modal pembayaran resmi ArtoPay (QRIS)...'
-      });
-      handleOpenArtopaySdk(
-        paymentIntentId,
-        data.clientSecret,
-        data.customerToken,
-        data.publicKey,
-        data.sandbox,
-        data.orderId || activeOrder.id
-      );
-    } catch (err: any) {
-      clearTimeout(timeoutTimer);
-      console.error('[ArtoPay Error]', err);
-      const isTimeout = err.name === 'AbortError';
-      setArtopayStatusMsg({ 
-        type: 'error', 
-        text: isTimeout 
-          ? 'Koneksi ke gateway ArtoPay timeout (20s). Silakan periksa koneksi dan coba lagi.' 
-          : (err.message || 'Gagal memulai transaksi ArtoPay.') 
-      });
-    } finally {
-      setArtopayLoading(false);
-    }
-  };
-
-  // ArtoPay On-demand Status Sync
-  const handleCheckArtoPayStatus = async () => {
-    if (!activeOrder) return;
-    setArtopayChecking(true);
-    setArtopayStatusMsg(null);
-    try {
-      const res = await fetch(`/api/artopay/status/${activeOrder.id}?serviceType=FOOD`);
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error || 'Gagal memeriksa status pembayaran.');
-      }
-      if (data.isPaid || data.status === 'PAID' || data.status === OrderStatus.PAYMENT_VERIFIED) {
-        setArtopayStatusMsg({
-          type: 'success',
-          text: 'Alhamdulillah! Pembayaran QRIS ArtoPay berhasil terverifikasi otomatis. Pesanan segera disiapkan penjual.'
-        });
-        setShowArtopayModal(false);
-        await refreshActiveOrder();
-      } else {
-        setArtopayStatusMsg({
-          type: 'info',
-          text: 'Status pembayaran masih menunggu. Silakan selesaikan pembayaran di halaman checkout ArtoPay.'
-        });
-      }
-    } catch (err: any) {
-      setArtopayStatusMsg({ type: 'error', text: err.message || 'Gagal memeriksa status pembayaran.' });
-    } finally {
-      setArtopayChecking(false);
-    }
-  };
 
 
   // Handle file selection and convert to Base64
@@ -1497,40 +1264,6 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
     }
   };
 
-  // Auto-listen to payment completion messages and auto-poll status
-  useEffect(() => {
-    const handleMsg = async (event: MessageEvent) => {
-      if (event.data?.type === 'PAYMENT_SUCCESS') {
-        if (activeOrder && (event.data.orderId === activeOrder.id || event.data.paymentIntentId === activeOrder.artopayPaymentId)) {
-          // Verify with backend before confirming
-          await handleCheckArtoPayStatus();
-        }
-      }
-    };
-    window.addEventListener('message', handleMsg);
-    return () => window.removeEventListener('message', handleMsg);
-  }, [activeOrder?.id, activeOrder?.artopayPaymentId]);
-
-  useEffect(() => {
-    if (!activeOrder || activeOrder.status !== OrderStatus.WAITING_PAYMENT || !activeOrder.artopayPaymentId) return;
-    const interval = setInterval(async () => {
-      try {
-        const res = await fetch(`/api/artopay/status/${activeOrder.id}?serviceType=FOOD`);
-        if (res.ok) {
-          const data = await res.json();
-          if (data.isPaid || data.status === 'PAID' || data.status === OrderStatus.PAYMENT_VERIFIED) {
-            setArtopayStatusMsg({
-              type: 'success',
-              text: 'Alhamdulillah! Pembayaran QRIS ArtoPay berhasil terverifikasi otomatis. Pesanan segera disiapkan penjual.'
-            });
-            setShowArtopayModal(false);
-            refreshActiveOrder();
-          }
-        }
-      } catch {}
-    }, 3500);
-    return () => clearInterval(interval);
-  }, [activeOrder?.id, activeOrder?.status, activeOrder?.artopayPaymentId]);
 
   // Search History
   const searchHistory = async (e: React.FormEvent) => {
@@ -2089,136 +1822,6 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
               >
                 Tutup & Kembali
               </button>
-            </div>
-          </div>
-        )}
-
-        {/* ArtoPay Embedded Checkout Modal */}
-        {showArtopayModal && activeOrder && (
-          <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/70 backdrop-blur-xs p-4 animate-in fade-in duration-200">
-            <div className="bg-white rounded-3xl max-w-md w-full shadow-2xl border border-slate-100 overflow-hidden flex flex-col max-h-[92vh]">
-              {/* Header */}
-              <div className="bg-gradient-to-r from-emerald-700 via-emerald-600 to-teal-700 text-white p-4 px-5 flex items-center justify-between">
-                <div className="flex items-center gap-2.5">
-                  <div className="w-9 h-9 rounded-xl bg-white/20 backdrop-blur-xs flex items-center justify-center font-extrabold text-white text-base shadow-xs">
-                    T
-                  </div>
-                  <div className="text-left">
-                    <h3 className="font-extrabold text-sm leading-tight tracking-tight flex items-center gap-1.5">
-                      <span>ArtoPay Payment Link</span>
-                      <span className="text-[10px] bg-emerald-500/40 border border-emerald-300/30 px-2 py-0.5 rounded-full font-bold">Resmi</span>
-                    </h3>
-                    <p className="text-[11px] text-emerald-100/90">QRIS Dinamis • Tumpang Food</p>
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setShowArtopayModal(false)}
-                  className="w-8 h-8 rounded-full bg-white/10 hover:bg-white/25 text-white flex items-center justify-center transition-colors cursor-pointer"
-                  aria-label="Tutup"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-
-              {/* Body */}
-              <div className="p-5 overflow-y-auto flex flex-col items-center text-center gap-4">
-                {/* Order & Amount Meta */}
-                <div className="w-full bg-slate-50 border border-slate-200/80 rounded-2xl p-3.5 flex items-center justify-between text-xs">
-                  <div className="text-left">
-                    <span className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider block">Nomor Pesanan</span>
-                    <span className="font-bold text-slate-800 text-xs">#{activeOrder.id}</span>
-                  </div>
-                  <div className="text-right">
-                    <span className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider block">Total Tagihan</span>
-                    <span className="font-extrabold text-emerald-700 text-base font-display">
-                      Rp {Math.round(Number(activeOrder.total)).toLocaleString('id-ID')}
-                    </span>
-                  </div>
-                </div>
-
-                {/* ArtoPay Payment Details & Channels */}
-                <div className="w-full bg-slate-50 border border-slate-200/80 rounded-2xl p-4 text-left">
-                  <div className="text-[11px] font-bold text-slate-700 uppercase tracking-wider mb-2 flex items-center justify-between">
-                    <span>Kanal Pembayaran Resmi ArtoPay</span>
-                    <span className="text-[10px] text-emerald-600 font-bold bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">Terverifikasi</span>
-                  </div>
-                  <div className="grid grid-cols-2 gap-2 text-xs text-slate-700 font-medium">
-                    <div className="flex items-center gap-1.5 bg-white p-2 rounded-xl border border-slate-100 shadow-xs">
-                      <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
-                      <span>QRIS Dinamis Otomatis</span>
-                    </div>
-                    <div className="flex items-center gap-1.5 bg-white p-2 rounded-xl border border-slate-100 shadow-xs">
-                      <span className="w-2 h-2 rounded-full bg-blue-500"></span>
-                      <span>Virtual Account</span>
-                    </div>
-                    <div className="flex items-center gap-1.5 bg-white p-2 rounded-xl border border-slate-100 shadow-xs">
-                      <span className="w-2 h-2 rounded-full bg-amber-500"></span>
-                      <span>E-Wallet</span>
-                    </div>
-                    <div className="flex items-center gap-1.5 bg-white p-2 rounded-xl border border-slate-100 shadow-xs">
-                      <span className="w-2 h-2 rounded-full bg-purple-500"></span>
-                      <span>Kartu Debit / Kredit</span>
-                    </div>
-                  </div>
-                  <p className="mt-2 text-[10px] text-slate-500">
-                    QRIS dinamis resmi dibuat langsung oleh gateway ArtoPay dan ditampilkan di dalam modal pembayaran atau link checkout resmi.
-                  </p>
-                </div>
-
-                {/* Status Indicator */}
-                <div className="w-full flex items-center justify-center gap-2 p-3 bg-amber-50 border border-amber-200/80 rounded-xl text-amber-800 text-xs font-semibold">
-                  <span className="w-2.5 h-2.5 rounded-full bg-amber-500 animate-ping shrink-0" />
-                  <span>Menunggu pembayaran... (Terhubung ke Gateway ArtoPay)</span>
-                </div>
-
-                {/* Actions */}
-                <div className="w-full flex flex-col gap-2 pt-1">
-                  {activeOrder?.artopayCheckoutUrl ? (
-                    <a
-                      href={activeOrder.artopayCheckoutUrl}
-                      className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold rounded-xl shadow-md shadow-emerald-600/20 text-xs flex items-center justify-center gap-2 transition-all cursor-pointer text-center"
-                    >
-                      <ExternalLink className="w-4 h-4" />
-                      <span>Buka Halaman Pembayaran ArtoPay (Payment Link)</span>
-                    </a>
-                  ) : activeOrder?.artopayPaymentId && activeOrder?.artopayClientSecret ? (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setShowArtopayModal(false);
-                        handleOpenArtopaySdk();
-                      }}
-                      className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold rounded-xl shadow-md shadow-emerald-600/20 text-xs flex items-center justify-center gap-2 transition-all cursor-pointer"
-                    >
-                      <QrCode className="w-4 h-4" />
-                      <span>Buka Modal Pembayaran ArtoPay (QRIS)</span>
-                    </button>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setShowArtopayModal(false);
-                        handleCreateArtoPayPayment();
-                      }}
-                      className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold rounded-xl shadow-md shadow-emerald-600/20 text-xs flex items-center justify-center gap-2 transition-all cursor-pointer"
-                    >
-                      <QrCode className="w-4 h-4" />
-                      <span>Bayar via ArtoPay (QRIS)</span>
-                    </button>
-                  )}
-
-                  <button
-                    type="button"
-                    onClick={handleCheckArtoPayStatus}
-                    disabled={artopayChecking}
-                    className="w-full py-2 text-slate-500 hover:text-slate-700 text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
-                  >
-                    <RefreshCw className={`w-3.5 h-3.5 ${artopayChecking ? 'animate-spin' : ''}`} />
-                    <span>Periksa Status Manual</span>
-                  </button>
-                </div>
-              </div>
             </div>
           </div>
         )}
@@ -4003,20 +3606,18 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
                   <span>Subtotal Makanan</span>
                   <span className="font-semibold">Rp {getSubtotal().toLocaleString('id-ID')}</span>
                 </div>
-                <div className="flex justify-between">
-                  <span>Ongkos Kirim</span>
-                  {(() => {
-                    const isPreOrder = cartMerchant.preOrderOnly || checkoutDeliveryType === 'PREORDER';
-                    if (isPreOrder) {
-                      return (
-                        <span className="font-extrabold text-amber-600 flex flex-col items-end">
-                          <span>Negosiasi (COD)</span>
-                          <span className="text-[9px] text-slate-400 font-normal">Hubungi Admin/Seller</span>
-                        </span>
-                      );
-                    }
-                    return <span className="font-semibold">Rp {getDeliveryFee().toLocaleString('id-ID')}</span>;
-                  })()}
+                <div className="flex justify-between items-start">
+                  <div>
+                    <span className="block font-medium">Ongkos Kirim</span>
+                    {getDeliveryCalculation().isInTumpang ? (
+                      <span className="text-[10px] text-emerald-600 font-bold block">Tarif Flat Kec. Tumpang</span>
+                    ) : (
+                      <span className="text-[10px] text-amber-600 font-bold block">Luar Kec. Tumpang</span>
+                    )}
+                  </div>
+                  <span className="font-semibold text-slate-900">
+                    Rp {getDeliveryFee().toLocaleString('id-ID')}
+                  </span>
                 </div>
                 <div className="flex justify-between">
                   <span>Biaya Layanan</span>
@@ -4024,18 +3625,8 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
                 </div>
                 <div className="border-t border-slate-100 pt-2.5 flex justify-between text-sm font-bold text-slate-800">
                   <span>Estimasi Total</span>
-                  <span className="text-rose-600 flex flex-col items-end">
-                    {(() => {
-                      const isPreOrder = cartMerchant.preOrderOnly || checkoutDeliveryType === 'PREORDER';
-                      const deliveryVal = isPreOrder ? 0 : getDeliveryFee();
-                      const finalTotal = getSubtotal() + deliveryVal + getServiceFee();
-                      return (
-                        <>
-                          <span>Rp {finalTotal.toLocaleString('id-ID')}*</span>
-                          {isPreOrder && <span className="text-[9px] text-amber-600 font-medium mt-0.5">(Belum Termasuk Ongkir COD)</span>}
-                        </>
-                      );
-                    })()}
+                  <span className="text-rose-600 font-mono font-extrabold text-base">
+                    Rp {(getSubtotal() + getDeliveryFee() + getServiceFee()).toLocaleString('id-ID')}*
                   </span>
                 </div>
               </div>
@@ -4066,13 +3657,14 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
                 <button
                   type="submit"
                   disabled={isBlocked}
-                  className={`w-full py-3 font-bold rounded-xl transition-all text-sm flex items-center justify-center gap-1.5 ${
+                  className={`w-full py-3.5 font-extrabold rounded-xl transition-all text-sm flex items-center justify-center gap-2 ${
                     isBlocked
                       ? 'bg-slate-200 text-slate-400 border border-slate-300 shadow-none cursor-not-allowed'
-                      : 'bg-rose-600 hover:bg-rose-700 text-white shadow-lg shadow-rose-600/20 cursor-pointer'
+                      : 'bg-rose-600 hover:bg-rose-700 text-white shadow-lg shadow-rose-600/25 cursor-pointer'
                   }`}
                 >
-                  {isBlocked ? 'Batas Minimal Order Belum Terpenuhi' : 'Proses ke Pembayaran'}
+                  <QrCode className="w-4 h-4" />
+                  <span>{isBlocked ? 'Batas Minimal Order Belum Terpenuhi' : 'Bayar dengan QRIS'}</span>
                   <ArrowRight className="w-4 h-4" />
                 </button>
               );
@@ -4080,266 +3672,413 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
           </form>
         )}
 
-        {/* 5. PAYMENT / BILLING TAB */}
-        {activeTab === 'payment' && activeOrder && (
-          <div className="flex flex-col gap-4">
-            <div className="text-center">
-              <h3 className="font-display font-extrabold text-lg text-slate-800">Pembayaran Pesanan</h3>
-              <p className="text-xs text-slate-500 mt-0.5">ID Pesanan: <span className="font-mono font-bold text-slate-700">{activeOrder.id}</span></p>
-            </div>
+        {/* 5. PAYMENT / BILLING TAB - MERCHANT STATIC QRIS */}
+        {activeTab === 'payment' && activeOrder && (() => {
+          const currentOrderMerchant = merchants.find(m => m.id === activeOrder.merchantId) || (activeOrder.merchantId === selectedMerchant?.id ? selectedMerchant : null);
+          const qrisImageUrl = currentOrderMerchant?.qrisImage || activeOrder.merchantQrisImage;
+          const isPaid = activeOrder.status === OrderStatus.PAYMENT_VERIFIED || activeOrder.paymentStatus === PaymentStatus.PAID;
+          const isWaitingVerification = activeOrder.status === OrderStatus.WAITING_PAYMENT_VERIFICATION || activeOrder.paymentStatus === PaymentStatus.WAITING_VERIFICATION;
+          const isRejected = activeOrder.status === OrderStatus.PAYMENT_REJECTED || activeOrder.paymentStatus === PaymentStatus.REJECTED;
+          const isExpired = activeOrder.status === OrderStatus.EXPIRED || activeOrder.paymentStatus === PaymentStatus.EXPIRED;
+          const isCancelled = activeOrder.status === OrderStatus.CANCELLED;
+          const isPending = !isPaid && !isWaitingVerification && !isRejected && !isExpired && !isCancelled;
 
-            {/* Payment Method Selector */}
-            <div className="bg-slate-200/80 p-1 rounded-2xl flex text-xs font-bold">
-              <button
-                type="button"
-                onClick={() => setPaymentMethodTab('ARTOPAY')}
-                className={`flex-1 py-2.5 rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
-                  paymentMethodTab === 'ARTOPAY'
-                    ? 'bg-white text-emerald-700 shadow-sm'
-                    : 'text-slate-600 hover:text-slate-900'
-                }`}
-              >
-                <QrCode className="w-4 h-4 text-emerald-600" />
-                <span>QRIS Dinamis ArtoPay</span>
-                <span className="text-[9px] bg-emerald-100 text-emerald-800 px-1.5 py-0.5 rounded-full uppercase tracking-wider font-extrabold">Otomatis</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setPaymentMethodTab('MANUAL')}
-                className={`flex-1 py-2.5 rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
-                  paymentMethodTab === 'MANUAL'
-                    ? 'bg-white text-slate-800 shadow-sm'
-                    : 'text-slate-600 hover:text-slate-900'
-                }`}
-              >
-                <CreditCard className="w-4 h-4 text-slate-500" />
-                <span>Transfer Manual</span>
-              </button>
-            </div>
-
-            {/* TAB 1: ARTOPAY DYNAMIC QRIS */}
-            {paymentMethodTab === 'ARTOPAY' && (
-              <div className="flex flex-col gap-3.5">
-                {/* Total Bill Card */}
-                <div className="bg-gradient-to-br from-emerald-50 via-white to-teal-50 border border-emerald-200/80 rounded-2xl p-5 shadow-sm text-center relative overflow-hidden">
-                  <span className="text-[10px] text-emerald-800 font-extrabold uppercase tracking-widest block">TOTAL NOMINAL TAGIHAN</span>
-                  <h2 className="font-display font-black text-3xl text-emerald-900 mt-1">
-                    Rp {activeOrder.total.toLocaleString('id-ID')}
-                  </h2>
-
-                  <div className="mt-2.5 inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-bold bg-white border border-emerald-200 shadow-xs">
-                    <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping"></span>
-                    <span className="text-emerald-700">QRIS Dinamis Otomatis</span>
-                  </div>
-
-                  {/* ArtoPay Transaction Status Badge */}
-                  <div className="mt-3 pt-3 border-t border-emerald-100 flex items-center justify-between text-xs">
-                    <span className="text-slate-500 font-medium">Status Pembayaran:</span>
-                    <span className={`font-extrabold px-2.5 py-0.5 rounded-lg text-[11px] ${
-                      activeOrder.status === OrderStatus.PAYMENT_VERIFIED || activeOrder.artopayStatus === 'SUCCESS'
-                        ? 'bg-emerald-600 text-white'
-                        : 'bg-amber-100 text-amber-800'
-                    }`}>
-                      {activeOrder.status === OrderStatus.PAYMENT_VERIFIED || activeOrder.artopayStatus === 'SUCCESS'
-                        ? 'LUNAS (Terverifikasi)'
-                        : 'MENUNGGU PEMBAYARAN'}
-                    </span>
-                  </div>
+          return (
+            <div className="flex flex-col gap-4">
+              {/* Header Title */}
+              <div className="text-center">
+                <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-rose-50 border border-rose-200 text-rose-700 text-xs font-bold mb-1">
+                  <QrCode className="w-3.5 h-3.5" />
+                  <span>Pembayaran QRIS Merchant</span>
                 </div>
+                <h3 className="font-display font-extrabold text-xl text-slate-900">Pembayaran Pesanan</h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  ID Pesanan: <span className="font-mono font-bold text-slate-800">#{activeOrder.id.toUpperCase()}</span>
+                </p>
+              </div>
 
-                {/* Status Message Notification */}
-                {artopayStatusMsg && (
-                  <div className={`p-3 rounded-xl text-xs flex items-center gap-2 border ${
-                    artopayStatusMsg.type === 'success'
-                      ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
-                      : artopayStatusMsg.type === 'error'
-                      ? 'bg-rose-50 border-rose-200 text-rose-800'
-                      : 'bg-blue-50 border-blue-200 text-blue-800'
-                  }`}>
-                    <Info className="w-4 h-4 flex-shrink-0" />
-                    <span>{artopayStatusMsg.text}</span>
-                  </div>
-                )}
-
-                {/* Action Buttons */}
-                <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm flex flex-col gap-2.5">
-                  {activeOrder.artopayCheckoutUrl ? (
-                    <div className="flex flex-col gap-2">
-                      <a
-                        href={activeOrder.artopayCheckoutUrl}
-                        className="w-full py-3.5 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold rounded-xl shadow-md shadow-emerald-600/20 text-xs flex items-center justify-center gap-2 transition-all cursor-pointer text-center"
-                      >
-                        <ExternalLink className="w-4 h-4" />
-                        <span>Buka Halaman Pembayaran ArtoPay (Payment Link)</span>
-                      </a>
-                    </div>
-                  ) : activeOrder.artopayPaymentId && activeOrder.artopayClientSecret ? (
-                    <button
-                      type="button"
-                      onClick={() => handleOpenArtopaySdk()}
-                      disabled={artopayLoading}
-                      className="w-full py-3.5 bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 text-white font-extrabold rounded-xl shadow-md shadow-emerald-600/20 text-xs flex items-center justify-center gap-2 transition-all cursor-pointer"
-                    >
-                      <QrCode className="w-4 h-4" />
-                      <span>Buka Modal Pembayaran ArtoPay (QRIS)</span>
-                    </button>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={handleCreateArtoPayPayment}
-                      disabled={artopayLoading}
-                      className="w-full py-3.5 bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 text-white font-extrabold rounded-xl shadow-md shadow-emerald-600/20 text-xs flex items-center justify-center gap-2 transition-all cursor-pointer"
-                    >
-                      {artopayLoading ? (
-                        <>
-                          <RefreshCw className="w-4 h-4 animate-spin" />
-                          <span>Menyiapkan Sesi Pembayaran ArtoPay...</span>
-                        </>
-                      ) : (
-                        <>
-                          <QrCode className="w-4 h-4" />
-                          <span>Bayar Sekarang via ArtoPay (QRIS)</span>
-                        </>
-                      )}
-                    </button>
-                  )}
-
-                  <button
-                    type="button"
-                    onClick={handleCheckArtoPayStatus}
-                    disabled={artopayChecking}
-                    className="w-full py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold rounded-xl text-xs flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
-                  >
-                    <RefreshCw className={`w-3.5 h-3.5 ${artopayChecking ? 'animate-spin' : ''}`} />
-                    <span>{artopayChecking ? 'Memeriksa ke Gateway ArtoPay...' : 'Cek Status Pembayaran (Sinkronkan)'}</span>
-                  </button>
-                </div>
-
-                {/* Explanation Card */}
-                <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 text-[11px] text-slate-600 leading-relaxed flex flex-col gap-1">
-                  <span className="font-bold text-slate-800 flex items-center gap-1">
-                    <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
-                    Verifikasi Otomatis Tanpa Upload Bukti:
+              {/* Status Header Badge */}
+              <div className="flex items-center justify-between p-3.5 rounded-2xl border text-xs font-bold shadow-xs bg-white">
+                <span className="text-slate-500 font-medium">Status Pembayaran:</span>
+                {isPaid ? (
+                  <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl bg-emerald-100 text-emerald-800 border border-emerald-300">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                    PAID (Lunas Terverifikasi)
                   </span>
-                  <span>1. Klik tombol di atas untuk membuka QRIS dinamis resmi ArtoPay.</span>
-                  <span>2. Scan menggunakan aplikasi m-Banking atau e-Wallet apa pun.</span>
-                  <span>3. Pesanan Anda akan otomatis lunas dalam hitungan detik setelah pembayaran berhasil.</span>
+                ) : isWaitingVerification ? (
+                  <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl bg-blue-100 text-blue-800 border border-blue-300">
+                    <Clock className="w-3.5 h-3.5 text-blue-600 animate-pulse" />
+                    WAITING_VERIFICATION (Menunggu Verifikasi Admin)
+                  </span>
+                ) : isRejected ? (
+                  <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl bg-rose-100 text-rose-800 border border-rose-300">
+                    <XCircle className="w-3.5 h-3.5 text-rose-600" />
+                    REJECTED (Bukti Ditolak Admin)
+                  </span>
+                ) : isExpired ? (
+                  <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl bg-slate-200 text-slate-700">
+                    EXPIRED (Pesanan Kedaluwarsa)
+                  </span>
+                ) : isCancelled ? (
+                  <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl bg-slate-200 text-slate-700">
+                    CANCELLED (Pesanan Dibatalkan)
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl bg-amber-100 text-amber-800 border border-amber-300">
+                    <span className="w-2 h-2 rounded-full bg-amber-500 animate-ping"></span>
+                    PENDING (Menunggu Pembayaran)
+                  </span>
+                )}
+              </div>
+
+              {/* Total Bill Card */}
+              <div className="bg-gradient-to-br from-rose-50 via-white to-amber-50 border border-rose-200/90 rounded-2xl p-5 shadow-xs text-center relative overflow-hidden">
+                <span className="text-[10px] text-rose-700 font-extrabold uppercase tracking-widest block">TOTAL NOMINAL TAGIHAN</span>
+                <h2 className="font-display font-black text-3xl sm:text-4xl text-rose-900 mt-1">
+                  Rp {activeOrder.total.toLocaleString('id-ID')}
+                </h2>
+
+                <div className="mt-2.5 inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-white border border-rose-200 text-rose-800 shadow-xs">
+                  <span>Termasuk Kode Unik Verifikasi:</span>
+                  <span className="font-mono bg-rose-600 text-white px-1.5 py-0.2 rounded text-[11px]">+{activeOrder.uniqueCode}</span>
+                </div>
+
+                <p className="text-[11px] text-slate-500 mt-2 font-medium max-w-sm mx-auto">
+                  Harap transfer <strong className="text-slate-800">tepat sesuai nominal di atas</strong>. Kode unik verifikasi memudahkan Admin mencocokkan pembayaran Anda.
+                </p>
+
+                {/* Rincian Pesanan Box */}
+                <div className="mt-4 pt-3.5 border-t border-rose-100 text-left text-xs space-y-1.5 bg-white/70 p-3 rounded-xl">
+                  <div className="flex justify-between items-center text-slate-600 pb-1 border-b border-rose-100/60">
+                    <span className="font-medium">Toko Kuliner:</span>
+                    <strong className="text-slate-900 font-semibold">{activeOrder.merchantName}</strong>
+                  </div>
+                  <div className="space-y-1 py-1">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Ringkasan Menu:</span>
+                    {activeOrder.items?.map((item, idx) => (
+                      <div key={idx} className="flex justify-between text-slate-700 text-[11px]">
+                        <span>{item.quantity}x {item.name}</span>
+                        <span className="font-mono font-semibold">Rp {(item.price * item.quantity).toLocaleString('id-ID')}</span>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="pt-1.5 border-t border-rose-100/60 space-y-1 text-slate-600 text-[11px]">
+                    <div className="flex justify-between">
+                      <span>Subtotal Menu</span>
+                      <span className="font-mono font-medium">Rp {activeOrder.subtotal.toLocaleString('id-ID')}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Biaya Pengantaran</span>
+                      <span className="font-mono font-medium">Rp {activeOrder.deliveryFee.toLocaleString('id-ID')}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Biaya Layanan</span>
+                      <span className="font-mono font-medium">Rp {activeOrder.serviceFee.toLocaleString('id-ID')}</span>
+                    </div>
+                    <div className="flex justify-between text-rose-700 font-bold">
+                      <span>Kode Unik</span>
+                      <span className="font-mono">+{activeOrder.uniqueCode}</span>
+                    </div>
+                    <div className="flex justify-between text-xs font-bold text-slate-900 pt-1 border-t border-slate-200">
+                      <span>Total Pembayaran</span>
+                      <span className="font-mono text-rose-700 text-sm">Rp {activeOrder.total.toLocaleString('id-ID')}</span>
+                    </div>
+                  </div>
                 </div>
               </div>
-            )}
 
-            {/* TAB 2: MANUAL TRANSFER (FALLBACK) */}
-            {paymentMethodTab === 'MANUAL' && (
-              <div className="flex flex-col gap-3.5">
-                <div className="bg-amber-50 border border-amber-100 text-amber-800 p-3.5 rounded-xl text-xs flex flex-col gap-1">
-                  <span className="font-bold">⚠️ Panduan Transfer Manual</span>
-                  <span>Lakukan transfer pas sesuai nominal hingga tiga digit terakhir. Batas waktu transfer adalah 10 menit.</span>
-                </div>
-
-                {/* Invoice Bill Card */}
-                <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm flex flex-col items-center">
-                  <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">TOTAL TRANSFER MANUAL</span>
-                  <h2 className="font-display font-extrabold text-2xl text-slate-800 mt-1">
-                    Rp {activeOrder.total.toLocaleString('id-ID')}
-                  </h2>
-                  
-                  <div className="mt-2 bg-rose-50 text-rose-700 text-xs font-bold px-3 py-1.5 rounded-full flex items-center gap-1.5">
-                    <span>Termasuk Kode Unik: </span>
-                    <span className="bg-rose-600 text-white px-1.5 py-0.5 rounded text-[10px]">+{activeOrder.uniqueCode}</span>
-                  </div>
-
-                  {/* QRIS Code Image */}
-                  <div className="w-56 h-56 bg-slate-50 border-2 border-slate-100 rounded-xl overflow-hidden mt-6 flex flex-col items-center justify-center relative p-3">
-                    <img 
-                      src={systemConfig?.qrisImage || 'https://images.unsplash.com/photo-1628157582853-a796fa650a6a?w=400&auto=format&fit=crop&q=60'} 
-                      alt="QRIS Statis" 
-                      className="w-full h-full object-contain"
-                      referrerPolicy="no-referrer"
-                    />
-                  </div>
-                  <p className="text-[10px] text-slate-400 text-center mt-3 font-semibold tracking-wide uppercase">QRIS REKENING MANUAL TUMPANG</p>
-                </div>
-
-                {/* Upload Proof */}
-                <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
-                  <h4 className="font-display font-semibold text-sm text-slate-800 border-b border-slate-100 pb-2.5">Unggah Bukti Pembayaran Manual</h4>
-                  
-                  <form onSubmit={handlePaymentProofUpload} className="flex flex-col gap-3.5 mt-4">
+              {/* Status Specific Notification Banner */}
+              {isWaitingVerification && (
+                <div className="bg-blue-50 border border-blue-200 rounded-2xl p-4 text-xs text-blue-900 shadow-xs flex flex-col gap-2.5">
+                  <div className="flex items-start gap-2.5">
+                    <Clock className="w-5 h-5 text-blue-600 shrink-0 mt-0.5" />
                     <div>
-                      <label className="text-[10px] text-slate-500 font-bold uppercase tracking-wider block mb-1">Pilih Foto Bukti</label>
+                      <h4 className="font-bold text-sm text-blue-900">Bukti Pembayaran Terkirim!</h4>
+                      <p className="text-[11px] text-blue-700 mt-0.5 leading-relaxed">
+                        Admin kami sedang memeriksa bukti pembayaran Anda dan mencocokkannya dengan mutasi transaksi merchant. Anda <strong>tidak perlu melakukan pembayaran ulang</strong>.
+                      </p>
+                    </div>
+                  </div>
+                  {activeOrder.paymentProof && (
+                    <div className="mt-1 flex items-center gap-3 bg-white p-2.5 rounded-xl border border-blue-200">
+                      <img 
+                        src={activeOrder.paymentProof} 
+                        alt="Bukti yang diunggah" 
+                        className="w-14 h-14 object-cover rounded-lg border border-slate-200 cursor-pointer"
+                        onClick={() => setProofZoomModalImage(activeOrder.paymentProof || null)}
+                      />
+                      <div className="flex-1 text-[11px]">
+                        <span className="text-slate-500 font-medium block">Foto Bukti Terunggah:</span>
+                        <button
+                          type="button"
+                          onClick={() => setProofZoomModalImage(activeOrder.paymentProof || null)}
+                          className="text-blue-700 font-bold hover:underline inline-flex items-center gap-1 mt-0.5 cursor-pointer"
+                        >
+                          <ZoomIn className="w-3.5 h-3.5" /> Lihat Ukuran Penuh
+                        </button>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={refreshActiveOrder}
+                        className="p-2 bg-blue-100 hover:bg-blue-200 text-blue-800 rounded-xl font-bold transition-all"
+                        title="Perbarui Status"
+                      >
+                        <RefreshCw className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {isRejected && (
+                <div className="bg-rose-50 border border-rose-200 rounded-2xl p-4 text-xs text-rose-900 shadow-xs flex flex-col gap-2">
+                  <div className="flex items-start gap-2.5">
+                    <XCircle className="w-5 h-5 text-rose-600 shrink-0 mt-0.5" />
+                    <div>
+                      <h4 className="font-bold text-sm text-rose-900">Bukti Pembayaran Ditolak oleh Admin</h4>
+                      <div className="mt-1 bg-white p-2.5 rounded-xl border border-rose-200 font-medium text-[11px]">
+                        <span className="text-rose-500 block text-[10px] font-bold uppercase tracking-wider">Alasan Penolakan:</span>
+                        <p className="text-rose-900 font-bold mt-0.5">
+                          {activeOrder.paymentRejectionReason || activeOrder.cancelReason || 'Nominal tidak cocok atau bukti foto tidak terbaca jelas.'}
+                        </p>
+                      </div>
+                      <p className="text-[11px] text-rose-700 mt-2">
+                        Silakan periksa kembali transaksi Anda dan unggah ulang foto bukti transfer yang sah pada form di bawah.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {isPaid && (
+                <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-4 text-xs text-emerald-900 shadow-xs flex flex-col gap-3">
+                  <div className="flex items-start gap-2.5">
+                    <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />
+                    <div>
+                      <h4 className="font-bold text-sm text-emerald-900">Pembayaran Berhasil Diverifikasi (LUNAS)</h4>
+                      <p className="text-[11px] text-emerald-700 mt-0.5 leading-relaxed">
+                        Pembayaran telah disetujui oleh admin. Pesanan Anda kini diteruskan ke dapur toko <strong>{activeOrder.merchantName}</strong> untuk mulai dimasak.
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setTrackingOrderId(activeOrder.id);
+                      setActiveTab('tracking');
+                    }}
+                    className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold rounded-xl text-xs flex items-center justify-center gap-2 shadow-xs transition-all cursor-pointer"
+                  >
+                    <span>Pantau Status Pengantaran Pesanan</span>
+                    <ArrowRight className="w-4 h-4" />
+                  </button>
+                </div>
+              )}
+
+              {/* STATIC MERCHANT QRIS CONTAINER */}
+              {qrisImageUrl ? (
+                <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-xs flex flex-col items-center">
+                  <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-slate-100 text-slate-700 text-[11px] font-bold mb-3">
+                    <Store className="w-3.5 h-3.5 text-rose-600" />
+                    <span>QRIS Resmi Toko: {activeOrder.merchantName}</span>
+                  </div>
+
+                  {/* QRIS Image Frame */}
+                  <div className="w-64 h-64 sm:w-72 sm:h-72 bg-slate-50 border-2 border-slate-200 rounded-2xl p-3 flex flex-col items-center justify-center relative shadow-inner group">
+                    <img 
+                      src={qrisImageUrl} 
+                      alt={`QRIS ${activeOrder.merchantName}`}
+                      className="w-full h-full object-contain cursor-pointer transition-transform group-hover:scale-102"
+                      onClick={() => setProofZoomModalImage(qrisImageUrl)}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setProofZoomModalImage(qrisImageUrl)}
+                      className="absolute bottom-2 right-2 bg-slate-900/80 hover:bg-slate-900 text-white text-[10px] font-bold px-2 py-1 rounded-lg flex items-center gap-1 shadow-sm cursor-pointer"
+                    >
+                      <ZoomIn className="w-3 h-3" />
+                      Perbesar
+                    </button>
+                  </div>
+
+                  <span className="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest mt-3">
+                    QRIS STATIS RESMI {activeOrder.merchantName.toUpperCase()}
+                  </span>
+
+                  {/* Step-by-Step Payment Instructions */}
+                  <div className="w-full mt-4 bg-slate-50 border border-slate-200 rounded-xl p-3.5 text-xs text-slate-700 space-y-2">
+                    <span className="font-bold text-slate-900 flex items-center gap-1.5 text-xs">
+                      <ShieldCheck className="w-4 h-4 text-rose-600" />
+                      Petunjuk Pembayaran QRIS:
+                    </span>
+                    <ol className="list-decimal pl-4 space-y-1.5 text-[11px] text-slate-600 leading-relaxed">
+                      <li>Buka aplikasi e-Wallet atau Mobile Banking Anda (BCA, Mandiri, BRI, BNI, GoPay, OVO, Dana, ShopeePay, LinkAja, dll).</li>
+                      <li>Pilih menu <strong>Scan / Bayar QRIS</strong> dan arahkan kamera ke kode QRIS toko di atas.</li>
+                      <li>Masukkan nominal pembayaran tepat sebesar <strong className="text-rose-700 font-mono font-bold">Rp {activeOrder.total.toLocaleString('id-ID')}</strong>.</li>
+                      <li>Selesaikan pembayaran dan simpan tangkapan layar (screenshot) bukti transfer berhasil.</li>
+                      <li>Unggah foto bukti pembayaran pada formulir di bawah ini dan klik <strong>Kirim Bukti Pembayaran</strong>.</li>
+                    </ol>
+                  </div>
+                </div>
+              ) : (
+                /* Anti-Fake Fallback: Merchant doesn't have QRIS uploaded yet */
+                <div className="bg-amber-50 border border-amber-200 rounded-2xl p-5 shadow-xs flex flex-col gap-3 text-xs text-amber-900">
+                  <div className="flex items-start gap-2.5">
+                    <AlertCircle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+                    <div className="space-y-1">
+                      <h4 className="font-extrabold text-sm text-amber-900">Pembayaran QRIS Toko Belum Tersedia</h4>
+                      <p className="text-[11px] text-amber-800 leading-relaxed">
+                        Merchant <strong>{activeOrder.merchantName}</strong> belum mengunggah gambar QRIS statis resminya. Demi keamanan transaksi dan perlindungan data Anda, sistem TumpangGo <strong>tidak menampilkan QRIS palsu/tiruan atau QRIS milik merchant lain</strong>.
+                      </p>
+                      <p className="text-[11px] text-amber-700 mt-1">
+                        Silakan hubungi WhatsApp Bantuan Admin TumpangGo untuk konfirmasi atau batalkan pesanan untuk memilih merchant kuliner yang sudah siap menerima QRIS.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-col sm:flex-row gap-2 pt-2 border-t border-amber-200">
+                    <a
+                      href={`https://wa.me/6281234567891?text=${encodeURIComponent(`Halo Admin TumpangGo, saya ingin bertanya mengenai pembayaran QRIS untuk pesanan #${activeOrder.id} pada toko ${activeOrder.merchantName}.`)}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex-1 py-2.5 px-3 bg-amber-600 hover:bg-amber-700 text-white font-bold rounded-xl text-xs flex items-center justify-center gap-1.5 transition-colors text-center"
+                    >
+                      <Phone className="w-3.5 h-3.5" />
+                      <span>Hubungi Bantuan WhatsApp Admin</span>
+                    </a>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setActiveOrder(null);
+                        setActiveTab('home');
+                      }}
+                      className="py-2.5 px-4 bg-white hover:bg-amber-100 text-amber-900 border border-amber-300 font-bold rounded-xl text-xs transition-colors cursor-pointer"
+                    >
+                      Pilih Merchant Lain
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* UPLOAD PAYMENT PROOF SECTION (Show if pending or rejected) */}
+              {(isPending || isRejected) && (
+                <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-xs">
+                  <div className="flex items-center justify-between border-b border-slate-100 pb-2.5 mb-3.5">
+                    <h4 className="font-display font-bold text-sm text-slate-800 flex items-center gap-1.5">
+                      <Upload className="w-4 h-4 text-rose-600" />
+                      Unggah Bukti Pembayaran QRIS
+                    </h4>
+                    <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Format: JPG, PNG, WEBP</span>
+                  </div>
+
+                  <form onSubmit={handlePaymentProofUpload} className="flex flex-col gap-3.5">
+                    <div>
+                      <label className="text-[10px] text-slate-500 font-bold uppercase tracking-wider block mb-1.5">
+                        Pilih Foto / Tangkapan Layar Bukti Transfer:
+                      </label>
                       <input
                         type="file"
-                        accept="image/*"
+                        accept="image/jpeg,image/png,image/webp,image/*"
                         onChange={handleFileChange}
-                        className="w-full text-xs text-slate-500 file:mr-3 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-rose-50 file:text-rose-700 hover:file:bg-rose-100 cursor-pointer"
+                        className="w-full text-xs text-slate-500 file:mr-3 file:py-2.5 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-rose-50 file:text-rose-700 hover:file:bg-rose-100 cursor-pointer"
                       />
                     </div>
 
                     <div>
-                      <label className="text-[10px] text-slate-500 font-bold uppercase tracking-wider block mb-1">Atau Tautan Gambar (Url)</label>
+                      <label className="text-[10px] text-slate-500 font-bold uppercase tracking-wider block mb-1">
+                        Atau Masukkan Tautan Gambar Bukti (URL):
+                      </label>
                       <input
-                        type="text"
+                        type="url"
                         value={paymentProofUrl}
                         onChange={(e) => {
                           setPaymentProofUrl(e.target.value);
                           setPaymentProofFile(null);
                         }}
-                        placeholder="https://example.com/bukti.jpg"
+                        placeholder="https://example.com/bukti-transfer.jpg"
                         className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-xs focus:outline-none focus:border-rose-500"
                       />
                     </div>
 
+                    {/* Image Preview before submit */}
                     {(paymentProofFile || paymentProofUrl) && (
-                      <div className="w-full h-32 bg-slate-50 border border-slate-200 rounded-xl overflow-hidden mt-2 relative">
-                        <img 
-                          src={paymentProofFile || paymentProofUrl} 
-                          alt="Preview Bukti" 
-                          className="w-full h-full object-contain"
-                        />
+                      <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 flex flex-col items-center gap-2">
+                        <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block self-start">
+                          Pratinjau Bukti Sebelum Dikirim:
+                        </span>
+                        <div className="w-full max-w-xs h-48 bg-white border border-slate-200 rounded-xl overflow-hidden relative shadow-xs flex items-center justify-center">
+                          <img 
+                            src={paymentProofFile || paymentProofUrl} 
+                            alt="Pratinjau Bukti Pembayaran" 
+                            className="w-full h-full object-contain"
+                          />
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setPaymentProofFile(null);
+                            setPaymentProofUrl('');
+                          }}
+                          className="text-[11px] text-rose-600 font-bold hover:underline self-center cursor-pointer"
+                        >
+                          Hapus & Ganti Foto Lain
+                        </button>
                       </div>
                     )}
 
                     <button
                       type="submit"
                       disabled={uploadLoading || (!paymentProofFile && !paymentProofUrl)}
-                      className={`w-full py-2.5 font-bold rounded-xl transition-all shadow-md text-xs flex items-center justify-center gap-1.5 ${
+                      className={`w-full py-3.5 font-extrabold rounded-xl transition-all shadow-md text-xs flex items-center justify-center gap-2 ${
                         uploadLoading || (!paymentProofFile && !paymentProofUrl)
-                          ? 'bg-slate-200 text-slate-400 border-slate-300 shadow-none cursor-not-allowed'
-                          : 'bg-rose-600 hover:bg-rose-700 text-white shadow-rose-600/10 cursor-pointer'
+                          ? 'bg-slate-200 text-slate-400 border border-slate-300 shadow-none cursor-not-allowed'
+                          : 'bg-rose-600 hover:bg-rose-700 text-white shadow-rose-600/20 cursor-pointer'
                       }`}
                     >
                       {uploadLoading ? (
                         <>
-                          <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
-                          Mengirim Bukti...
+                          <RefreshCw className="w-4 h-4 animate-spin" />
+                          <span>Mengirim Bukti Pembayaran...</span>
                         </>
                       ) : (
                         <>
                           <CheckCircle2 className="w-4 h-4" />
-                          Kirim Bukti Pembayaran Manual
+                          <span>Kirim Bukti Pembayaran</span>
                         </>
                       )}
                     </button>
                   </form>
                 </div>
+              )}
+
+              {/* Bottom Actions & Support */}
+              <div className="flex flex-col gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setTrackingOrderId(activeOrder.id);
+                    setActiveTab('tracking');
+                  }}
+                  className="w-full py-3 bg-slate-900 text-white hover:bg-slate-800 font-bold rounded-xl transition-all text-xs text-center cursor-pointer shadow-xs"
+                >
+                  Pantau Status Pesanan (Tracking)
+                </button>
+
+                <div className="p-3 bg-slate-100 rounded-xl text-center text-[11px] text-slate-600">
+                  <span>Butuh bantuan pembayaran? Hubungi Layanan Pelanggan TumpangGo di </span>
+                  <a
+                    href="https://wa.me/6281234567891"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-rose-600 font-bold hover:underline"
+                  >
+                    WhatsApp 0812-3456-7891
+                  </a>
+                </div>
               </div>
-            )}
-
-
-            {/* Check Tracking */}
-            <div className="flex gap-2">
-              <button
-                onClick={() => {
-                  setTrackingOrderId(activeOrder.id);
-                  setActiveTab('tracking');
-                }}
-                className="flex-1 py-3 bg-slate-900 text-white hover:bg-slate-800 font-semibold rounded-xl transition-all text-xs text-center"
-              >
-                Pantau Status Pesanan
-              </button>
             </div>
-          </div>
-        )}
+          );
+        })()}
 
         {/* 6. TRACKING PESANAN TAB */}
         {activeTab === 'tracking' && (
@@ -5326,7 +5065,7 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
                               <p className="font-bold text-slate-700 mt-2">PASAL 5: Sistem Pendapatan & Ongkos Kirim</p>
                               <ol className="list-decimal ml-4">
                                 <li>Mitra Driver berhak menerima pembayaran delivery fee (ongkos kirim) atas setiap pengantaran pesanan yang berhasil diselesaikan secara penuh ke saldo dompet aplikasi Driver Tumpang Food.</li>
-                                <li>Besaran tarif pengantaran dihitung secara otomatis oleh sistem Tumpang Food berdasarkan jarak tempuh (kilometer) dan kondisi operasional wilayah Kecamatan Tumpang.</li>
+                                <li>Besaran tarif pengantaran untuk seluruh wilayah Kecamatan Tumpang berlaku tarif flat resmi Rp 5.000 per pesanan tanpa membedakan jarak kilometer antar desa/kelurahan.</li>
                                 <li>Pembagian pendapatan dan potongan komisi platform (jika ada) akan dipotong secara otomatis di dalam saldo dompet Driver sesuai kebijakan resmi platform.</li>
                               </ol>
 
@@ -5788,6 +5527,44 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
           <path d="M.057 24l1.687-6.163c-1.041-1.804-1.588-3.849-1.587-5.946.003-6.556 5.338-11.891 11.893-11.891 3.181.001 6.167 1.24 8.413 3.488 2.245 2.248 3.481 5.236 3.48 8.414-.003 6.557-5.338 11.892-11.893 11.892-1.99-.001-3.951-.5-5.688-1.448l-6.205 1.654zm6.597-3.807c1.676.995 3.276 1.591 5.392 1.592 5.448 0 9.886-4.434 9.889-9.885.002-5.462-4.415-9.89-9.881-9.892-5.452 0-9.887 4.434-9.889 9.884-.001 2.225.651 3.891 1.746 5.634l-.999 3.648 3.742-.981zm11.387-5.464c-.285-.143-1.689-.833-1.951-.928-.262-.095-.453-.143-.645.143-.19.285-.74.928-.908 1.118-.168.19-.335.214-.62.071-.285-.143-1.205-.444-2.296-1.416-.848-.757-1.421-1.692-1.588-1.978-.168-.285-.018-.439.125-.581.128-.128.285-.335.428-.501.142-.167.19-.285.285-.476.095-.19.047-.357-.024-.501-.071-.143-.645-1.571-.884-2.143-.233-.557-.47-.481-.645-.49-.168-.008-.359-.01-.55-.01-.191 0-.501.071-.763.357-.262.285-.999.977-.999 2.38 0 1.404 1.023 2.76 1.166 2.951.143.19 2.013 3.074 4.877 4.312.681.294 1.213.47 1.628.601.684.217 1.307.186 1.8.113.55-.082 1.689-.69 1.927-1.356.238-.666.238-1.237.167-1.356-.07-.12-.262-.19-.547-.333z"/>
         </svg>
       </button>
+
+      {/* Lightbox Zoom Modal for QRIS and Payment Proof */}
+      {proofZoomModalImage && (
+        <div 
+          onClick={() => setProofZoomModalImage(null)}
+          className="fixed inset-0 z-[120] bg-slate-950/85 backdrop-blur-sm flex items-center justify-center p-4 cursor-pointer"
+        >
+          <div 
+            onClick={(e) => e.stopPropagation()} 
+            className="relative max-w-lg w-full bg-white rounded-3xl p-4 shadow-2xl overflow-hidden flex flex-col items-center"
+          >
+            <div className="w-full flex items-center justify-between pb-3 border-b border-slate-100 mb-3">
+              <span className="text-xs font-bold text-slate-800">Pratinjau Gambar</span>
+              <button
+                type="button"
+                onClick={() => setProofZoomModalImage(null)}
+                className="p-1 rounded-full hover:bg-slate-100 text-slate-500 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="w-full max-h-[75vh] flex items-center justify-center overflow-auto bg-slate-50 rounded-2xl p-2">
+              <img 
+                src={proofZoomModalImage} 
+                alt="Zoomed" 
+                className="max-w-full max-h-[70vh] object-contain rounded-xl"
+              />
+            </div>
+            <button
+              type="button"
+              onClick={() => setProofZoomModalImage(null)}
+              className="mt-3.5 w-full py-2.5 bg-slate-900 text-white font-bold text-xs rounded-xl hover:bg-slate-800 cursor-pointer"
+            >
+              Tutup
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

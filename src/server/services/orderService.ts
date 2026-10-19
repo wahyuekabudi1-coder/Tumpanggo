@@ -6,7 +6,8 @@
  * Enforces price recalculations, menu availability checks, and order state machine rules.
  */
 
-import { Order, OrderItem, OrderStatus, MenuItem, Merchant, SystemConfig, calculateTieredServiceFee, AssignmentMode } from '../../types';
+import { Order, OrderItem, OrderStatus, PaymentStatus, MenuItem, Merchant, SystemConfig, calculateTieredServiceFee, AssignmentMode } from '../../types';
+import { calculateDeliveryFee, FLAT_TUMPANG_DELIVERY_FEE } from '../../utils/deliveryFee';
 
 export interface CreateOrderInput {
   customerName: string;
@@ -97,21 +98,19 @@ export class OrderService {
     // Recalculate tiered service fee based on verified subtotal
     const calculatedServiceFee = calculateTieredServiceFee(calculatedSubtotal);
 
-    // Calculate delivery fee
-    let calculatedDeliveryFee = systemConfig.defaultDeliveryFee || 5000;
-    if (merchant.latitude && merchant.longitude && input.latitude && input.longitude) {
-      const distanceKm = this.calculateDistanceKm(
-        merchant.latitude,
-        merchant.longitude,
-        input.latitude,
-        input.longitude
-      );
-      const feePerKm = systemConfig.deliveryFeePerKm || 1500;
-      calculatedDeliveryFee = Math.max(
-        systemConfig.defaultDeliveryFee || 5000,
-        Math.round(distanceKm * feePerKm)
-      );
-    }
+    // Authoritatively calculate delivery fee via single source of truth.
+    // Business rule: ALL destinations in Kecamatan Tumpang are strictly charged flat Rp 5.000.
+    const deliveryCalc = calculateDeliveryFee({
+      address: input.deliveryAddress,
+      details: input.deliveryDetails,
+      landmark: input.landmark,
+      latitude: input.latitude,
+      longitude: input.longitude,
+      merchantLatitude: merchant.latitude,
+      merchantLongitude: merchant.longitude,
+      systemConfig
+    });
+    const calculatedDeliveryFee = deliveryCalc.deliveryFee;
 
     // Generate unique code (01 - 99) not currently used by pending payment orders
     const uniqueCode = this.generateUniqueCode(activeUniqueCodes);
@@ -126,8 +125,11 @@ export class OrderService {
       uniqueCode,
       total,
       status: OrderStatus.WAITING_PAYMENT,
+      paymentStatus: PaymentStatus.PENDING,
+      paymentMethod: 'MERCHANT_QRIS',
       merchantId: merchant.id,
       merchantName: merchant.name,
+      merchantQrisImage: merchant.qrisImage || '',
       customerName: input.customerName.trim(),
       customerPhone: input.customerPhone.trim(),
       deliveryAddress: input.deliveryAddress.trim(),
@@ -203,14 +205,14 @@ export class OrderService {
     // Role-specific allowed transitions:
     switch (role) {
       case 'CUSTOMER':
-        // Customer can only upload proof or cancel before payment verification
+        // Customer can only upload proof, re-upload after rejection, or cancel before payment verification
         if (
-          currentStatus === OrderStatus.WAITING_PAYMENT &&
+          (currentStatus === OrderStatus.WAITING_PAYMENT || currentStatus === OrderStatus.PAYMENT_REJECTED) &&
           (targetStatus === OrderStatus.WAITING_PAYMENT_VERIFICATION || targetStatus === OrderStatus.CANCELLED)
         ) {
           return { allowed: true };
         }
-        return { allowed: false, reason: 'Pelanggan hanya dapat mengunggah bukti pembayaran atau membatalkan pesanan baru.' };
+        return { allowed: false, reason: 'Pelanggan hanya dapat mengunggah bukti pembayaran atau membatalkan pesanan baru/ditolak.' };
 
       case 'MERCHANT':
         // Merchant can accept verified payment order and begin cooking

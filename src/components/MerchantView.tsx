@@ -16,7 +16,8 @@ import { apiFetch as fetch, extractArrayResponse } from '../utils/apiClient.ts';
 import { 
   Store, ClipboardList, Utensils, TrendingUp, Calendar, Clock, DollarSign, 
   Settings, LogOut, Plus, Check, X, Edit, Trash2, CheckSquare, Layers,
-  Phone, MapPin, AlertCircle, ChefHat, PackageCheck, Eye, RefreshCw, Upload
+  Phone, MapPin, AlertCircle, ChefHat, PackageCheck, Eye, RefreshCw, Upload,
+  QrCode, ZoomIn
 } from 'lucide-react';
 
 interface MerchantViewProps {
@@ -31,9 +32,15 @@ export default function MerchantView({ merchantId, onLogout }: MerchantViewProps
   const [categories, setCategories] = useState<Category[]>([]);
   const [settlements, setSettlements] = useState<Settlement[]>([]);
   
-  // Tab control: 'dashboard' | 'orders' | 'menu' | 'settlement' | 'profile'
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'orders' | 'menu' | 'settlement' | 'profile'>('orders');
+  // Tab control: 'dashboard' | 'orders' | 'qris' | 'menu' | 'settlement' | 'profile'
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'orders' | 'qris' | 'menu' | 'settlement' | 'profile'>('orders');
   
+  // QRIS Management States
+  const [qrisImageFile, setQrisImageFile] = useState<string | null>(null);
+  const [isUploadingQris, setIsUploadingQris] = useState<boolean>(false);
+  const [qrisUploadMsg, setQrisUploadMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [zoomQrisImage, setZoomQrisImage] = useState<string | null>(null);
+
   // Loading & Action states
   const [loading, setLoading] = useState(true);
   const [cookEstimateInput, setCookEstimateInput] = useState<Record<string, number>>({});
@@ -67,7 +74,7 @@ export default function MerchantView({ merchantId, onLogout }: MerchantViewProps
   const [preOrderLeadDays, setPreOrderLeadDays] = useState<number>(1);
 
   // Filter orders
-  const [orderSubTab, setOrderSubTab] = useState<'need_cooking' | 'cooking' | 'ready' | 'history'>('need_cooking');
+  const [orderSubTab, setOrderSubTab] = useState<'need_cooking' | 'waiting' | 'cooking' | 'ready' | 'history'>('need_cooking');
 
   useEffect(() => {
     fetchMerchantData();
@@ -308,12 +315,92 @@ export default function MerchantView({ merchantId, onLogout }: MerchantViewProps
     }
   };
 
+  const handleQrisFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!file.type.startsWith('image/')) {
+      setQrisUploadMsg({ type: 'error', text: 'Format file tidak didukung. Mohon pilih file gambar (JPG, PNG, atau WebP).' });
+      return;
+    }
+
+    if (file.size > 5 * 1024 * 1024) {
+      setQrisUploadMsg({ type: 'error', text: 'Ukuran file gambar QRIS melebihi batas 5MB.' });
+      return;
+    }
+
+    try {
+      const compressed = await compressImage(file, 1000, 0.85);
+      setQrisImageFile(compressed);
+      setQrisUploadMsg(null);
+    } catch (err) {
+      console.error(err);
+      setQrisUploadMsg({ type: 'error', text: 'Gagal memproses gambar QRIS.' });
+    }
+  };
+
+  const handleSaveQris = async () => {
+    if (!qrisImageFile) {
+      setQrisUploadMsg({ type: 'error', text: 'Pilih file gambar QRIS terlebih dahulu.' });
+      return;
+    }
+
+    setIsUploadingQris(true);
+    setQrisUploadMsg(null);
+    try {
+      const res = await fetch(`/api/merchants/${merchantId}/qris`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ qrisImage: qrisImageFile })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setQrisUploadMsg({ type: 'success', text: 'QRIS statis toko berhasil disimpan! QRIS ini akan otomatis tampil saat checkout pelanggan.' });
+        setQrisImageFile(null);
+        fetchMerchantData();
+      } else {
+        setQrisUploadMsg({ type: 'error', text: data.error || 'Gagal menyimpan QRIS toko.' });
+      }
+    } catch (err: any) {
+      console.error(err);
+      setQrisUploadMsg({ type: 'error', text: err.message || 'Terjadi kesalahan saat menyimpan QRIS.' });
+    } finally {
+      setIsUploadingQris(false);
+    }
+  };
+
+  const handleDeleteQris = async () => {
+    if (!confirm('Apakah Anda yakin ingin menghapus QRIS statis toko ini? Pelanggan tidak akan dapat membayar menggunakan QRIS untuk toko ini hingga Anda mengunggah QRIS baru.')) return;
+
+    setIsUploadingQris(true);
+    setQrisUploadMsg(null);
+    try {
+      const res = await fetch(`/api/merchants/${merchantId}/qris`, {
+        method: 'DELETE'
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setQrisUploadMsg({ type: 'success', text: 'QRIS statis toko berhasil dihapus.' });
+        setQrisImageFile(null);
+        fetchMerchantData();
+      } else {
+        setQrisUploadMsg({ type: 'error', text: data.error || 'Gagal menghapus QRIS toko.' });
+      }
+    } catch (err: any) {
+      console.error(err);
+      setQrisUploadMsg({ type: 'error', text: err.message || 'Terjadi kesalahan saat menghapus QRIS.' });
+    } finally {
+      setIsUploadingQris(false);
+    }
+  };
+
   // Filtered orders
   const safeOrders = Array.isArray(orders) ? orders : [];
+  const waitingPaymentOrders = safeOrders.filter(o => o && [OrderStatus.WAITING_PAYMENT, OrderStatus.WAITING_PAYMENT_VERIFICATION].includes(o.status));
   const needCookingOrders = safeOrders.filter(o => o && o.status === OrderStatus.PAYMENT_VERIFIED);
   const cookingOrders = safeOrders.filter(o => o && o.status === OrderStatus.COOKING);
   const readyOrders = safeOrders.filter(o => o && [OrderStatus.READY_FOR_PICKUP, OrderStatus.ORDER_PICKED_UP].includes(o.status));
-  const historyOrders = safeOrders.filter(o => o && [OrderStatus.COMPLETED, OrderStatus.CANCELLED, OrderStatus.PAYMENT_REJECTED].includes(o.status));
+  const historyOrders = safeOrders.filter(o => o && [OrderStatus.COMPLETED, OrderStatus.CANCELLED, OrderStatus.PAYMENT_REJECTED, OrderStatus.EXPIRED].includes(o.status));
 
   const totalCompletedSales = (Array.isArray(historyOrders) ? historyOrders : [])
     .filter(o => o && o.status === OrderStatus.COMPLETED)
@@ -379,6 +466,7 @@ export default function MerchantView({ merchantId, onLogout }: MerchantViewProps
           <nav className="flex space-x-2 overflow-x-auto py-2.5 scrollbar-none">
             {[
               { id: 'orders', label: 'Pesanan Dapur', count: needCookingOrders.length + cookingOrders.length, icon: ChefHat },
+              { id: 'qris', label: 'QRIS Statis Toko', icon: QrCode },
               { id: 'menu', label: 'Katalog Menu', count: menuItems.length, icon: Utensils },
               { id: 'dashboard', label: 'Ringkasan & Metrik', icon: TrendingUp },
               { id: 'settlement', label: 'Settlement & Hasil', count: settlements.length, icon: DollarSign },
@@ -420,9 +508,10 @@ export default function MerchantView({ merchantId, onLogout }: MerchantViewProps
           <div className="space-y-5">
             {/* Orders Sub-tabs */}
             <div className="flex items-center justify-between flex-wrap gap-3 bg-white p-2 rounded-2xl border border-slate-200/80 shadow-xs">
-              <div className="flex space-x-1.5">
+              <div className="flex space-x-1.5 overflow-x-auto">
                 {[
                   { id: 'need_cooking', label: 'Perlu Dimasak', count: needCookingOrders.length, highlight: needCookingOrders.length > 0 },
+                  { id: 'waiting', label: 'Menunggu Pembayaran / Verifikasi', count: waitingPaymentOrders.length },
                   { id: 'cooking', label: 'Sedang Dimasak', count: cookingOrders.length },
                   { id: 'ready', label: 'Siap Diambil / Diantar', count: readyOrders.length },
                   { id: 'history', label: 'Riwayat Selesai', count: historyOrders.length },
@@ -430,7 +519,7 @@ export default function MerchantView({ merchantId, onLogout }: MerchantViewProps
                   <button
                     key={sub.id}
                     onClick={() => setOrderSubTab(sub.id as any)}
-                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer whitespace-nowrap ${
                       orderSubTab === sub.id 
                         ? 'bg-slate-900 text-white' 
                         : 'text-slate-600 hover:bg-slate-100'
@@ -452,6 +541,7 @@ export default function MerchantView({ merchantId, onLogout }: MerchantViewProps
             {/* Orders List for selected sub-tab */}
             {(() => {
               const currentList = orderSubTab === 'need_cooking' ? needCookingOrders :
+                orderSubTab === 'waiting' ? waitingPaymentOrders :
                 orderSubTab === 'cooking' ? cookingOrders :
                 orderSubTab === 'ready' ? readyOrders : historyOrders;
 
@@ -996,6 +1086,199 @@ export default function MerchantView({ merchantId, onLogout }: MerchantViewProps
           </div>
         )}
 
+        {/* TAB: QRIS STATIS TOKO */}
+        {activeTab === 'qris' && (
+          <div className="max-w-3xl space-y-6">
+            <div className="bg-white rounded-2xl border border-slate-200/80 p-5 sm:p-6 shadow-xs">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-4">
+                <div>
+                  <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-50 text-emerald-800 text-xs font-bold mb-1.5 border border-emerald-200">
+                    <QrCode className="w-3.5 h-3.5 text-emerald-600" />
+                    <span>Pembayaran QRIS Merchant</span>
+                  </div>
+                  <h2 className="font-display font-bold text-lg text-slate-900">QRIS Statis Toko: {merchant?.name}</h2>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    Kelola kode QRIS resmi toko Anda. QRIS ini akan ditampilkan kepada pelanggan saat mereka checkout dan memilih pembayaran via QRIS.
+                  </p>
+                </div>
+                <div>
+                  {merchant?.qrisImage ? (
+                    <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
+                      <Check className="w-3.5 h-3.5 text-emerald-600" />
+                      QRIS Aktif Terpasang
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-amber-100 text-amber-800 border border-amber-300">
+                      <AlertCircle className="w-3.5 h-3.5 text-amber-600" />
+                      Belum Ada QRIS
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              {/* Feedback Message */}
+              {qrisUploadMsg && (
+                <div className={`mt-4 p-3.5 rounded-xl text-xs flex items-center justify-between gap-2 ${
+                  qrisUploadMsg.type === 'success' 
+                    ? 'bg-emerald-50 text-emerald-800 border border-emerald-200' 
+                    : 'bg-rose-50 text-rose-800 border border-rose-200'
+                }`}>
+                  <div className="flex items-center gap-2">
+                    {qrisUploadMsg.type === 'success' ? (
+                      <Check className="w-4 h-4 text-emerald-600 shrink-0" />
+                    ) : (
+                      <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+                    )}
+                    <span>{qrisUploadMsg.text}</span>
+                  </div>
+                  <button onClick={() => setQrisUploadMsg(null)} className="text-slate-400 hover:text-slate-600 cursor-pointer">
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              )}
+
+              {/* Display Existing QRIS */}
+              {merchant?.qrisImage ? (
+                <div className="mt-5 p-5 bg-slate-50 border border-slate-200 rounded-2xl flex flex-col sm:flex-row items-center gap-6">
+                  <div className="relative group w-48 h-48 bg-white rounded-2xl border-2 border-slate-200 p-2 shadow-xs shrink-0 flex items-center justify-center">
+                    <img 
+                      src={merchant.qrisImage} 
+                      alt={`QRIS ${merchant.name}`} 
+                      className="w-full h-full object-contain cursor-pointer"
+                      onClick={() => setZoomQrisImage(merchant.qrisImage || null)}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setZoomQrisImage(merchant.qrisImage || null)}
+                      className="absolute bottom-2 right-2 bg-slate-900/80 hover:bg-slate-900 text-white text-[10px] font-bold px-2 py-1 rounded-lg flex items-center gap-1 cursor-pointer"
+                    >
+                      <ZoomIn className="w-3 h-3" />
+                      Perbesar
+                    </button>
+                  </div>
+
+                  <div className="flex-1 space-y-3 text-center sm:text-left">
+                    <div>
+                      <span className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider block">Status Kode QR</span>
+                      <h4 className="font-display font-bold text-base text-slate-900 mt-0.5">QRIS Statis Resmi Toko Aktif</h4>
+                      <p className="text-xs text-slate-500 mt-1 leading-relaxed">
+                        Gambar QRIS ini yang saat ini tampil di layar pembayaran pelanggan. Pastikan akun merchant QRIS Anda aktif dan dapat menerima transfer dari seluruh e-wallet & mobile banking.
+                      </p>
+                      {merchant.qrisUpdatedAt && (
+                        <span className="text-[10px] text-slate-400 block mt-2 font-mono">
+                          Terakhir diperbarui: {new Date(merchant.qrisUpdatedAt).toLocaleString('id-ID')}
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-2 pt-1 justify-center sm:justify-start">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const fileInput = document.getElementById('merchant-qris-file-input');
+                          if (fileInput) fileInput.click();
+                        }}
+                        className="py-2 px-3.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-xs transition-all flex items-center gap-1.5 cursor-pointer"
+                      >
+                        <Upload className="w-3.5 h-3.5" />
+                        Ganti Gambar QRIS
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={handleDeleteQris}
+                        disabled={isUploadingQris}
+                        className="py-2 px-3.5 bg-white hover:bg-rose-50 text-rose-600 border border-rose-200 text-xs font-bold rounded-xl transition-all flex items-center gap-1.5 cursor-pointer"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                        Hapus QRIS
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="mt-5 p-5 bg-amber-50 border border-amber-200 rounded-2xl flex items-start gap-3 text-amber-900">
+                  <AlertCircle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+                  <div className="space-y-1">
+                    <h4 className="font-bold text-sm">Toko Belum Mengunggah QRIS Statis</h4>
+                    <p className="text-xs text-amber-800 leading-relaxed">
+                      Pelanggan yang memesan dari toko Anda <strong>tidak akan dapat melakukan pembayaran QRIS</strong> sampai Anda mengunggah QRIS statis resmi toko Anda. TumpangGo tidak menggunakan QRIS dummy atau tiruan.
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {/* Upload Form */}
+              <div className="mt-6 pt-5 border-t border-slate-100 space-y-4">
+                <h3 className="font-display font-bold text-sm text-slate-900 flex items-center gap-1.5">
+                  <Upload className="w-4 h-4 text-emerald-600" />
+                  {merchant?.qrisImage ? 'Unggah Pengganti QRIS Statis Toko' : 'Unggah QRIS Statis Resmi Toko'}
+                </h3>
+                <p className="text-xs text-slate-500">
+                  Unggah file gambar QRIS resmi usaha Anda (didapat dari BCA, Mandiri, BRI, BNI, GoPay Merchant, ShopeePay Merchant, OVO, atau penyedia QRIS resmi lainnya).
+                </p>
+
+                <div className="space-y-3">
+                  <div>
+                    <input
+                      id="merchant-qris-file-input"
+                      type="file"
+                      accept="image/jpeg,image/png,image/webp,image/*"
+                      onChange={handleQrisFileChange}
+                      className="w-full text-xs text-slate-500 file:mr-3 file:py-2.5 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-emerald-50 file:text-emerald-700 hover:file:bg-emerald-100 cursor-pointer"
+                    />
+                    <span className="text-[10px] text-slate-400 mt-1 block">Format file yang didukung: JPG, PNG, WebP. Maksimal ukuran 5MB.</span>
+                  </div>
+
+                  {/* Preview before saving */}
+                  {qrisImageFile && (
+                    <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 flex flex-col items-center gap-3">
+                      <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider self-start">
+                        Pratinjau QRIS Sebelum Disimpan:
+                      </span>
+                      <div className="w-56 h-56 bg-white border border-slate-200 rounded-xl overflow-hidden p-2 flex items-center justify-center shadow-xs">
+                        <img 
+                          src={qrisImageFile} 
+                          alt="Pratinjau QRIS" 
+                          className="w-full h-full object-contain"
+                        />
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={handleSaveQris}
+                          disabled={isUploadingQris}
+                          className="py-2 px-5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-xs transition-all flex items-center gap-1.5 cursor-pointer"
+                        >
+                          {isUploadingQris ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
+                          <span>{isUploadingQris ? 'Menyimpan...' : 'Simpan QRIS Statis Ini'}</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setQrisImageFile(null)}
+                          className="py-2 px-3 text-slate-500 hover:text-slate-800 text-xs font-bold cursor-pointer"
+                        >
+                          Batal
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Information Notes */}
+                <div className="bg-slate-50 rounded-xl p-3.5 border border-slate-200/80 text-[11px] text-slate-600 space-y-1">
+                  <span className="font-bold text-slate-800 block">Panduan Pemilik Toko:</span>
+                  <ul className="list-disc pl-4 space-y-1 text-slate-500">
+                    <li>QRIS statis dapat menerima transfer berapapun nominal yang dimasukkan oleh pembeli.</li>
+                    <li>Pelanggan akan diminta memasukkan nominal pesanan secara manual sesuai total tagihan pesanan.</li>
+                    <li>Setelah membayar, pelanggan wajib mengunggah bukti screenshot pembayaran untuk diverifikasi oleh Admin sebelum pesanan dimasak.</li>
+                  </ul>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
       </main>
 
       {/* Item Form Modal */}
@@ -1176,6 +1459,28 @@ export default function MerchantView({ merchantId, onLogout }: MerchantViewProps
                 Tolak Pesanan
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Zoom QRIS Modal */}
+      {zoomQrisImage && (
+        <div 
+          onClick={() => setZoomQrisImage(null)}
+          className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 cursor-pointer"
+        >
+          <div className="relative max-w-sm sm:max-w-md w-full bg-white rounded-2xl p-4 overflow-hidden shadow-2xl flex flex-col items-center gap-3" onClick={e => e.stopPropagation()}>
+            <div className="w-full flex items-center justify-between pb-2 border-b border-slate-100">
+              <span className="text-xs font-bold text-slate-800">QRIS Statis Toko: {merchant?.name}</span>
+              <button
+                type="button"
+                onClick={() => setZoomQrisImage(null)}
+                className="w-7 h-7 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-600 flex items-center justify-center cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <img src={zoomQrisImage} alt="QRIS Toko Full" className="w-full max-h-[70vh] object-contain rounded-xl" />
           </div>
         </div>
       )}

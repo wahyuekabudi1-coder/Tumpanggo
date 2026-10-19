@@ -10,11 +10,12 @@ import fs from 'fs';
 import path from 'path';
 import {
   Merchant, Category, MenuItem, Order, Driver, Settlement, AuditLog, SystemConfig,
-  OrderStatus, SettlementStatus, AssignmentMode, PartnerRegistration
+  OrderStatus, PaymentStatus, SettlementStatus, AssignmentMode, PartnerRegistration
 } from '../types';
 import { foodConfig } from './config';
 import { hashPassword, verifyPassword } from './auth';
 import { OrderService } from './services/orderService';
+import { isDestinationInKecamatanTumpang, FLAT_TUMPANG_DELIVERY_FEE } from '../utils/deliveryFee';
 import {
   getAdminDb,
   safeAdminSetDoc,
@@ -98,6 +99,7 @@ export class FoodDatabase {
           this.data = JSON.parse(content);
           this.ensureStructure();
           this.migratePasswords();
+          this.migrateOrdersDeliveryFee();
           this.createBackup();
           console.log('[TumpangFood DB] Loaded primary operational state from tumpang_food_db.json');
           return;
@@ -113,6 +115,7 @@ export class FoodDatabase {
             this.data = JSON.parse(seedContent);
             this.ensureStructure();
             this.migratePasswords();
+            this.migrateOrdersDeliveryFee();
             this.save();
             this.createBackup();
             console.log('[TumpangFood DB] Successfully bootstrapped serverless database from bundled tumpang_food_db.json');
@@ -188,6 +191,35 @@ export class FoodDatabase {
       }
     }
     if (changed) this.save();
+  }
+
+  private migrateOrdersDeliveryFee() {
+    let changed = false;
+    if (!Array.isArray(this.data.orders)) return;
+
+    for (const order of this.data.orders) {
+      if (!order) continue;
+      const inTumpang = isDestinationInKecamatanTumpang({
+        address: order.deliveryAddress,
+        details: order.deliveryDetails,
+        landmark: order.landmark,
+        latitude: order.latitude,
+        longitude: order.longitude
+      });
+
+      if (inTumpang) {
+        if (order.deliveryFee !== FLAT_TUMPANG_DELIVERY_FEE) {
+          console.log(`[TumpangFood DB Migration] Updating order #${order.id} delivery fee from ${order.deliveryFee} to flat ${FLAT_TUMPANG_DELIVERY_FEE}`);
+          order.deliveryFee = FLAT_TUMPANG_DELIVERY_FEE;
+          order.total = order.subtotal + FLAT_TUMPANG_DELIVERY_FEE + order.serviceFee + (order.uniqueCode || 0);
+          changed = true;
+        }
+      }
+    }
+    if (changed) {
+      this.save();
+      console.log('[TumpangFood DB Migration] Successfully migrated orders to flat Rp 5.000 for Kecamatan Tumpang.');
+    }
   }
 
   private ensureStructure() {
@@ -715,6 +747,10 @@ export class FoodDatabase {
       updatedData.password = hashPassword(updatedData.password);
     }
 
+    if (updatedData.qrisImage !== undefined) {
+      updatedData.qrisUpdatedAt = new Date().toISOString();
+    }
+
     const nextMerchant = {
       ...this.data.merchants[index],
       ...updatedData,
@@ -1173,6 +1209,36 @@ export class FoodDatabase {
       delete (updates as any).uniqueCode;
     }
 
+    // Synchronize paymentStatus and timestamps
+    if (updates.paymentProof && (!updates.paymentStatus || updates.paymentStatus === PaymentStatus.WAITING_VERIFICATION)) {
+      updates.paymentStatus = PaymentStatus.WAITING_VERIFICATION;
+      updates.status = OrderStatus.WAITING_PAYMENT_VERIFICATION;
+      updates.paymentProofUploadedAt = updates.paymentProofUploadedAt || new Date().toISOString();
+      updates.paymentRejectionReason = undefined;
+    }
+
+    if (updates.status === OrderStatus.PAYMENT_VERIFIED || updates.paymentStatus === PaymentStatus.PAID) {
+      updates.paymentStatus = PaymentStatus.PAID;
+      updates.status = OrderStatus.PAYMENT_VERIFIED;
+      updates.paymentVerifiedAt = updates.paymentVerifiedAt || new Date().toISOString();
+      if ((role === 'ADMIN' || role === 'SYSTEM') && userId) {
+        updates.paymentVerifiedBy = userId;
+      }
+    }
+
+    if (updates.status === OrderStatus.PAYMENT_REJECTED || updates.paymentStatus === PaymentStatus.REJECTED) {
+      updates.paymentStatus = PaymentStatus.REJECTED;
+      updates.status = OrderStatus.PAYMENT_REJECTED;
+      if ((role === 'ADMIN' || role === 'SYSTEM') && userId) {
+        updates.paymentVerifiedBy = userId;
+      }
+    }
+
+    if (updates.status === OrderStatus.EXPIRED || updates.paymentStatus === PaymentStatus.EXPIRED) {
+      updates.paymentStatus = PaymentStatus.EXPIRED;
+      updates.status = OrderStatus.EXPIRED;
+    }
+
     this.data.orders[index] = {
       ...currentOrder,
       ...updates,
@@ -1206,6 +1272,58 @@ export class FoodDatabase {
       safeFirestoreSetDoc('orders', id, this.data.orders[index]);
     }
     return this.data.orders[index];
+  }
+
+  public async verifyOrderPayment(adminId: string, orderId: string): Promise<Order> {
+    const order = this.getOrderById(orderId);
+    if (!order) throw new Error('Pesanan tidak ditemukan.');
+    if (order.status === OrderStatus.CANCELLED) {
+      throw new Error('Pesanan yang telah dibatalkan tidak dapat diverifikasi.');
+    }
+    if (order.status === OrderStatus.EXPIRED) {
+      throw new Error('Pesanan telah kedaluwarsa. Pembayaran kedaluwarsa tidak dapat diverifikasi secara otomatis.');
+    }
+    if (order.paymentStatus === PaymentStatus.PAID && order.status === OrderStatus.PAYMENT_VERIFIED) {
+      return order; // Idempotent
+    }
+
+    const updated = await this.updateOrder(
+      adminId,
+      orderId,
+      {
+        status: OrderStatus.PAYMENT_VERIFIED,
+        paymentStatus: PaymentStatus.PAID,
+        paymentVerifiedAt: new Date().toISOString(),
+        paymentVerifiedBy: adminId
+      },
+      'ADMIN'
+    );
+    this.log(adminId, `Admin ${adminId} memverifikasi pembayaran LUNAS untuk pesanan #${order.id} (Total: Rp ${order.total.toLocaleString('id-ID')})`, 'ADMIN');
+    return updated;
+  }
+
+  public async rejectOrderPayment(adminId: string, orderId: string, reason: string): Promise<Order> {
+    const order = this.getOrderById(orderId);
+    if (!order) throw new Error('Pesanan tidak ditemukan.');
+    if (!reason || !reason.trim()) {
+      throw new Error('Alasan penolakan bukti pembayaran wajib diisi.');
+    }
+    const cleanReason = reason.trim();
+
+    const updated = await this.updateOrder(
+      adminId,
+      orderId,
+      {
+        status: OrderStatus.PAYMENT_REJECTED,
+        paymentStatus: PaymentStatus.REJECTED,
+        paymentRejectionReason: cleanReason,
+        cancelReason: cleanReason,
+        paymentVerifiedBy: adminId
+      },
+      'ADMIN'
+    );
+    this.log(adminId, `Admin ${adminId} menolak bukti pembayaran pesanan #${order.id}. Alasan: ${cleanReason}`, 'ADMIN');
+    return updated;
   }
 
   public async autoAssignDriver(orderId: string): Promise<void> {
