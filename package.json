@@ -5,8 +5,11 @@
   "type": "module",
   "scripts": {
     "dev": "tsx server.ts",
-    "build": "vite build && esbuild src/server/serverCore.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs && esbuild src/server/app.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=api/_app.cjs",
+    "dev:shop": "tsx src/services/shop/server.ts",
+    "build": "vite build && esbuild src/server/serverCore.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs && esbuild src/server/app.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=api/_app.cjs && esbuild src/services/shop/server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/shop-server.cjs",
+    "build:shop": "esbuild src/services/shop/server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/shop-server.cjs",
     "start": "node server.ts",
+    "start:shop": "node dist/shop-server.cjs",
     "clean": "rm -rf dist server.cjs api/_app.cjs api/_app.cjs.map",
     "postinstall": "node scripts/patch-artopay-sdk.cjs",
     "lint": "tsc --noEmit"
@@ -15,6 +18,7 @@
     "@arto-pay/js-sdk": "^1.0.4",
     "@google/genai": "^2.4.0",
     "@tailwindcss/vite": "^4.1.14",
+    "@types/qrcode": "^1.5.6",
     "@vitejs/plugin-react": "^5.0.4",
     "dotenv": "^17.2.3",
     "express": "^4.21.2",
@@ -22,6 +26,7 @@
     "firebase-admin": "^14.1.0",
     "lucide-react": "^0.546.0",
     "motion": "^12.23.24",
+    "qrcode": "^1.5.4",
     "react": "^19.0.1",
     "react-dom": "^19.0.1",
     "vite": "^6.2.3"

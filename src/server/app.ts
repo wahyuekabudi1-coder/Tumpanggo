@@ -8,8 +8,9 @@
 
 import express from 'express';
 import { foodDb } from './db';
-import { shopDb } from './shopDb';
 import { foodConfig } from './config';
+import { shopApp } from '../services/shop/api/shopApp';
+import { shopApiClient } from '../services/shop/client/shopApiClient';
 import { isFirestoreAdminConfigured, isUsingServiceAccount, testFirestoreConnection, getFirestoreDiagnosticStatus } from './firebaseAdmin';
 import { authenticateToken } from './auth';
 import { authRouter } from './routes/authRoutes';
@@ -17,7 +18,6 @@ import { merchantRouter } from './routes/merchantRoutes';
 import { driverRouter } from './routes/driverRoutes';
 import { orderRouter } from './routes/orderRoutes';
 import { adminRouter } from './routes/adminRoutes';
-import { shopRouter } from './routes/shopRoutes';
 import { artopayRouter } from './routes/artopayRoutes';
 
 export const app = express();
@@ -52,10 +52,7 @@ app.use(express.urlencoded({ extended: true, limit: '15mb' }));
 // Lazy asynchronous database synchronization middleware for Serverless & Cold-Starts
 app.use(async (req, res, next) => {
   try {
-    await Promise.all([
-      foodDb.ensureInitialized(),
-      shopDb.ensureInitialized()
-    ]);
+    await foodDb.ensureInitialized();
   } catch (err: any) {
     console.warn('[TumpangFood Database Sync Warning]', err?.message || err);
   }
@@ -70,7 +67,7 @@ app.get('/api/health', async (req, res) => {
   try {
     const [foodStorageStatus, shopStorageStatus] = await Promise.all([
       foodDb.getStorageStatus(),
-      shopDb.getStorageStatus()
+      shopApiClient.getHealth()
     ]);
     const isHealthy = foodStorageStatus.liveCloudConnected;
     const isProd = foodConfig.isProduction;
@@ -127,7 +124,7 @@ app.use('/api/merchants', merchantRouter);
 app.use('/api/drivers', driverRouter);
 app.use('/api/orders', orderRouter);
 app.use('/api', adminRouter);
-app.use('/api/shop', shopRouter);
+app.use('/api/shop', shopApp);
 app.use('/api/artopay', artopayRouter);
 
 // 404 handler for unhandled API routes

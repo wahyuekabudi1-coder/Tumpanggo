@@ -7,7 +7,7 @@
  */
 
 import { Order, OrderItem, OrderStatus, PaymentStatus, MenuItem, Merchant, SystemConfig, calculateTieredServiceFee, AssignmentMode } from '../../types';
-import { calculateDeliveryFee, FLAT_TUMPANG_DELIVERY_FEE } from '../../utils/deliveryFee';
+import { calculateDeliveryFee, FLAT_TUMPANG_DELIVERY_FEE, normalizeOrderDeliveryFee } from '../../utils/deliveryFee';
 
 export interface CreateOrderInput {
   customerName: string;
@@ -121,7 +121,7 @@ export class OrderService {
     // Payment expiry window (10 minutes)
     const paymentExpiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString();
 
-    return {
+    return normalizeOrderDeliveryFee({
       uniqueCode,
       total,
       status: OrderStatus.WAITING_PAYMENT,
@@ -129,7 +129,7 @@ export class OrderService {
       paymentMethod: 'MERCHANT_QRIS',
       merchantId: merchant.id,
       merchantName: merchant.name,
-      merchantQrisImage: merchant.qrisImage || '',
+      merchantQrisImage: merchant.qrisImage || systemConfig?.qrisImage || '/qris-merchant.png',
       customerName: input.customerName.trim(),
       customerPhone: input.customerPhone.trim(),
       deliveryAddress: input.deliveryAddress.trim(),
@@ -143,7 +143,7 @@ export class OrderService {
       serviceFee: calculatedServiceFee,
       paymentExpiresAt,
       preOrderDate: input.preOrderDate || ''
-    };
+    });
   }
 
   /**

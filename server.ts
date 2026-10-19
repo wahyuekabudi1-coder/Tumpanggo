@@ -21,12 +21,12 @@ const distServer = path.resolve(_dirname, 'dist', 'server.cjs');
 
 let app: any;
 
-// If pre-bundled dist/server.cjs exists and we are running under production or plain node, run bundled server directly
-if (fs.existsSync(distServer) && (process.env.NODE_ENV === 'production' || !process.env.TSX_VERSION)) {
+// If pre-bundled dist/server.cjs exists and we are explicitly running in production, run bundled server directly
+if (process.env.NODE_ENV === 'production' && fs.existsSync(distServer)) {
   const prodMod = _require(distServer);
   app = prodMod.app || prodMod;
 } else {
-  // Development mode under tsx
+  // Development mode under tsx (default)
   const devMod = await import('./src/server/serverCore');
   app = devMod.app;
 }

@@ -9,7 +9,7 @@
 import { Router, Request, Response } from 'express';
 import { ArtoPayService } from '../../lib/artopay';
 import { foodDb } from '../db';
-import { shopDb } from '../shopDb';
+import { shopApiClient } from '../../services/shop/client/shopApiClient';
 import { OrderStatus } from '../../types';
 import { ShopPaymentStatus, ShopOrderStatus } from '../../types/shop';
 import { artopayConfig, reloadEnv } from '../config';
@@ -178,11 +178,8 @@ artopayRouter.post('/payment-intent', async (req: Request, res: Response) => {
       return res.status(200).json(intent);
 
     } else {
-      // SHOP
-      let order = await shopDb.findOrderById(cleanOrderId);
-      if (!order && customerPhone) {
-        order = await shopDb.findOrderByNumberAndPhone(cleanOrderId, String(customerPhone).trim());
-      }
+      // SHOP (Processed via decoupled shopApiClient)
+      let order = await shopApiClient.findOrder(cleanOrderId, customerPhone ? String(customerPhone).trim() : undefined);
 
       if (!order) {
         return res.status(404).json({ error: `Pesanan Tumpang Shop dengan ID "${cleanOrderId}" tidak ditemukan.` });
@@ -235,8 +232,8 @@ artopayRouter.post('/payment-intent', async (req: Request, res: Response) => {
         allowSdkModal: true
       });
 
-      // Attach ArtoPay payment details to Shop Order
-      await shopDb.attachArtopayPayment(order.id, {
+      // Attach ArtoPay payment details to Shop Order via Inter-Service Client
+      await shopApiClient.attachPaymentDetails(order.id, {
         paymentMethod: 'ARTOPAY_QRIS',
         artopayPaymentId: intent.paymentIntentId,
         artopayCheckoutUrl: intent.checkoutUrl,
@@ -308,17 +305,14 @@ artopayRouter.post('/webhook', async (req: Request, res: Response) => {
     let shopOrder: any = undefined;
 
     if (!foodOrder) {
-      shopOrder = await shopDb.findOrderById(orderId);
-      if (!shopOrder && orderId) {
-        shopOrder = shopDb.getOrders().find(o => o.orderNumber === orderId);
-      }
+      shopOrder = await shopApiClient.findOrder(orderId);
     }
 
     if (!foodOrder && !shopOrder) {
       // Search by artopayPaymentId as fallback
       foodOrder = foodDb.getOrders().find(o => o.artopayPaymentId === paymentIntentId);
       if (!foodOrder) {
-        shopOrder = shopDb.getOrders().find(o => o.artopayPaymentId === paymentIntentId);
+        shopOrder = await shopApiClient.findOrder(paymentIntentId);
       }
     }
 
@@ -417,24 +411,16 @@ artopayRouter.post('/webhook', async (req: Request, res: Response) => {
 
       if (isPaid) {
         if (targetOrder.paymentStatus !== ShopPaymentStatus.PAID) {
-          await shopDb.verifyPayment('SYSTEM_ARTOPAY_WEBHOOK', targetOrder.id, true);
-          await shopDb.attachArtopayPayment(targetOrder.id, {
-            paymentMethod: 'ARTOPAY_QRIS',
-            artopayPaymentId: paymentIntentId,
-            artopayCheckoutUrl: targetOrder.artopayCheckoutUrl || '',
-            artopayStatus: 'SUCCESS',
-            artopayExpiredAt: targetOrder.artopayExpiredAt
+          await shopApiClient.syncPaymentStatus({
+            orderId: targetOrder.id,
+            paymentIntentId,
+            amountPaid: Number(amount)
           });
-          shopDb.logAudit(
-            'ARTOPAY_WEBHOOK_PAID',
-            `Pembayaran pesanan belanja ${targetOrder.orderNumber} terverifikasi via ArtoPay (ID: ${paymentIntentId}, Rp ${amount})`,
-            'SYSTEM_ARTOPAY_WEBHOOK'
-          );
           console.log(`[ArtoPay Webhook] Shop Order ${targetOrder.orderNumber} successfully marked as PAID.`);
         }
       } else if (isFailedOrExpired) {
         if (targetOrder.paymentStatus === ShopPaymentStatus.UNPAID) {
-          await shopDb.attachArtopayPayment(targetOrder.id, {
+          await shopApiClient.attachPaymentDetails(targetOrder.id, {
             paymentMethod: 'ARTOPAY_QRIS',
             artopayPaymentId: paymentIntentId,
             artopayCheckoutUrl: targetOrder.artopayCheckoutUrl || '',
@@ -476,13 +462,13 @@ artopayRouter.get('/status/:orderId', async (req: Request, res: Response) => {
     let shopOrder: any = undefined;
 
     if (serviceType === 'SHOP') {
-      shopOrder = await shopDb.findOrderById(orderId) || shopDb.getOrders().find(o => o.orderNumber === orderId);
+      shopOrder = await shopApiClient.findOrder(orderId);
     } else if (serviceType === 'FOOD') {
       foodOrder = await foodDb.findOrder(orderId);
     } else {
       foodOrder = await foodDb.findOrder(orderId);
       if (!foodOrder) {
-        shopOrder = await shopDb.findOrderById(orderId) || shopDb.getOrders().find(o => o.orderNumber === orderId);
+        shopOrder = await shopApiClient.findOrder(orderId);
       }
     }
 
@@ -508,13 +494,10 @@ artopayRouter.get('/status/:orderId', async (req: Request, res: Response) => {
             paymentVerifiedAt: liveCheck.paidAt || new Date().toISOString()
           }, 'SYSTEM');
         } else {
-          await shopDb.verifyPayment('SYSTEM_ARTOPAY_POLL', targetOrder.id, true);
-          await shopDb.attachArtopayPayment(targetOrder.id, {
-            paymentMethod: 'ARTOPAY_QRIS',
-            artopayPaymentId: targetOrder.artopayPaymentId,
-            artopayCheckoutUrl: targetOrder.artopayCheckoutUrl || '',
-            artopayStatus: 'SUCCESS',
-            artopayExpiredAt: targetOrder.artopayExpiredAt
+          await shopApiClient.syncPaymentStatus({
+            orderId: targetOrder.id,
+            paymentIntentId: targetOrder.artopayPaymentId,
+            amountPaid: Number(targetOrder.total)
           });
         }
 

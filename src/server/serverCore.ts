@@ -44,6 +44,10 @@ export async function startServer() {
       appType: 'spa',
     });
     
+    // Serve public static assets (including qris-merchant.png) before Vite middlewares
+    const publicPath = path.resolve(process.cwd(), 'public');
+    app.use(express.static(publicPath));
+
     // Mount Vite dev server middlewares
     app.use(vite.middlewares);
 
@@ -53,6 +57,14 @@ export async function startServer() {
       if (url.startsWith('/api')) {
         return next();
       }
+
+      // Check if this request is for a static file that exists on disk
+      const cleanPath = url.split('?')[0].replace(/^\//, '');
+      const localFile = path.resolve(publicPath, cleanPath);
+      if (cleanPath && fs.existsSync(localFile) && fs.statSync(localFile).isFile()) {
+        return res.sendFile(localFile);
+      }
+
       try {
         const indexPath = path.resolve(process.cwd(), 'index.html');
         let template = fs.readFileSync(indexPath, 'utf-8');
@@ -82,10 +94,16 @@ export async function startServer() {
   } else {
     console.log('[TumpangFood Server] Serving production static files from dist...');
     app.use(express.static(distPath));
+    app.use(express.static(path.resolve(process.cwd(), 'public')));
     app.get('*', (req, res) => {
       if (req.originalUrl.startsWith('/api')) {
         res.status(404).json({ error: 'Endpoint API tidak ditemukan' });
         return;
+      }
+      const cleanPath = req.originalUrl.split('?')[0].replace(/^\//, '');
+      const pubFile = path.resolve(process.cwd(), 'public', cleanPath);
+      if (cleanPath && fs.existsSync(pubFile) && fs.statSync(pubFile).isFile()) {
+        return res.sendFile(pubFile);
       }
       try {
         const prodIndexPath = path.join(distPath, 'index.html');

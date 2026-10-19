@@ -191,48 +191,13 @@ export const foodConfig = {
     defaultDeliveryFee: 5000,
     commissionPercent: 10,
     paymentExpiryMinutes: 10,
-    qrisImage: 'https://images.unsplash.com/photo-1628157582853-a796fa650a6a?w=400&auto=format&fit=crop&q=60&ixlib=rb-4.0.3',
+    qrisImage: '/qris-merchant.png',
   }
 };
 
 // --- TUMPANG SHOP ISOLATED CONFIGURATION ---
-const shopDbFile = isServerless 
-  ? path.join('/tmp', 'tumpang_shop_db.json')
-  : path.join(process.cwd(), 'tumpang_shop_db.json');
-
-const runtimeShopAdminEmail = (process.env.SHOP_ADMIN_EMAIL || 'shopadmin@tumpanggo.com').toLowerCase().trim();
-let runtimeShopAdminPassword = (process.env.SHOP_ADMIN_PASSWORD || 'TumpangShopAdmin#2026').trim();
-let runtimeShopAuthSecret = (process.env.SHOP_AUTH_SECRET || '').trim();
-if (!runtimeShopAuthSecret || runtimeShopAuthSecret.length < 32) {
-  runtimeShopAuthSecret = 'shop_secret_fallback_dev_min_32_characters_ok';
-}
-
-export const shopConfig = {
-  isProduction: process.env.NODE_ENV === 'production',
-  localDbFile: shopDbFile,
-  jwtSecret: runtimeShopAuthSecret || (process.env.NODE_ENV === 'production' ? '' : 'shop_secret_fallback_dev_min_32_characters_ok'),
-  adminEmail: runtimeShopAdminEmail,
-  adminPassword: runtimeShopAdminPassword,
-  collections: {
-    config: 'shop_config',
-    categories: 'shop_categories',
-    products: 'shop_products',
-    orders: 'shop_orders',
-    shipments: 'shop_shipments',
-    auditLogs: 'shop_audit_logs',
-  },
-  defaults: {
-    storeName: 'Tumpang Shop Mart',
-    storeAddress: 'Area Pasar Tumpang, Kec. Tumpang, Malang',
-    storePhone: '081234567890',
-    isOpen: true,
-    qrisImage: 'https://images.unsplash.com/photo-1628157582853-a796fa650a6a?w=400&auto=format&fit=crop&q=60&ixlib=rb-4.0.3',
-    defaultDeliveryFee: 4000,
-    serviceFee: 1500,
-    minOrderAmount: 10000,
-    paymentExpiryMinutes: 30,
-  }
-};
+// Re-exported from dedicated microservice configuration in src/services/shop/config/shopEnv.ts
+export { shopConfig } from '../services/shop/config/shopEnv';
 
 export function reloadEnv() {
   dotenv.config();

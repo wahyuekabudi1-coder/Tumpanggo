@@ -1,0 +1,858 @@
+class {
+  constructor() {
+    this.isInitialized = false;
+    this.lastSyncTimestamp = 0;
+    this.CACHE_TTL_MS = 15e3;
+    this.data = {
+      config: initialShopConfig,
+      categories: initialCategories,
+      products: initialProducts,
+      orders: [],
+      shipments: [],
+      auditLogs: []
+    };
+    this.loadFromFile();
+  }
+  createBackup() {
+    try {
+      const backupPath = SHOP_DB_FILE + ".backup.json";
+      import_fs4.default.writeFileSync(backupPath, JSON.stringify(this.data, null, 2), "utf-8");
+      return true;
+    } catch {
+      return false;
+    }
+  }
+  async getStorageStatus() {
+    const firestoreCheck = await testFirestoreConnection();
+    return {
+      system: "tumpang-shop",
+      storageMode: firestoreCheck.connected ? "cloud_firestore_active" : "local_resilient_snapshot",
+      databaseId: firestoreCheck.databaseId,
+      projectId: firestoreCheck.projectId,
+      isProduction: shopConfig.isProduction,
+      firestoreConfigured: isFirestoreAdminConfigured(),
+      usingServiceAccount: firestoreCheck.usingServiceAccount,
+      authIdentity: firestoreCheck.authIdentity,
+      liveCloudConnected: firestoreCheck.connected,
+      collections: shopConfig.collections,
+      diagnosticReason: firestoreCheck.diagnosticReason,
+      diagnosticDetail: firestoreCheck.diagnosticDetail
+    };
+  }
+  loadFromFile() {
+    try {
+      if (import_fs4.default.existsSync(SHOP_DB_FILE)) {
+        const content = import_fs4.default.readFileSync(SHOP_DB_FILE, "utf-8");
+        if (content && content.trim().length > 10) {
+          const parsed = JSON.parse(content);
+          this.data = {
+            config: parsed.config || initialShopConfig,
+            categories: Array.isArray(parsed.categories) ? parsed.categories : initialCategories,
+            products: Array.isArray(parsed.products) ? parsed.products : initialProducts,
+            orders: Array.isArray(parsed.orders) ? parsed.orders : [],
+            shipments: Array.isArray(parsed.shipments) ? parsed.shipments : [],
+            auditLogs: Array.isArray(parsed.auditLogs) ? parsed.auditLogs : []
+          };
+          return;
+        }
+      }
+    } catch (err) {
+      console.warn("[TumpangShop DB] Gagal membaca file JSON lokal, menggunakan struktur default:", err.message);
+    }
+    this.saveToFile();
+  }
+  saveToFile() {
+    try {
+      const dir = import_path4.default.dirname(SHOP_DB_FILE);
+      if (!import_fs4.default.existsSync(dir)) {
+        import_fs4.default.mkdirSync(dir, { recursive: true });
+      }
+      import_fs4.default.writeFileSync(SHOP_DB_FILE, JSON.stringify(this.data, null, 2), "utf-8");
+      return true;
+    } catch (e) {
+      console.error("[TumpangShop DB] Gagal menulis ke file JSON lokal:", e.message);
+      return false;
+    }
+  }
+  /**
+   * Asynchronous cold-start initialization and bidirectional Firestore synchronization
+   * Uses Firestore as primary source of truth.
+   */
+  async ensureInitialized(forceRefresh = false) {
+    if (this.isInitialized && !forceRefresh && Date.now() - this.lastSyncTimestamp < this.CACHE_TTL_MS) {
+      return;
+    }
+    if (!isUsingServiceAccount() || !getAdminDb()) {
+      const diag = getFirestoreDiagnosticStatus();
+      console.warn(`[TumpangShop DB] Firebase Admin SDK tidak terkonfigurasi (${diag.reason}), beroperasi dengan cache lokal.`);
+      this.isInitialized = true;
+      return;
+    }
+    const probe = await testFirestoreConnection();
+    if (!probe.connected) {
+      console.warn(`[TumpangShop DB] Firestore Cloud tidak terhubung untuk Tumpang Shop (${probe.diagnosticReason}). Beroperasi dengan cache lokal.`);
+      this.isInitialized = true;
+      return;
+    }
+    try {
+      const col = shopConfig.collections;
+      const cloudConfig = await safeAdminGetDoc(col.config, "main");
+      if (cloudConfig) {
+        this.data.config = { ...this.data.config, ...cloudConfig };
+      } else {
+        await safeAdminSetDoc(col.config, "main", removeUndefinedFields(this.data.config));
+      }
+      const cloudCats = await safeAdminGetDocs(col.categories);
+      if (cloudCats && cloudCats.length > 0) {
+        this.data.categories = cloudCats;
+      } else {
+        for (const cat of this.data.categories) {
+          await safeAdminSetDoc(col.categories, cat.id, removeUndefinedFields(cat));
+        }
+      }
+      const cloudProds = await safeAdminGetDocs(col.products);
+      if (cloudProds && cloudProds.length > 0) {
+        this.data.products = cloudProds;
+      } else {
+        for (const prod of this.data.products) {
+          await safeAdminSetDoc(col.products, prod.id, removeUndefinedFields(prod));
+        }
+      }
+      const cloudOrders = await safeAdminGetDocs(col.orders);
+      if (cloudOrders && cloudOrders.length > 0) {
+        this.data.orders = cloudOrders.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      }
+      const cloudShipments = await safeAdminGetDocs(col.shipments);
+      if (cloudShipments && cloudShipments.length > 0) {
+        this.data.shipments = cloudShipments.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      }
+      const cloudLogs = await safeAdminGetDocs(col.auditLogs);
+      if (cloudLogs && cloudLogs.length > 0) {
+        this.data.auditLogs = cloudLogs.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()).slice(0, 500);
+      }
+      this.saveToFile();
+      this.isInitialized = true;
+      this.lastSyncTimestamp = Date.now();
+      console.log("[TumpangShop DB] Sinkronisasi Firestore Admin untuk Tumpang Shop berhasil (Primary Store Active).");
+    } catch (err) {
+      if (shopConfig.isProduction) {
+        this.isInitialized = false;
+        throw new Error(`[Produksi] Gagal sinkronisasi data Tumpang Shop dengan Cloud Firestore: ${err.message}. Operasi ditolak demi menjaga integritas data.`);
+      }
+      console.warn("[TumpangShop DB] Sinkronisasi cloud gagal atau offline, berjalan dengan cache lokal:", err.message);
+      this.isInitialized = true;
+    }
+  }
+  logAudit(action, details, userId = "shop_admin", role = "SHOP_ADMIN") {
+    const entry = {
+      id: `slog_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+      action,
+      userId,
+      role,
+      details,
+      createdAt: (/* @__PURE__ */ new Date()).toISOString()
+    };
+    this.data.auditLogs.unshift(entry);
+    if (this.data.auditLogs.length > 500) {
+      this.data.auditLogs = this.data.auditLogs.slice(0, 500);
+    }
+    safeAdminSetDoc(shopConfig.collections.auditLogs, entry.id, removeUndefinedFields(entry)).catch(() => {
+    });
+  }
+  // ==========================================
+  // CONFIG OPERATIONS
+  // ==========================================
+  getConfig() {
+    return { ...this.data.config };
+  }
+  async updateConfig(actorId, updates) {
+    this.data.config = {
+      ...this.data.config,
+      ...updates,
+      updatedAt: (/* @__PURE__ */ new Date()).toISOString()
+    };
+    this.saveToFile();
+    await safeAdminSetDoc(shopConfig.collections.config, "main", removeUndefinedFields(this.data.config));
+    this.logAudit("UPDATE_SHOP_CONFIG", `Config diperbarui oleh ${actorId}`, actorId);
+    return { ...this.data.config };
+  }
+  // ==========================================
+  // CATEGORY OPERATIONS
+  // ==========================================
+  getCategories() {
+    return [...this.data.categories].sort((a, b) => a.orderIndex - b.orderIndex);
+  }
+  getCategoryById(id) {
+    return this.data.categories.find((c) => c.id === id);
+  }
+  async createCategory(actorId, input) {
+    if (!input.name || input.name.trim().length === 0) {
+      throw new Error("Nama kategori wajib diisi.");
+    }
+    const newCategory = {
+      id: `scat_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+      name: input.name.trim(),
+      slug: input.slug ? input.slug.trim().toLowerCase() : input.name.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-"),
+      description: input.description || "",
+      icon: input.icon || "Package",
+      orderIndex: typeof input.orderIndex === "number" ? input.orderIndex : this.data.categories.length + 1,
+      isActive: input.isActive ?? true,
+      createdAt: (/* @__PURE__ */ new Date()).toISOString(),
+      updatedAt: (/* @__PURE__ */ new Date()).toISOString()
+    };
+    this.data.categories.push(newCategory);
+    this.saveToFile();
+    await safeAdminSetDoc(shopConfig.collections.categories, newCategory.id, removeUndefinedFields(newCategory));
+    this.logAudit("CREATE_CATEGORY", `Kategori dibuat: ${newCategory.name}`, actorId);
+    return newCategory;
+  }
+  async updateCategory(actorId, id, updates) {
+    const index = this.data.categories.findIndex((c) => c.id === id);
+    if (index === -1) {
+      throw new Error("Kategori tidak ditemukan.");
+    }
+    const current = this.data.categories[index];
+    const updated = {
+      ...current,
+      ...updates,
+      id: current.id,
+      // Immutable ID
+      updatedAt: (/* @__PURE__ */ new Date()).toISOString()
+    };
+    this.data.categories[index] = updated;
+    this.saveToFile();
+    await safeAdminSetDoc(shopConfig.collections.categories, id, removeUndefinedFields(updated));
+    this.logAudit("UPDATE_CATEGORY", `Kategori diperbarui: ${updated.name}`, actorId);
+    return updated;
+  }
+  async deleteCategory(actorId, id) {
+    const hasProducts = this.data.products.some((p) => p.categoryId === id);
+    if (hasProducts) {
+      throw new Error("Tidak dapat menghapus kategori yang masih memiliki produk aktif. Pindahkan produk terlebih dahulu.");
+    }
+    const index = this.data.categories.findIndex((c) => c.id === id);
+    if (index === -1) return false;
+    const removedName = this.data.categories[index].name;
+    this.data.categories.splice(index, 1);
+    this.saveToFile();
+    await safeAdminDeleteDoc(shopConfig.collections.categories, id);
+    this.logAudit("DELETE_CATEGORY", `Kategori dihapus: ${removedName}`, actorId);
+    return true;
+  }
+  // ==========================================
+  // PRODUCT OPERATIONS
+  // ==========================================
+  getProducts(filter) {
+    let result = [...this.data.products];
+    if (filter?.activeOnly) {
+      result = result.filter((p) => p.isActive);
+    }
+    if (filter?.categoryId && filter.categoryId !== "all") {
+      result = result.filter((p) => p.categoryId === filter.categoryId);
+    }
+    if (filter?.search && filter.search.trim().length > 0) {
+      const q = filter.search.trim().toLowerCase();
+      result = result.filter(
+        (p) => p.name.toLowerCase().includes(q) || p.sku.toLowerCase().includes(q) || p.description.toLowerCase().includes(q)
+      );
+    }
+    return result.sort((a, b) => (b.isFeatured ? 1 : 0) - (a.isFeatured ? 1 : 0));
+  }
+  getProductById(id) {
+    return this.data.products.find((p) => p.id === id || p.sku.toLowerCase() === id.toLowerCase());
+  }
+  async createProduct(actorId, input) {
+    if (!input.name || input.name.trim().length === 0) {
+      throw new Error("Nama produk wajib diisi.");
+    }
+    const effectivePrice = typeof input.price === "number" ? input.price : typeof input.basePrice === "number" ? input.basePrice : void 0;
+    if (typeof effectivePrice !== "number" || effectivePrice < 0) {
+      throw new Error("Harga produk harus berupa angka valid non-negatif.");
+    }
+    if (typeof input.stock !== "number" || input.stock < 0) {
+      throw new Error("Stok produk harus berupa angka valid non-negatif.");
+    }
+    const sku = input.sku && input.sku.trim().length > 0 ? input.sku.trim().toUpperCase() : `TS-PRD-${Math.floor(1e3 + Math.random() * 9e3)}`;
+    const newProduct = {
+      id: `sprod_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+      sku,
+      name: input.name.trim(),
+      description: input.description || "",
+      categoryId: input.categoryId || (this.data.categories[0]?.id || "scat_sembako"),
+      price: Math.round(effectivePrice),
+      stock: Math.floor(input.stock),
+      unit: input.unit || "pcs",
+      images: Array.isArray(input.images) && input.images.length > 0 ? input.images : ["https://images.unsplash.com/photo-1542838132-92c53300491e?w=500&auto=format&fit=crop&q=60"],
+      variations: input.variations || [],
+      isActive: input.isActive ?? true,
+      isFeatured: input.isFeatured ?? false,
+      createdAt: (/* @__PURE__ */ new Date()).toISOString(),
+      updatedAt: (/* @__PURE__ */ new Date()).toISOString()
+    };
+    this.data.products.push(newProduct);
+    this.saveToFile();
+    await safeAdminSetDoc(shopConfig.collections.products, newProduct.id, removeUndefinedFields(newProduct));
+    this.logAudit("CREATE_PRODUCT", `Produk dibuat: ${newProduct.name} (SKU: ${newProduct.sku})`, actorId);
+    return newProduct;
+  }
+  async updateProduct(actorId, id, updates) {
+    const index = this.data.products.findIndex((p) => p.id === id);
+    if (index === -1) {
+      throw new Error("Produk tidak ditemukan.");
+    }
+    const current = this.data.products[index];
+    const effectivePrice = typeof updates.price === "number" ? updates.price : typeof updates.basePrice === "number" ? updates.basePrice : current.price;
+    if (typeof effectivePrice !== "number" || effectivePrice < 0) {
+      throw new Error("Harga produk harus berupa angka valid non-negatif.");
+    }
+    if (updates.stock !== void 0 && (typeof updates.stock !== "number" || updates.stock < 0)) {
+      throw new Error("Stok produk harus berupa angka valid non-negatif.");
+    }
+    const updated = {
+      ...current,
+      ...updates,
+      id: current.id,
+      // Immutable ID
+      price: Math.round(effectivePrice),
+      stock: updates.stock !== void 0 ? Math.floor(updates.stock) : current.stock,
+      updatedAt: (/* @__PURE__ */ new Date()).toISOString()
+    };
+    this.data.products[index] = updated;
+    this.saveToFile();
+    await safeAdminSetDoc(shopConfig.collections.products, id, removeUndefinedFields(updated));
+    this.logAudit("UPDATE_PRODUCT", `Produk diperbarui: ${updated.name}`, actorId);
+    return updated;
+  }
+  async deleteProduct(actorId, id) {
+    const index = this.data.products.findIndex((p) => p.id === id);
+    if (index === -1) return false;
+    const removedName = this.data.products[index].name;
+    this.data.products.splice(index, 1);
+    this.saveToFile();
+    await safeAdminDeleteDoc(shopConfig.collections.products, id);
+    this.logAudit("DELETE_PRODUCT", `Produk dihapus: ${removedName}`, actorId);
+    return true;
+  }
+  // ==========================================
+  // ORDER OPERATIONS WITH PRICE & STOCK VALIDATION
+  // ==========================================
+  async createOrder(input) {
+    if (!this.data.config.isOpen) {
+      throw new Error("Layanan Tumpang Shop saat ini sedang tutup. Silakan coba kembali saat toko dibuka.");
+    }
+    if (!input.customerName || input.customerName.trim().length === 0) {
+      throw new Error("Nama pemesan wajib diisi.");
+    }
+    if (!input.customerPhone || input.customerPhone.trim().length === 0) {
+      throw new Error("Nomor telepon / WhatsApp pemesan wajib diisi.");
+    }
+    const cleanPhone = input.customerPhone.replace(/[^0-9]/g, "");
+    if (cleanPhone.length < 9) {
+      throw new Error("Nomor WhatsApp tidak valid. Masukkan minimal 9 digit angka.");
+    }
+    if (!input.deliveryAddress || input.deliveryAddress.trim().length === 0) {
+      throw new Error("Alamat pengantaran belanja wajib diisi.");
+    }
+    if (!input.customerDistrict || input.customerDistrict.trim().length === 0) {
+      throw new Error("Kecamatan pengantaran belanja wajib dipilih.");
+    }
+    if (!Array.isArray(input.items) || input.items.length === 0) {
+      throw new Error("Keranjang belanja kosong. Pilih minimal 1 produk.");
+    }
+    if (input.clientRequestId && input.clientRequestId.trim().length > 0) {
+      const existingReq = this.data.orders.find((o) => o.clientRequestId === input.clientRequestId?.trim());
+      if (existingReq) {
+        return existingReq;
+      }
+    }
+    const recentWindow = new Date(Date.now() - 15e3).toISOString();
+    const duplicateRecent = this.data.orders.find(
+      (o) => o.customerPhone.replace(/[^0-9]/g, "") === cleanPhone && o.createdAt >= recentWindow && o.items.length === input.items.length && o.items.every((it, idx) => it.productId === input.items[idx]?.productId && it.quantity === input.items[idx]?.quantity)
+    );
+    if (duplicateRecent) {
+      return duplicateRecent;
+    }
+    const validatedItems = [];
+    let subtotal = 0;
+    for (const itemInput of input.items) {
+      if (!itemInput.productId || !itemInput.quantity || itemInput.quantity < 1) {
+        throw new Error("Kuantitas produk tidak valid.");
+      }
+      const product = this.data.products.find((p) => p.id === itemInput.productId);
+      if (!product) {
+        throw new Error(`Produk dengan ID "${itemInput.productId}" tidak ditemukan.`);
+      }
+      if (!product.isActive) {
+        throw new Error(`Produk "${product.name}" sedang tidak aktif atau tidak tersedia.`);
+      }
+      let unitPrice = product.price;
+      let selectedVariation = void 0;
+      if (itemInput.variationId && itemInput.optionId && product.variations) {
+        const variation = product.variations.find((v) => v.id === itemInput.variationId);
+        if (!variation) {
+          throw new Error(`Variasi produk tidak valid untuk "${product.name}".`);
+        }
+        const option = variation.options.find((o) => o.id === itemInput.optionId);
+        if (!option) {
+          throw new Error(`Pilihan variasi tidak valid untuk "${product.name}".`);
+        }
+        if (typeof option.stock === "number" && option.stock < itemInput.quantity) {
+          throw new Error(`Stok variasi "${option.name}" untuk produk "${product.name}" tidak mencukupi (Tersisa: ${option.stock}, Diminta: ${itemInput.quantity}).`);
+        }
+        unitPrice = product.price + (option.priceDelta || 0);
+        selectedVariation = {
+          variationId: variation.id,
+          variationName: variation.name,
+          optionId: option.id,
+          optionName: option.name
+        };
+      } else {
+        if (product.stock < itemInput.quantity) {
+          throw new Error(`Stok untuk produk "${product.name}" tidak mencukupi (Tersisa: ${product.stock}, Diminta: ${itemInput.quantity}).`);
+        }
+      }
+      const itemSubtotal = unitPrice * itemInput.quantity;
+      subtotal += itemSubtotal;
+      validatedItems.push({
+        productId: product.id,
+        sku: product.sku,
+        name: product.name,
+        unit: product.unit,
+        selectedVariation,
+        price: unitPrice,
+        quantity: itemInput.quantity,
+        subtotal: itemSubtotal
+      });
+    }
+    if (subtotal < this.data.config.minOrderAmount) {
+      throw new Error(`Subtotal belanja minimal adalah Rp ${this.data.config.minOrderAmount.toLocaleString("id-ID")}. Subtotal saat ini: Rp ${subtotal.toLocaleString("id-ID")}`);
+    }
+    const method = (input.shippingMethod || "INSTANT").toUpperCase();
+    let deliveryFee = this.data.config.defaultDeliveryFee;
+    let shippingMethodLabel = "Kurir Instan Tumpang Go";
+    if (method === "PICKUP") {
+      deliveryFee = 0;
+      shippingMethodLabel = "Ambil Sendiri di Toko (Pickup)";
+    } else if (method === "REGULAR") {
+      deliveryFee = Math.max(0, Math.round(this.data.config.defaultDeliveryFee * 0.7));
+      shippingMethodLabel = "Kurir Reguler Toko (Next-Day)";
+    } else if (method === "EXPEDITION_REGULAR") {
+      deliveryFee = 12e3;
+      shippingMethodLabel = "Ekspedisi Domestik Reguler (J&T / JNE)";
+    } else if (method === "CHINA_AIR_EXPRESS") {
+      deliveryFee = 35e3;
+      shippingMethodLabel = "China Air Freight Express (7-12 Hari)";
+    } else if (method === "CHINA_SEA_STANDARD") {
+      deliveryFee = 2e4;
+      shippingMethodLabel = "China Sea Freight Ekonomis (20-30 Hari)";
+    }
+    const serviceFee = this.data.config.serviceFee;
+    const uniqueCode = Math.floor(100 + Math.random() * 899);
+    const total = subtotal + deliveryFee + serviceFee + uniqueCode;
+    const updatedProducts = [];
+    for (const item of validatedItems) {
+      const pIndex = this.data.products.findIndex((p) => p.id === item.productId);
+      if (pIndex !== -1) {
+        const prod = this.data.products[pIndex];
+        prod.stock = Math.max(0, prod.stock - item.quantity);
+        if (item.selectedVariation && prod.variations) {
+          const v = prod.variations.find((v2) => v2.id === item.selectedVariation?.variationId);
+          const opt = v?.options.find((o) => o.id === item.selectedVariation?.optionId);
+          if (opt) {
+            opt.stock = Math.max(0, opt.stock - item.quantity);
+          }
+        }
+        updatedProducts.push(prod);
+      }
+    }
+    const now = /* @__PURE__ */ new Date();
+    const expiryMinutes = shopConfig.defaults.paymentExpiryMinutes || 30;
+    const expiresAt = new Date(now.getTime() + expiryMinutes * 60 * 1e3).toISOString();
+    const datePrefix = now.toISOString().slice(0, 10).replace(/-/g, "");
+    const dailyCount = this.data.orders.filter((o) => o.createdAt.startsWith(now.toISOString().slice(0, 10))).length + 1;
+    const orderNumber = `TS-${datePrefix}-${String(dailyCount).padStart(3, "0")}`;
+    const isInternational = method.includes("CHINA") || method.includes("CROSSBORDER") || method === "INTERNATIONAL";
+    const shipmentScope = isInternational ? "INTERNATIONAL" : "LOCAL";
+    const courierCode = isInternational ? "CHINA_ID_CROSSBORDER" : method === "EXPEDITION_REGULAR" ? "DOMESTIC_EXPEDITION" : "TUMPANG_LOCAL";
+    const courierName = isInternational ? "Layanan Impor Cross-Border (China \u{1F1E8}\u{1F1F3} \u2192 Indonesia \u{1F1EE}\u{1F1E9})" : method === "EXPEDITION_REGULAR" ? "Ekspedisi Domestik Reguler (J&T / JNE)" : "Kurir Toko Tumpang Go";
+    const trackingPrefix = isInternational ? "CN-ID" : method === "EXPEDITION_REGULAR" ? "TS-EXP" : "TS-LOC";
+    const trackingNumber = `${trackingPrefix}-${datePrefix}-${String(dailyCount).padStart(3, "0")}`;
+    const originCountry = isInternational ? "CN" : "ID";
+    const originCity = isInternational ? "Gudang Konsolidasi Shenzhen, China" : "Kecamatan Tumpang, Malang";
+    const destinationCountry = "ID";
+    const destinationCity = `${input.customerDistrict}, Malang`;
+    const initialTrackingEvent = {
+      id: `tevt_${Date.now()}_1`,
+      status: "WAITING_DISPATCH" /* WAITING_DISPATCH */,
+      statusLabel: "Menunggu Pengiriman",
+      location: originCity,
+      description: isInternational ? "Pesanan impor telah dibuat. Menunggu pengemasan dari gudang konsolidasi China." : "Pesanan telah dibuat dan siap dikemas setelah pembayaran diverifikasi.",
+      timestamp: now.toISOString(),
+      source: "SYSTEM"
+    };
+    const estimatedArrival = isInternational ? method === "CHINA_SEA_STANDARD" ? "20-30 hari kalender (Estimasi unverified)" : "7-12 hari kerja (Estimasi unverified)" : method === "EXPEDITION_REGULAR" ? "2-3 hari kerja (Estimasi manual unverified)" : method === "REGULAR" ? "1 hari (Next-day)" : "1-3 jam (Same-day)";
+    const initialShipment = {
+      id: `ship_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+      orderId: `sord_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+      orderNumber,
+      scope: shipmentScope,
+      courierCode,
+      courierName,
+      serviceType: method,
+      serviceName: shippingMethodLabel,
+      trackingNumber,
+      originCountry,
+      originCity,
+      destinationCountry,
+      destinationCity,
+      shippingCost: deliveryFee,
+      estimatedArrival,
+      isEstimateVerified: !isInternational && method !== "EXPEDITION_REGULAR",
+      status: "WAITING_DISPATCH" /* WAITING_DISPATCH */,
+      statusLabel: "Menunggu Pengiriman",
+      trackingHistory: [initialTrackingEvent],
+      liveCourierApiIntegrated: false,
+      // Kurir API belum live, diupdate manual admin
+      courierAdapterNote: isInternational ? "Layanan kargo impor China \u2192 Indonesia. Pembaruan nomor resi dan tracking dicatat manual oleh admin toko." : "Pengantaran kurir lokal Tumpang. Status dikelola langsung oleh admin toko.",
+      createdAt: now.toISOString(),
+      updatedAt: now.toISOString()
+    };
+    const newOrder = {
+      id: initialShipment.orderId,
+      orderNumber,
+      customerName: input.customerName.trim(),
+      customerPhone: input.customerPhone.trim(),
+      deliveryAddress: input.deliveryAddress.trim(),
+      customerDistrict: input.customerDistrict.trim(),
+      shippingMethod: method,
+      shippingMethodLabel,
+      deliveryNotes: input.deliveryNotes?.trim() || "",
+      clientRequestId: input.clientRequestId?.trim(),
+      items: validatedItems,
+      subtotal,
+      deliveryFee,
+      serviceFee,
+      uniqueCode,
+      total,
+      paymentStatus: "UNPAID" /* UNPAID */,
+      orderStatus: "NEW" /* NEW */,
+      paymentExpiresAt: expiresAt,
+      shipment: initialShipment,
+      createdAt: now.toISOString(),
+      updatedAt: now.toISOString()
+    };
+    this.data.orders.unshift(newOrder);
+    this.data.shipments.unshift(initialShipment);
+    const probe = await testFirestoreConnection();
+    const shouldEnforceFirestore = shopConfig.isProduction || probe.connected;
+    if (shouldEnforceFirestore) {
+      const persistedOrder = await safeAdminSetDoc(shopConfig.collections.orders, newOrder.id, removeUndefinedFields(newOrder));
+      const persistedShipment = await safeAdminSetDoc(shopConfig.collections.shipments, initialShipment.id, removeUndefinedFields(initialShipment));
+      let allStockPersisted = true;
+      for (const prod of updatedProducts) {
+        const prodPersisted = await safeAdminSetDoc(shopConfig.collections.products, prod.id, removeUndefinedFields(prod));
+        if (!prodPersisted) allStockPersisted = false;
+      }
+      if (!persistedOrder || !persistedShipment || !allStockPersisted) {
+        for (const item of validatedItems) {
+          const pIndex = this.data.products.findIndex((p) => p.id === item.productId);
+          if (pIndex !== -1) {
+            const prod = this.data.products[pIndex];
+            prod.stock += item.quantity;
+            if (item.selectedVariation && prod.variations) {
+              const v = prod.variations.find((v2) => v2.id === item.selectedVariation?.variationId);
+              const opt = v?.options.find((o) => o.id === item.selectedVariation?.optionId);
+              if (opt) {
+                opt.stock = (opt.stock || 0) + item.quantity;
+              }
+            }
+            await safeAdminSetDoc(shopConfig.collections.products, prod.id, removeUndefinedFields(prod));
+          }
+        }
+        this.data.orders.shift();
+        this.data.shipments.shift();
+        if (persistedOrder) {
+          await safeAdminDeleteDoc(shopConfig.collections.orders, newOrder.id);
+        }
+        if (persistedShipment) {
+          await safeAdminDeleteDoc(shopConfig.collections.shipments, initialShipment.id);
+        }
+        this.saveToFile();
+        throw new Error("Gagal menyimpan pesanan Tumpang Shop ke cloud Firestore. Transaksi dibatalkan secara aman demi mencegah kehilangan data atau transaksi ganda.");
+      }
+    } else {
+      this.saveToFile();
+      safeAdminSetDoc(shopConfig.collections.orders, newOrder.id, removeUndefinedFields(newOrder)).catch(() => {
+      });
+      safeAdminSetDoc(shopConfig.collections.shipments, initialShipment.id, removeUndefinedFields(initialShipment)).catch(() => {
+      });
+    }
+    this.logAudit("CREATE_SHOP_ORDER", `Pesanan dibuat: ${newOrder.orderNumber} (Resi: ${initialShipment.trackingNumber}) senilai Rp ${newOrder.total.toLocaleString("id-ID")}`, "CUSTOMER", "CUSTOMER");
+    return newOrder;
+  }
+  attachShipment(order) {
+    const shipment = this.data.shipments.find(
+      (s) => s.orderId === order.id || s.orderNumber.toLowerCase() === order.orderNumber.toLowerCase()
+    );
+    return {
+      ...order,
+      shipment: shipment ? { ...shipment } : order.shipment
+    };
+  }
+  getOrders(filter) {
+    let list = [...this.data.orders];
+    if (filter?.paymentStatus && filter.paymentStatus !== "all") {
+      list = list.filter((o) => o.paymentStatus === filter.paymentStatus);
+    }
+    if (filter?.orderStatus && filter.orderStatus !== "all") {
+      list = list.filter((o) => o.orderStatus === filter.orderStatus);
+    }
+    return list.map((o) => this.attachShipment(o)).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  }
+  getOrderById(id) {
+    const order = this.data.orders.find((o) => o.id === id || o.orderNumber.toLowerCase() === id.toLowerCase());
+    return order ? this.attachShipment(order) : void 0;
+  }
+  /**
+   * Secure lookup by order number / ID AND customer WhatsApp number.
+   * Prevents leaking customer data when only orderNumber is known.
+   */
+  getOrderByNumberAndPhone(orderNumberOrId, phone) {
+    if (!orderNumberOrId || !phone) return void 0;
+    const cleanPhone = phone.replace(/[^0-9]/g, "");
+    const normUserPhone = cleanPhone.startsWith("62") ? "0" + cleanPhone.slice(2) : cleanPhone;
+    const matched = this.data.orders.find((o) => {
+      const matchId = o.id.toLowerCase() === orderNumberOrId.toLowerCase() || o.orderNumber.toLowerCase() === orderNumberOrId.toLowerCase();
+      if (!matchId) return false;
+      const orderClean = o.customerPhone.replace(/[^0-9]/g, "");
+      const normOrderPhone = orderClean.startsWith("62") ? "0" + orderClean.slice(2) : orderClean;
+      return normUserPhone === normOrderPhone || normUserPhone.endsWith(normOrderPhone.slice(-8)) || normOrderPhone.endsWith(normUserPhone.slice(-8));
+    });
+    return matched ? this.attachShipment(matched) : void 0;
+  }
+  async findOrderById(id) {
+    if (!id) return void 0;
+    const cleanId = id.trim();
+    let order = this.getOrderById(cleanId);
+    if (!order && isFirestoreAdminConfigured()) {
+      try {
+        const directDoc = await safeAdminGetDoc(shopConfig.collections.orders, cleanId);
+        if (directDoc) {
+          order = directDoc;
+          const idx = this.data.orders.findIndex((o) => o.id === order.id);
+          if (idx >= 0) this.data.orders[idx] = order;
+          else this.data.orders.unshift(order);
+        }
+      } catch (e) {
+        console.warn(`[TumpangShop DB] Query remote order ${cleanId} failed:`, e.message);
+      }
+    }
+    return order ? this.attachShipment(order) : void 0;
+  }
+  async findOrderByNumberAndPhone(orderNumberOrId, phone) {
+    if (!orderNumberOrId || !phone) return void 0;
+    let order = this.getOrderByNumberAndPhone(orderNumberOrId, phone);
+    if (!order && isFirestoreAdminConfigured()) {
+      try {
+        const directDoc = await safeAdminGetDoc(shopConfig.collections.orders, orderNumberOrId);
+        if (directDoc) {
+          const cleanPhone = phone.replace(/[^0-9]/g, "");
+          const normUserPhone = cleanPhone.startsWith("62") ? "0" + cleanPhone.slice(2) : cleanPhone;
+          const orderClean = (directDoc.customerPhone || "").replace(/[^0-9]/g, "");
+          const normOrderPhone = orderClean.startsWith("62") ? "0" + orderClean.slice(2) : orderClean;
+          if (normUserPhone === normOrderPhone || normUserPhone.endsWith(normOrderPhone.slice(-8)) || normOrderPhone.endsWith(normUserPhone.slice(-8))) {
+            order = directDoc;
+            const idx = this.data.orders.findIndex((o) => o.id === order.id);
+            if (idx >= 0) this.data.orders[idx] = order;
+            else this.data.orders.unshift(order);
+          }
+        }
+      } catch (e) {
+        console.warn(`[TumpangShop DB] Query remote order failed:`, e.message);
+      }
+    }
+    return order ? this.attachShipment(order) : void 0;
+  }
+  getOrdersByCustomerPhone(phone) {
+    const clean = phone.replace(/[^0-9]/g, "");
+    return this.data.orders.filter((o) => {
+      const orderPhone = o.customerPhone.replace(/[^0-9]/g, "");
+      return orderPhone.endsWith(clean) || clean.endsWith(orderPhone);
+    }).map((o) => this.attachShipment(o)).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  }
+  async uploadPaymentProof(orderId, proofUrl) {
+    const index = this.data.orders.findIndex((o) => o.id === orderId);
+    if (index === -1) {
+      throw new Error("Pesanan tidak ditemukan.");
+    }
+    const order = this.data.orders[index];
+    if (order.paymentStatus === "PAID" /* PAID */) {
+      throw new Error("Pesanan ini sudah terverifikasi lunas.");
+    }
+    if (order.orderStatus === "CANCELLED" /* CANCELLED */) {
+      throw new Error("Pesanan ini telah dibatalkan.");
+    }
+    const prevProof = order.paymentProof;
+    const prevStatus = order.paymentStatus;
+    const prevUpdatedAt = order.updatedAt;
+    order.paymentProof = proofUrl;
+    order.paymentStatus = "WAITING_VERIFICATION" /* WAITING_VERIFICATION */;
+    order.updatedAt = (/* @__PURE__ */ new Date()).toISOString();
+    const probe = await testFirestoreConnection();
+    if (shopConfig.isProduction || probe.connected) {
+      const persisted = await safeAdminSetDoc(shopConfig.collections.orders, order.id, removeUndefinedFields(order));
+      if (!persisted) {
+        order.paymentProof = prevProof;
+        order.paymentStatus = prevStatus;
+        order.updatedAt = prevUpdatedAt;
+        this.saveToFile();
+        throw new Error("Gagal menyimpan bukti pembayaran ke cloud Firestore. Transaksi dibatalkan secara aman.");
+      }
+    }
+    this.saveToFile();
+    this.logAudit("UPLOAD_PAYMENT_PROOF", `Bukti bayar diunggah untuk ${order.orderNumber}`, "CUSTOMER", "CUSTOMER");
+    return { ...order };
+  }
+  async verifyPayment(actorId, orderId, approved, reason) {
+    const index = this.data.orders.findIndex((o) => o.id === orderId);
+    if (index === -1) {
+      throw new Error("Pesanan tidak ditemukan.");
+    }
+    const order = this.data.orders[index];
+    const prevPaymentStatus = order.paymentStatus;
+    const prevOrderStatus = order.orderStatus;
+    const prevVerifiedAt = order.paymentVerifiedAt;
+    const prevCancelReason = order.cancelReason;
+    const prevUpdatedAt = order.updatedAt;
+    const now = (/* @__PURE__ */ new Date()).toISOString();
+    if (approved) {
+      order.paymentStatus = "PAID" /* PAID */;
+      order.paymentVerifiedAt = now;
+      if (order.orderStatus === "NEW" /* NEW */) {
+        order.orderStatus = "PROCESSING" /* PROCESSING */;
+      }
+      this.logAudit("VERIFY_PAYMENT_APPROVED", `Pembayaran pesanan ${order.orderNumber} diverifikasi sah`, actorId);
+    } else {
+      order.paymentStatus = "REJECTED" /* REJECTED */;
+      order.cancelReason = reason || "Bukti transfer tidak valid atau dana belum masuk.";
+      this.logAudit("VERIFY_PAYMENT_REJECTED", `Pembayaran pesanan ${order.orderNumber} ditolak: ${order.cancelReason}`, actorId);
+    }
+    order.updatedAt = now;
+    const probe = await testFirestoreConnection();
+    if (shopConfig.isProduction || probe.connected) {
+      const persisted = await safeAdminSetDoc(shopConfig.collections.orders, order.id, removeUndefinedFields(order));
+      if (!persisted) {
+        order.paymentStatus = prevPaymentStatus;
+        order.orderStatus = prevOrderStatus;
+        order.paymentVerifiedAt = prevVerifiedAt;
+        order.cancelReason = prevCancelReason;
+        order.updatedAt = prevUpdatedAt;
+        this.saveToFile();
+        throw new Error("Gagal memperbarui verifikasi pembayaran ke cloud Firestore. Perubahan status dibatalkan.");
+      }
+    }
+    this.saveToFile();
+    return { ...order };
+  }
+  async attachArtopayPayment(orderId, artopayData) {
+    const index = this.data.orders.findIndex((o) => o.id === orderId || o.orderNumber === orderId);
+    if (index === -1) {
+      throw new Error("Pesanan tidak ditemukan.");
+    }
+    const order = this.data.orders[index];
+    order.paymentMethod = artopayData.paymentMethod;
+    order.artopayPaymentId = artopayData.artopayPaymentId;
+    order.artopayCheckoutUrl = artopayData.artopayCheckoutUrl;
+    order.artopayStatus = artopayData.artopayStatus;
+    if (artopayData.artopayExpiredAt) {
+      order.artopayExpiredAt = artopayData.artopayExpiredAt;
+    }
+    if (artopayData.artopayClientSecret) {
+      order.artopayClientSecret = artopayData.artopayClientSecret;
+    }
+    if (artopayData.artopayCustomerToken) {
+      order.artopayCustomerToken = artopayData.artopayCustomerToken;
+    }
+    if (artopayData.artopayPublicKey) {
+      order.artopayPublicKey = artopayData.artopayPublicKey;
+    }
+    if (artopayData.artopayOrderId) {
+      order.artopayOrderId = artopayData.artopayOrderId;
+    }
+    if (artopayData.artopaySandbox !== void 0) {
+      order.artopaySandbox = artopayData.artopaySandbox;
+    }
+    order.updatedAt = (/* @__PURE__ */ new Date()).toISOString();
+    const probe = await testFirestoreConnection();
+    if (shopConfig.isProduction || probe.connected) {
+      await safeAdminSetDoc(shopConfig.collections.orders, order.id, removeUndefinedFields(order));
+    }
+    this.saveToFile();
+    this.logAudit("ATTACH_ARTOPAY_PAYMENT", `Payment intent ArtoPay ${artopayData.artopayPaymentId} dipasang ke pesanan ${order.orderNumber}`, "SYSTEM_ARTOPAY");
+    return { ...order };
+  }
+  async updateOrderStatus(actorId, orderId, newStatus, reason) {
+    const index = this.data.orders.findIndex((o) => o.id === orderId);
+    if (index === -1) {
+      throw new Error("Pesanan tidak ditemukan.");
+    }
+    const order = this.data.orders[index];
+    const prevStatus = order.orderStatus;
+    const prevPaymentStatus = order.paymentStatus;
+    const prevCancelReason = order.cancelReason;
+    const prevUpdatedAt = order.updatedAt;
+    if (prevStatus === newStatus) {
+      return { ...order };
+    }
+    if (newStatus === "CANCELLED" /* CANCELLED */ && prevStatus !== "CANCELLED" /* CANCELLED */) {
+      for (const item of order.items) {
+        const pIndex = this.data.products.findIndex((p) => p.id === item.productId);
+        if (pIndex !== -1) {
+          const prod = this.data.products[pIndex];
+          prod.stock += item.quantity;
+          if (item.selectedVariation && prod.variations) {
+            const v = prod.variations.find((v2) => v2.id === item.selectedVariation?.variationId);
+            const opt = v?.options.find((o) => o.id === item.selectedVariation?.optionId);
+            if (opt) {
+              opt.stock += item.quantity;
+            }
+          }
+          await safeAdminSetDoc(shopConfig.collections.products, prod.id, removeUndefinedFields(prod));
+        }
+      }
+      order.cancelReason = reason || "Pesanan dibatalkan.";
+      if (order.paymentStatus === "UNPAID" /* UNPAID */) {
+        order.paymentStatus = "EXPIRED" /* EXPIRED */;
+      }
+    }
+    order.orderStatus = newStatus;
+    order.updatedAt = (/* @__PURE__ */ new Date()).toISOString();
+    const probe = await testFirestoreConnection();
+    if (shopConfig.isProduction || probe.connected) {
+      const persisted = await safeAdminSetDoc(shopConfig.collections.orders, order.id, removeUndefinedFields(order));
+      if (!persisted) {
+        order.orderStatus = prevStatus;
+        order.paymentStatus = prevPaymentStatus;
+        order.cancelReason = prevCancelReason;
+        order.updatedAt = prevUpdatedAt;
+        this.saveToFile();
+        throw new Error("Gagal memperbarui status pesanan pada cloud Firestore. Perubahan dibatalkan demi integritas data.");
+      }
+    }
+    this.saveToFile();
+    this.logAudit("UPDATE_ORDER_STATUS", `Status pesanan ${order.orderNumber} diubah: ${prevStatus} -> ${newStatus}`, actorId);
+    return { ...order };
+  }
+  // ==========================================
+  // SHIPMENT & TRACKING OPERATIONS (PART 5)
+  // ==========================================
+  getShipments() {
+    return [...this.data.shipments].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  }
+  getShipmentById(id) {
+    return this.data.shipments.find((s) => s.id === id || s.trackingNumber.toLowerCase() === id.toLowerCase());
+  }
+  getShipmentByOrderId(orderId) {
+    return this.data.shipments.find((s) => s.orderId === orderId);
+  }
+  getShipmentByTrackingNumber(tracking

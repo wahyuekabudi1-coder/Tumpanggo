@@ -32,7 +32,7 @@ export default function App() {
   const [loadingSelection, setLoadingSelection] = useState(false);
   const [systemConfig, setSystemConfig] = useState<SystemConfig>({
     id: 'config_1',
-    qrisImage: 'https://images.unsplash.com/photo-1628157582853-a796fa650a6a?w=400&auto=format&fit=crop&q=60',
+    qrisImage: '/qris-merchant.png',
     defaultDeliveryFee: 5000,
     serviceFee: 2000
   });

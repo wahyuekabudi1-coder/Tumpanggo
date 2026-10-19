@@ -10,7 +10,7 @@ import ErrorBoundary from './ErrorBoundary.tsx';
 import { compressImage, compressBase64 } from '../utils/imageCompressor.ts';
 import { safeStorage } from '../utils/safeStorage.ts';
 import { apiFetch as fetch, extractArrayResponse } from '../utils/apiClient.ts';
-import { calculateDeliveryFee, FLAT_TUMPANG_DELIVERY_FEE, isDestinationInKecamatanTumpang } from '../utils/deliveryFee.ts';
+import { calculateDeliveryFee, FLAT_TUMPANG_DELIVERY_FEE, isDestinationInKecamatanTumpang, normalizeOrderDeliveryFee } from '../utils/deliveryFee.ts';
 import { 
   Search, ShoppingBag, Store, MapPin, Clock, Star, ArrowLeft, Plus, Minus, Trash2, Check, 
   CheckCircle2, ArrowRight, Share2, Phone, Calendar, ClipboardList, RefreshCw, X,
@@ -517,7 +517,9 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
   const [activeOrder, setActiveOrder] = useState<Order | null>(() => {
     try {
       const saved = safeStorage.getItem('tumpang_active_order');
-      return saved ? JSON.parse(saved) : null;
+      if (!saved) return null;
+      const parsed = JSON.parse(saved);
+      return parsed ? normalizeOrderDeliveryFee(parsed) : null;
     } catch {
       return null;
     }
@@ -526,7 +528,8 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
   useEffect(() => {
     try {
       if (activeOrder) {
-        safeStorage.setItem('tumpang_active_order', JSON.stringify(activeOrder));
+        const normalized = normalizeOrderDeliveryFee(activeOrder);
+        safeStorage.setItem('tumpang_active_order', JSON.stringify(normalized));
       } else {
         safeStorage.removeItem('tumpang_active_order');
       }
@@ -1179,8 +1182,9 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
       const order: Order = await res.json();
       
       if (res.ok) {
-        setActiveOrder(order);
-        setTrackingOrderId(order.id);
+        const normalized = normalizeOrderDeliveryFee(order);
+        setActiveOrder(normalized);
+        setTrackingOrderId(normalized.id);
         // Clear cart
         setCart([]);
         setCartMerchantId(null);
@@ -1196,17 +1200,19 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
     }
   };
 
-  // Handle proof upload (simulate)
+  // Handle proof upload
   const handlePaymentProofUpload = async (e: React.FormEvent) => {
     e.preventDefault();
     const proof = paymentProofFile || paymentProofUrl;
     if (!proof) {
-      alert('Silakan pilih file bukti pembayaran atau masukkan tautan gambar.');
+      setProofUploadError('Silakan pilih file bukti pembayaran atau masukkan tautan gambar.');
       return;
     }
 
     if (!activeOrder) return;
     setUploadLoading(true);
+    setProofUploadError(null);
+    setProofUploadSuccess(null);
 
     try {
       const res = await fetch(`/api/orders/${activeOrder.id}/upload-payment`, {
@@ -1216,13 +1222,17 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
       });
       const updatedOrder = await res.json();
       if (res.ok) {
-        setActiveOrder(updatedOrder);
-        alert('Bukti pembayaran berhasil diunggah. Menunggu verifikasi admin.');
+        setActiveOrder(normalizeOrderDeliveryFee(updatedOrder));
+        setProofUploadSuccess('Bukti pembayaran berhasil diunggah! Menunggu verifikasi admin.');
+        setProofUploadError(null);
+        setPaymentProofFile(null);
+        setPaymentProofUrl('');
       } else {
-        alert('Gagal mengunggah bukti pembayaran.');
+        setProofUploadError(updatedOrder.error || 'Gagal mengunggah bukti pembayaran.');
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error uploading payment:', err);
+      setProofUploadError('Terjadi kesalahan saat memproses unggahan bukti pembayaran.');
     } finally {
       setUploadLoading(false);
     }
@@ -1257,7 +1267,7 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
       const res = await fetch(`/api/orders/${trackingOrderId}`);
       if (res.ok) {
         const order = await res.json();
-        setActiveOrder(order);
+        setActiveOrder(normalizeOrderDeliveryFee(order));
       }
     } catch (e) {
       console.error('Error refreshing order:', e);
@@ -1278,7 +1288,7 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
       }
       const data = await res.json();
       const list = extractArrayResponse<Order>(data, 'orders');
-      setHistoryOrders(list);
+      setHistoryOrders(list.map(o => normalizeOrderDeliveryFee(o)));
       setHistorySearched(true);
     } catch (err) {
       console.error('History fetch error:', err);
@@ -3675,7 +3685,10 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
         {/* 5. PAYMENT / BILLING TAB - MERCHANT STATIC QRIS */}
         {activeTab === 'payment' && activeOrder && (() => {
           const currentOrderMerchant = merchants.find(m => m.id === activeOrder.merchantId) || (activeOrder.merchantId === selectedMerchant?.id ? selectedMerchant : null);
-          const qrisImageUrl = currentOrderMerchant?.qrisImage || activeOrder.merchantQrisImage;
+          const rawQris = currentOrderMerchant?.qrisImage || activeOrder.merchantQrisImage || systemConfig?.qrisImage;
+          const qrisImageUrl = (rawQris && typeof rawQris === 'string' && !rawQris.includes('unsplash') && rawQris.trim().length > 3)
+            ? rawQris.trim()
+            : '/qris-merchant.png';
           const isPaid = activeOrder.status === OrderStatus.PAYMENT_VERIFIED || activeOrder.paymentStatus === PaymentStatus.PAID;
           const isWaitingVerification = activeOrder.status === OrderStatus.WAITING_PAYMENT_VERIFICATION || activeOrder.paymentStatus === PaymentStatus.WAITING_VERIFICATION;
           const isRejected = activeOrder.status === OrderStatus.PAYMENT_REJECTED || activeOrder.paymentStatus === PaymentStatus.REJECTED;
@@ -3884,21 +3897,34 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
                   </div>
 
                   {/* QRIS Image Frame */}
-                  <div className="w-64 h-64 sm:w-72 sm:h-72 bg-slate-50 border-2 border-slate-200 rounded-2xl p-3 flex flex-col items-center justify-center relative shadow-inner group">
+                  <div className="w-full max-w-[320px] sm:max-w-[360px] bg-slate-50 border-2 border-slate-200 rounded-2xl p-3 sm:p-4 flex flex-col items-center justify-center relative shadow-sm group">
                     <img 
                       src={qrisImageUrl} 
                       alt={`QRIS ${activeOrder.merchantName}`}
-                      className="w-full h-full object-contain cursor-pointer transition-transform group-hover:scale-102"
+                      className="w-full h-auto max-h-[460px] object-contain rounded-xl cursor-pointer transition-transform group-hover:scale-[1.01] bg-white border border-slate-100 shadow-xs"
                       onClick={() => setProofZoomModalImage(qrisImageUrl)}
+                      onError={(e) => {
+                        (e.target as HTMLImageElement).src = '/qris-merchant.png';
+                      }}
                     />
-                    <button
-                      type="button"
-                      onClick={() => setProofZoomModalImage(qrisImageUrl)}
-                      className="absolute bottom-2 right-2 bg-slate-900/80 hover:bg-slate-900 text-white text-[10px] font-bold px-2 py-1 rounded-lg flex items-center gap-1 shadow-sm cursor-pointer"
-                    >
-                      <ZoomIn className="w-3 h-3" />
-                      Perbesar
-                    </button>
+                    <div className="flex items-center gap-2 mt-3 w-full justify-center">
+                      <button
+                        type="button"
+                        onClick={() => setProofZoomModalImage(qrisImageUrl)}
+                        className="bg-slate-800 hover:bg-slate-900 text-white text-[11px] font-bold px-3 py-1.5 rounded-xl flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer"
+                      >
+                        <ZoomIn className="w-3.5 h-3.5" />
+                        <span>Perbesar QRIS</span>
+                      </button>
+                      <a
+                        href={qrisImageUrl}
+                        download="qris-merchant.png"
+                        className="bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-bold px-3 py-1.5 rounded-xl flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer"
+                      >
+                        <Download className="w-3.5 h-3.5" />
+                        <span>Unduh QRIS</span>
+                      </a>
+                    </div>
                   </div>
 
                   <span className="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest mt-3">
@@ -3972,6 +3998,20 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
                   </div>
 
                   <form onSubmit={handlePaymentProofUpload} className="flex flex-col gap-3.5">
+                    {proofUploadSuccess && (
+                      <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl flex items-center gap-2 text-xs text-emerald-800 font-semibold animate-fade-in">
+                        <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                        <span>{proofUploadSuccess}</span>
+                      </div>
+                    )}
+
+                    {proofUploadError && (
+                      <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl flex items-center gap-2 text-xs text-rose-800 font-semibold animate-fade-in">
+                        <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+                        <span>{proofUploadError}</span>
+                      </div>
+                    )}
+
                     <div>
                       <label className="text-[10px] text-slate-500 font-bold uppercase tracking-wider block mb-1.5">
                         Pilih Foto / Tangkapan Layar Bukti Transfer:
@@ -4256,6 +4296,32 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
                       </p>
                     </div>
                   </div>
+
+                  {/* Action Link to QRIS Payment Page if not yet finalized */}
+                  {([OrderStatus.WAITING_PAYMENT, OrderStatus.WAITING_PAYMENT_VERIFICATION].includes(activeOrder.status) || activeOrder.paymentStatus === PaymentStatus.PENDING) && (
+                    <div className="mt-4 p-3.5 bg-rose-50 border border-rose-200 rounded-2xl flex flex-col gap-2">
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="font-bold text-rose-950 flex items-center gap-1.5">
+                          <QrCode className="w-4 h-4 text-rose-600" />
+                          {activeOrder.status === OrderStatus.WAITING_PAYMENT_VERIFICATION 
+                            ? 'Menunggu Verifikasi Pembayaran' 
+                            : 'Pembayaran QRIS Belum Selesai'}
+                        </span>
+                        <span className="font-bold font-mono text-rose-700">
+                          Rp {activeOrder.total.toLocaleString('id-ID')}
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setActiveTab('payment')}
+                        className="w-full py-2.5 bg-rose-600 hover:bg-rose-700 text-white font-extrabold rounded-xl text-xs flex items-center justify-center gap-1.5 shadow-sm transition-all cursor-pointer"
+                      >
+                        <QrCode className="w-3.5 h-3.5" />
+                        <span>Buka Halaman Pembayaran QRIS & Bukti</span>
+                        <ArrowRight className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  )}
 
                   {/* Terminal / Cancel / Rejections states */}
                   {activeOrder.status === OrderStatus.PAYMENT_REJECTED && (

@@ -15,7 +15,7 @@ import {
 import { foodConfig } from './config';
 import { hashPassword, verifyPassword } from './auth';
 import { OrderService } from './services/orderService';
-import { isDestinationInKecamatanTumpang, FLAT_TUMPANG_DELIVERY_FEE } from '../utils/deliveryFee';
+import { isDestinationInKecamatanTumpang, FLAT_TUMPANG_DELIVERY_FEE, normalizeOrderDeliveryFee } from '../utils/deliveryFee';
 import {
   getAdminDb,
   safeAdminSetDoc,
@@ -54,7 +54,7 @@ const initialConfig: SystemConfig = {
   defaultDeliveryFee: 5000,
   commissionPercent: 10,
   assignmentMode: AssignmentMode.AUTOMATIC,
-  qrisImage: 'https://images.unsplash.com/photo-1628157582853-a796fa650a6a?w=400&auto=format&fit=crop&q=60&ixlib=rb-4.0.3',
+  qrisImage: '/qris-merchant.png',
   systemOpen: true
 };
 
@@ -229,9 +229,11 @@ export class FoodDatabase {
     if (!this.data.orders) this.data.orders = [];
     if (!this.data.drivers) this.data.drivers = [];
     if (!this.data.settlements) this.data.settlements = [];
-    if (!this.data.auditLogs) this.data.auditLogs = [];
-    if (!this.data.systemConfig) this.data.systemConfig = initialConfig;
-    if (!this.data.partnerRegistrations) this.data.partnerRegistrations = [];
+    if (!this.data.systemConfig) {
+      this.data.systemConfig = initialConfig;
+    } else if (!this.data.systemConfig.qrisImage || this.data.systemConfig.qrisImage.includes('unsplash')) {
+      this.data.systemConfig.qrisImage = '/qris-merchant.png';
+    }
 
     if (this.data.merchants.length === 0) {
       this.seedInitial();
@@ -1079,23 +1081,24 @@ export class FoodDatabase {
 
   // --- ORDERS ---
   public getOrders(): Order[] {
-    return this.data.orders;
+    return this.data.orders.map(o => normalizeOrderDeliveryFee(o));
   }
 
   public getOrderById(id: string): Order | undefined {
-    return this.data.orders.find(o => o.id === id);
+    const o = this.data.orders.find(o => o.id === id);
+    return o ? normalizeOrderDeliveryFee(o) : undefined;
   }
 
   public getOrdersByMerchant(merchantId: string): Order[] {
-    return this.data.orders.filter(o => o.merchantId === merchantId);
+    return this.data.orders.filter(o => o.merchantId === merchantId).map(o => normalizeOrderDeliveryFee(o));
   }
 
   public getOrdersByDriver(driverId: string): Order[] {
-    return this.data.orders.filter(o => o.driverId === driverId);
+    return this.data.orders.filter(o => o.driverId === driverId).map(o => normalizeOrderDeliveryFee(o));
   }
 
   public getOrdersByCustomerPhone(phone: string): Order[] {
-    return this.data.orders.filter(o => o.customerPhone === phone);
+    return this.data.orders.filter(o => o.customerPhone === phone).map(o => normalizeOrderDeliveryFee(o));
   }
 
   public async findOrder(id: string): Promise<Order | undefined> {
@@ -1115,7 +1118,7 @@ export class FoodDatabase {
         console.warn(`[TumpangFood DB] Query remote order ${cleanId} failed:`, e.message);
       }
     }
-    return order;
+    return order ? normalizeOrderDeliveryFee(order) : undefined;
   }
 
   public async createOrder(rawInput: any): Promise<Order> {
@@ -1154,13 +1157,13 @@ export class FoodDatabase {
       activeUniqueCodes
     );
 
-    const newOrder: Order = {
+    const newOrder: Order = normalizeOrderDeliveryFee({
       ...validatedOrderData,
       id: 'ord_' + Math.random().toString(36).substring(2, 9),
       clientRequestId: rawInput.clientRequestId ? String(rawInput.clientRequestId).trim() : undefined,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
-    };
+    });
 
     this.data.orders.unshift(newOrder);
     this.save();
@@ -1239,11 +1242,11 @@ export class FoodDatabase {
       updates.status = OrderStatus.EXPIRED;
     }
 
-    this.data.orders[index] = {
+    this.data.orders[index] = normalizeOrderDeliveryFee({
       ...currentOrder,
       ...updates,
       updatedAt: new Date().toISOString()
-    };
+    });
     this.save();
 
     if (updates.status && updates.status !== prevStatus) {
