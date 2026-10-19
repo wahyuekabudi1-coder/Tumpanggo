@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 import { useHiddenTrigger } from '../hooks/useHiddenTrigger.ts';
 import HiddenPortalBar from './HiddenPortalBar.tsx';
+import { useSEO } from '../hooks/useSEO.ts';
 
 interface MerchantViewProps {
   merchantId: string;
@@ -29,6 +30,10 @@ interface MerchantViewProps {
 }
 
 export default function MerchantView({ merchantId, onLogout, onSelectRole }: MerchantViewProps) {
+  useSEO({
+    title: 'Portal Merchant – TumpangGo Internal',
+    isNoIndex: true
+  });
   const { isUnlocked, handleCopyrightClick } = useHiddenTrigger();
   const [merchant, setMerchant] = useState<Merchant | null>(null);
   const [orders, setOrders] = useState<Order[]>([]);

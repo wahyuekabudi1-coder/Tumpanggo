@@ -23,6 +23,7 @@ import {
 } from 'lucide-react';
 import { useHiddenTrigger } from '../hooks/useHiddenTrigger.ts';
 import HiddenPortalBar from './HiddenPortalBar.tsx';
+import { useSEO } from '../hooks/useSEO.ts';
 
 interface AdminViewProps {
   onLogout: () => void;
@@ -32,6 +33,10 @@ interface AdminViewProps {
 }
 
 export default function AdminView({ onLogout, systemConfig, onUpdateConfig, onSelectRole }: AdminViewProps) {
+  useSEO({
+    title: 'Dashboard Admin – TumpangGo Internal',
+    isNoIndex: true
+  });
   const { isUnlocked, handleCopyrightClick } = useHiddenTrigger();
   // Tabs: 'verify' | 'orders' | 'merchants' | 'drivers' | 'partners' | 'settlements' | 'settings'
   const [activeTab, setActiveTab] = useState<'verify' | 'orders' | 'merchants' | 'drivers' | 'partners' | 'settlements' | 'settings'>('verify');

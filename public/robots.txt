@@ -1,0 +1,21 @@
+# robots.txt for TumpangGo (https://tumpanggo.com)
+User-agent: *
+Allow: /
+Allow: /sitemap.xml
+Allow: /manifest.json
+Allow: /favicon.svg
+Allow: /favicon.png
+Allow: /logo44.png
+
+# Disallow indexing of private backend APIs and internal portal role query parameters
+Disallow: /api/
+Disallow: /*?role=ADMIN*
+Disallow: /*?role=admin*
+Disallow: /*?role=DRIVER*
+Disallow: /*?role=driver*
+Disallow: /*?role=SHOP_ADMIN*
+Disallow: /*?role=shop_admin*
+Disallow: /*?demo=true*
+
+# Reference canonical sitemap
+Sitemap: https://tumpanggo.com/sitemap.xml

@@ -14,12 +14,15 @@ import { compressImage, compressBase64 } from '../utils/imageCompressor.ts';
 import { safeStorage } from '../utils/safeStorage.ts';
 import { apiFetch as fetch, extractArrayResponse } from '../utils/apiClient.ts';
 import { calculateDeliveryFee, FLAT_TUMPANG_DELIVERY_FEE, isDestinationInKecamatanTumpang, normalizeOrderDeliveryFee } from '../utils/deliveryFee.ts';
+import { useSEO } from '../hooks/useSEO.ts';
+import UmkmEducationModule, { UMKM_ARTICLES } from './UmkmEducationModule.tsx';
 import { 
   Search, ShoppingBag, Store, MapPin, Clock, Star, ArrowLeft, Plus, Minus, Trash2, Check, 
   CheckCircle2, ArrowRight, Share2, Phone, Calendar, ClipboardList, RefreshCw, X,
   Download, Smartphone, Info, Home, UserPlus, Bike, Users, XCircle, Key, ShieldCheck,
   Wifi, Utensils, Car, Wallet, QrCode, Send, CreditCard, ArrowUpRight, ArrowDownLeft,
-  ExternalLink, Globe, Lock, Crown, Sparkles, Building2, BadgeCheck, Award, TrendingUp, ChevronLeft, ChevronRight, Heart, AlertCircle, ZoomIn, Upload
+  ExternalLink, Globe, Lock, Crown, Sparkles, Building2, BadgeCheck, Award, TrendingUp, ChevronLeft, ChevronRight, Heart, AlertCircle, ZoomIn, Upload,
+  BookOpen, HelpCircle, ChevronDown, ChevronUp
 } from 'lucide-react';
 
 interface CustomerViewProps {
@@ -41,9 +44,9 @@ export const CULINARY_CATEGORIES = [
 ];
 
 export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthModal, onSelectRole, onInstantDashboard, initialTab }: CustomerViewProps) {
-  // Navigation / Tab state
-  // 'home' | 'merchant-detail' | 'cart' | 'checkout' | 'payment' | 'tracking' | 'history' | 'partner-register'
+  // Navigation / Tab state: 'home' | 'merchant-detail' | 'cart' | 'checkout' | 'payment' | 'tracking' | 'history' | 'partner-register' | 'edukasi'
   const [activeTab, setActiveTab] = useState<string>(initialTab || 'home');
+  const [openFaqIndex, setOpenFaqIndex] = useState<number | null>(null);
 
   useEffect(() => {
     if (initialTab) {
@@ -385,6 +388,54 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
   const [categories, setCategories] = useState<Category[]>([]);
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [selectedMerchantCategory, setSelectedMerchantCategory] = useState<string>('all');
+
+  // Deep linking URL query parameters for SEO and direct social traffic
+  useEffect(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const serviceParam = params.get('service') || params.get('view');
+      const pageParam = params.get('page');
+      if (serviceParam === 'food') {
+        setHomeSubView('food');
+        setActiveTab('home');
+      }
+      if (pageParam === 'edukasi' || pageParam === 'panduan' || pageParam === 'artikel') {
+        setActiveTab('edukasi');
+      } else if (pageParam === 'merchant-register' || pageParam === 'partner-register') {
+        setActiveTab('partner-register');
+      }
+    } catch {}
+  }, []);
+
+  // Dynamic SEO Synchronization
+  useSEO({
+    title: activeTab === 'edukasi'
+      ? 'Panduan & Edukasi Digitalisasi UMKM Lokal | TumpangGo'
+      : activeTab === 'partner-register'
+        ? 'Pendaftaran Kemitraan UMKM | Bawa Usaha Lokal Naik Kelas – TumpangGo'
+        : activeTab === 'merchant-detail' && selectedMerchant
+          ? `${selectedMerchant.name} – Menu Kuliner Lokal & Pesan Online | TumpangGo`
+          : homeSubView === 'food'
+            ? 'Pesan Kuliner Lokal Tumpang Online | Menu Favorit UMKM – TumpangGo'
+            : 'TumpangGo – Saatnya Usaha Lokal Naik Kelas | Kuliner & Layanan Digital Tumpang Malang',
+    description: activeTab === 'edukasi'
+      ? 'Pelajari strategi digital marketing, konsistensi rasa kuliner, dan panduan adopsi teknologi bagi UMKM lokal dan pengusaha milenial di Tumpang.'
+      : activeTab === 'partner-register'
+        ? 'Daftarkan usaha kuliner Anda di TumpangGo. Buka peluang pasar baru dan jangkau lebih banyak pelanggan di Kecamatan Tumpang.'
+        : activeTab === 'merchant-detail' && selectedMerchant
+          ? `Pesan aneka menu dari ${selectedMerchant.name} di Tumpang Malang dengan ongkir flat hemat Rp 5.000 via TumpangGo.`
+          : homeSubView === 'food'
+            ? 'Temukan kuliner khas Kecamatan Tumpang Malang dari resto dan warung UMKM terdekat. Pesan mudah dengan ongkir hemat flat Rp 5.000.'
+            : 'TumpangGo hadir mendukung usaha lokal naik kelas di era digital. Pesan kuliner lokal Tumpang Malang dengan ongkir hemat flat Rp 5.000 dan pembayaran QRIS praktis.',
+    canonicalPath: activeTab === 'edukasi'
+      ? '/?page=edukasi'
+      : activeTab === 'partner-register'
+        ? '/?page=merchant-register'
+        : homeSubView === 'food'
+          ? '/?service=food'
+          : '/',
+    isNoIndex: false,
+  });
   
   // Search state
   const [searchQuery, setSearchQuery] = useState('');
@@ -1821,29 +1872,29 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
                   </div>
                 )}
 
-                {/* Hero Banner Auto-Sliding Carousel */}
+                {/* Hero Banner Auto-Sliding Carousel (Gambar Slide) */}
                 <BannerCarousel mode="main" altPrefix="Banner Platform Digital Warga Tumpang" />
 
                 {/* Main Menu Grid (Shopee Food / GoFood Style) */}
                 <div className="bg-white border border-slate-100 rounded-3xl p-5 shadow-sm flex flex-col gap-4">
                   <div className="flex justify-between items-center">
-                    <h4 className="font-display font-extrabold text-xs text-slate-400 uppercase tracking-wider">Layanan Tumpang Super-App</h4>
+                    <h2 className="font-display font-extrabold text-xs text-slate-400 uppercase tracking-wider">Layanan Tumpang Super-App</h2>
                   </div>
                   
-                  <div className="grid grid-cols-3 gap-3">
-                    {/* 1. Tumpang Food Menu (Active - Full Light) */}
+                  <div className="grid grid-cols-4 gap-2">
+                    {/* 1. Tumpang Food Menu */}
                     <button
                       id="btn-main-menu-food"
                       onClick={() => setHomeSubView('food')}
-                      className="flex flex-col items-center gap-2 cursor-pointer group active:scale-95 transition-all"
+                      className="flex flex-col items-center gap-1.5 cursor-pointer group active:scale-95 transition-all"
                     >
-                      <div className="w-14 h-14 rounded-2xl bg-[#EE2737] flex items-center justify-center text-white shadow-lg shadow-rose-500/20 group-hover:scale-105 transition-transform ring-2 ring-rose-500/20">
-                        <Utensils className="w-6 h-6 text-white" />
+                      <div className="w-13 h-13 rounded-2xl bg-[#EE2737] flex items-center justify-center text-white shadow-lg shadow-rose-500/20 group-hover:scale-105 transition-transform ring-2 ring-rose-500/20">
+                        <Utensils className="w-5 h-5 text-white" />
                       </div>
-                      <span className="font-extrabold text-[11px] text-slate-800 tracking-tight text-center">Tumpang Food</span>
+                      <span className="font-extrabold text-[10px] text-slate-800 tracking-tight text-center">Tumpang Food</span>
                     </button>
 
-                    {/* 2. Tumpang Pay Menu (Active - Full Light) */}
+                    {/* 2. Tumpang Pay Menu */}
                     <button
                       id="btn-main-menu-pay"
                       onClick={() => {
@@ -1851,29 +1902,41 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
                         setHomeSubView('pay');
                         setPayActiveScreen('main');
                       }}
-                      className="flex flex-col items-center gap-2 cursor-pointer group active:scale-95 transition-all"
+                      className="flex flex-col items-center gap-1.5 cursor-pointer group active:scale-95 transition-all"
                     >
-                      <div className="w-14 h-14 rounded-2xl bg-[#6D28D9] flex items-center justify-center text-white shadow-lg shadow-purple-500/20 group-hover:scale-105 transition-transform ring-2 ring-purple-500/20">
-                        <Wallet className="w-6 h-6 text-white" />
+                      <div className="w-13 h-13 rounded-2xl bg-[#6D28D9] flex items-center justify-center text-white shadow-lg shadow-purple-500/20 group-hover:scale-105 transition-transform ring-2 ring-purple-500/20">
+                        <Wallet className="w-5 h-5 text-white" />
                       </div>
-                      <span className="font-extrabold text-[11px] text-slate-800 tracking-tight text-center">Tumpang Pay</span>
+                      <span className="font-extrabold text-[10px] text-slate-800 tracking-tight text-center">Tumpang Pay</span>
                     </button>
 
-                    {/* 3. Tumpang Niaga Menu (Coming Soon) */}
+                    {/* 3. Tumpang Niaga Menu */}
                     <button
                       id="btn-main-menu-shop"
                       onClick={() => setHomeSubView('shop')}
-                      className="flex flex-col items-center gap-2 cursor-pointer group active:scale-95 transition-all"
+                      className="flex flex-col items-center gap-1.5 cursor-pointer group active:scale-95 transition-all"
                     >
                       <div className="relative">
-                        <div className="w-14 h-14 rounded-2xl bg-[#0F82FF] flex items-center justify-center text-white shadow-lg shadow-blue-500/20 group-hover:scale-105 transition-transform ring-2 ring-blue-500/20">
-                          <ShoppingBag className="w-6 h-6 text-white" />
+                        <div className="w-13 h-13 rounded-2xl bg-[#0F82FF] flex items-center justify-center text-white shadow-lg shadow-blue-500/20 group-hover:scale-105 transition-transform ring-2 ring-blue-500/20">
+                          <ShoppingBag className="w-5 h-5 text-white" />
                         </div>
-                        <span className="absolute -top-1.5 -right-2.5 bg-blue-600 text-white text-[8px] font-black px-1.5 py-0.5 rounded-full shadow-xs uppercase tracking-tight">
+                        <span className="absolute -top-1 -right-2 bg-blue-600 text-white text-[7px] font-black px-1.5 py-0.5 rounded-full shadow-xs uppercase tracking-tight">
                           Segera
                         </span>
                       </div>
-                      <span className="font-extrabold text-[11px] text-slate-800 tracking-tight text-center">Tumpang Niaga</span>
+                      <span className="font-extrabold text-[10px] text-slate-800 tracking-tight text-center">Tumpang Niaga</span>
+                    </button>
+
+                    {/* 4. Edukasi UMKM Menu */}
+                    <button
+                      id="btn-main-menu-edukasi"
+                      onClick={() => setActiveTab('edukasi')}
+                      className="flex flex-col items-center gap-1.5 cursor-pointer group active:scale-95 transition-all"
+                    >
+                      <div className="w-13 h-13 rounded-2xl bg-[#185338] flex items-center justify-center text-white shadow-lg shadow-emerald-700/20 group-hover:scale-105 transition-transform ring-2 ring-emerald-600/30">
+                        <BookOpen className="w-5 h-5 text-amber-300" />
+                      </div>
+                      <span className="font-extrabold text-[10px] text-slate-800 tracking-tight text-center">Edukasi UMKM</span>
                     </button>
                   </div>
                 </div>
@@ -1889,9 +1952,9 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
                       </div>
                       <div>
                         <div className="flex items-center gap-1.5">
-                          <h4 className="font-display font-extrabold text-sm sm:text-base text-slate-900 leading-tight">
+                          <h2 className="font-display font-extrabold text-sm sm:text-base text-slate-900 leading-tight">
                             Rekomendasi Kuliner
-                          </h4>
+                          </h2>
                           <span className="bg-emerald-100 text-emerald-800 text-[9px] font-black px-2 py-0.5 rounded-full flex items-center gap-0.5 shadow-2xs uppercase tracking-tight border border-emerald-200">
                             Pilihan
                           </span>
@@ -2080,6 +2143,130 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
                     Klik di sini
                   </button>
                 </div>
+
+                {/* Section Edukasi & Strategi UMKM Naik Kelas */}
+                <section aria-labelledby="section-edukasi-title" className="bg-white rounded-3xl border border-slate-100 p-4 sm:p-5 shadow-xs flex flex-col gap-3.5 my-2">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-9 h-9 rounded-full bg-emerald-100 text-emerald-800 flex items-center justify-center shrink-0">
+                        <BookOpen className="w-4 h-4 text-emerald-800" />
+                      </div>
+                      <div>
+                        <h2 id="section-edukasi-title" className="font-display font-extrabold text-sm sm:text-base text-slate-900 leading-tight">
+                          Edukasi &amp; Tips UMKM Naik Kelas
+                        </h2>
+                        <p className="text-[11px] sm:text-xs text-slate-500 font-medium">
+                          Strategi bisnis digital untuk pengusaha milenial &amp; lokal
+                        </p>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => setActiveTab('edukasi')}
+                      className="text-xs font-extrabold text-emerald-800 hover:underline flex items-center gap-0.5 shrink-0 cursor-pointer"
+                    >
+                      Semua <ChevronRight className="w-4 h-4" />
+                    </button>
+                  </div>
+
+                  <div className="grid grid-cols-1 gap-2.5">
+                    {UMKM_ARTICLES.slice(0, 3).map((article) => (
+                      <div
+                        key={`home-article-${article.id}`}
+                        onClick={() => setActiveTab('edukasi')}
+                        className="bg-slate-50 hover:bg-emerald-50/50 border border-slate-100/80 rounded-2xl p-3 sm:p-3.5 transition-all cursor-pointer flex flex-col gap-1 group"
+                      >
+                        <div className="flex items-center justify-between text-[10px]">
+                          <span className="font-black uppercase px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-800">
+                            {article.category}
+                          </span>
+                          <span className="text-slate-400 font-medium flex items-center gap-1">
+                            <Clock className="w-3 h-3" /> {article.readTime}
+                          </span>
+                        </div>
+                        <h3 className="font-extrabold text-xs sm:text-sm text-slate-900 group-hover:text-emerald-800 transition-colors line-clamp-1 pt-0.5">
+                          {article.title}
+                        </h3>
+                        <p className="text-[11px] text-slate-500 line-clamp-2 leading-relaxed">
+                          {article.summary}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+
+                  <button
+                    onClick={() => setActiveTab('edukasi')}
+                    className="w-full bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs py-2.5 px-4 rounded-xl transition-all text-center flex items-center justify-center gap-1.5 cursor-pointer"
+                  >
+                    <BookOpen className="w-3.5 h-3.5 text-emerald-700" />
+                    <span>Baca Semua Panduan &amp; Tips Usaha ({UMKM_ARTICLES.length} Artikel)</span>
+                  </button>
+                </section>
+
+                {/* Section Tanya Jawab / FAQ Seputar TumpangGo */}
+                <section aria-labelledby="section-faq-title" className="bg-white rounded-3xl border border-slate-100 p-4 sm:p-5 shadow-xs flex flex-col gap-3.5 my-2">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-9 h-9 rounded-full bg-amber-100 text-amber-800 flex items-center justify-center shrink-0">
+                      <HelpCircle className="w-4 h-4 text-amber-800" />
+                    </div>
+                    <div>
+                      <h2 id="section-faq-title" className="font-display font-extrabold text-sm sm:text-base text-slate-900 leading-tight">
+                        Tanya Jawab Seputar TumpangGo
+                      </h2>
+                      <p className="text-[11px] sm:text-xs text-slate-500 font-medium">
+                        Informasi penting mengenai layanan, pemesanan, dan kemitraan
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-col gap-2">
+                    {[
+                      {
+                        q: 'Apa itu platform TumpangGo?',
+                        a: 'TumpangGo adalah ekosistem digital lokal yang menghubungkan warga Kecamatan Tumpang, Kabupaten Malang dengan aneka kuliner UMKM lokal, kurir pengantaran cepat, serta layanan pembayaran QRIS praktis.'
+                      },
+                      {
+                        q: 'Berapa tarif ongkir pengantaran kuliner di TumpangGo?',
+                        a: 'Tarif pengantaran makanan di TumpangGo sangat bersahabat yaitu flat Rp 5.000 se-Kecamatan Tumpang, didukung oleh pengemudi kurir lokal yang mengenal jalan dan lingkungan sekitar.'
+                      },
+                      {
+                        q: 'Bagaimana cara pelaku UMKM mendaftar menjadi mitra?',
+                        a: 'Pelaku usaha kuliner dan warung lokal di Kecamatan Tumpang dapat mendaftar langsung secara online melalui tombol "Mulai Kembangkan Usaha" atau menu "Menjadi Mitra UMKM" di halaman ini tanpa dipungut biaya pendaftaran.'
+                      },
+                      {
+                        q: 'Apa saja metode pembayaran yang didukung?',
+                        a: 'TumpangGo menyediakan pilihan pembayaran non-tunai QRIS otomatis yang menerima semua bank dan dompet digital (BCA, BRI, Mandiri, BNI, GoPay, OVO, Dana, ShopeePay), payment gateway ArtoPay, serta bayar tunai di tempat (COD).'
+                      }
+                    ].map((faq, idx) => {
+                      const isOpen = openFaqIndex === idx;
+                      return (
+                        <div
+                          key={`faq-${idx}`}
+                          className="border border-slate-100 rounded-2xl overflow-hidden transition-all"
+                        >
+                          <button
+                            type="button"
+                            onClick={() => setOpenFaqIndex(isOpen ? null : idx)}
+                            className="w-full text-left p-3.5 bg-slate-50 hover:bg-slate-100/80 transition-colors flex items-center justify-between gap-2 cursor-pointer"
+                          >
+                            <h3 className="font-extrabold text-xs text-slate-800 leading-snug">
+                              {faq.q}
+                            </h3>
+                            {isOpen ? (
+                              <ChevronUp className="w-4 h-4 text-emerald-700 shrink-0" />
+                            ) : (
+                              <ChevronDown className="w-4 h-4 text-slate-400 shrink-0" />
+                            )}
+                          </button>
+                          {isOpen && (
+                            <div className="p-3.5 bg-white text-[11px] sm:text-xs text-slate-600 leading-relaxed border-t border-slate-100">
+                              {faq.a}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </section>
 
                 {/* Footer Section */}
                 {renderFooter()}
@@ -5427,6 +5614,27 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
 
             {/* Footer Section */}
             {renderFooter('-partner')}
+          </div>
+        )}
+
+        {/* 9. EDUKASI & PANDUAN DIGITALISASI UMKM TAB */}
+        {activeTab === 'edukasi' && (
+          <div className="flex flex-col gap-5 pb-6">
+            <UmkmEducationModule
+              onBackToHome={() => {
+                setActiveTab('home');
+                setHomeSubView('main');
+              }}
+              onOpenPartnerRegister={() => {
+                setActiveTab('partner-register');
+              }}
+              onExploreFood={() => {
+                setActiveTab('home');
+                setHomeSubView('food');
+              }}
+            />
+            {/* Footer Section */}
+            {renderFooter('-edukasi')}
           </div>
         )}
       </main>

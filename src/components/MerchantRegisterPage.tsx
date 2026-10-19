@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { safeStorage } from '../utils/safeStorage.ts';
 import { apiFetch as fetch } from '../utils/apiClient.ts';
 import Logo from './Logo.tsx';
+import { useSEO } from '../hooks/useSEO.ts';
 
 import { 
   Store, User, Phone, Mail, MapPin, Tag, Lock, ArrowRight, CheckCircle2, 
@@ -14,6 +15,12 @@ interface MerchantRegisterPageProps {
 }
 
 export default function MerchantRegisterPage({ onBackToHome, onGoToLogin }: MerchantRegisterPageProps) {
+  useSEO({
+    title: 'Pendaftaran Mitra UMKM Kuliner | Bawa Usaha Lokal Naik Kelas – TumpangGo',
+    description: 'Daftarkan usaha kuliner dan toko lokal Anda di TumpangGo. Buka pasar lebih luas di Kecamatan Tumpang Malang dengan dukungan teknologi digital terintegrasi.',
+    canonicalPath: '/?page=merchant-register',
+    isNoIndex: false
+  });
   // Form states
   const [storeName, setStoreName] = useState('');
   const [ownerName, setOwnerName] = useState('');

@@ -1,6 +1,8 @@
 {
   "name": "tumpangGo",
-  "description": "Platform Pemesanan Makanan Lokal Berbasis Website dan Progressive Web App (PWA) yang menghubungkan Customer, Merchant, Driver, dan Admin dalam satu sistem terintegrasi.",
+  "description": "TumpangGo hadir mendukung usaha lokal naik kelas di era digital. Pesan kuliner lokal Tumpang Malang dengan ongkir hemat flat Rp 5.000 dan pembayaran QRIS praktis.",
   "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
 }

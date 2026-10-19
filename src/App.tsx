@@ -18,9 +18,22 @@ import { safeStorage } from './utils/safeStorage.ts';
 import { apiFetch as fetch, extractArrayResponse } from './utils/apiClient.ts';
 import { configure } from '@arto-pay/js-sdk';
 import { ShieldAlert, Key, HelpCircle, Store, Navigation, ChevronRight } from 'lucide-react';
+import { useSEO } from './hooks/useSEO.ts';
 
 export default function App() {
   const [currentRole, setCurrentRole] = useState<'CUSTOMER' | 'MERCHANT' | 'DRIVER' | 'ADMIN' | 'SHOP_ADMIN'>('CUSTOMER');
+
+  // Dynamic SEO Synchronization at App Level for Internal Roles
+  useSEO({
+    isNoIndex: currentRole !== 'CUSTOMER',
+    title: currentRole === 'ADMIN'
+      ? 'Dashboard Admin – TumpangGo Internal'
+      : currentRole === 'DRIVER'
+        ? 'Portal Driver – TumpangGo Internal'
+        : currentRole === 'SHOP_ADMIN'
+          ? 'Shop Admin – TumpangGo Internal'
+          : undefined
+  });
   const [activeMerchantId, setActiveMerchantId] = useState<string>('');
   const [activeDriverId, setActiveDriverId] = useState<string>('');
   const [merchantPortalTab, setMerchantPortalTab] = useState<'login' | 'register'>('login');

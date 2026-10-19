@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import { useHiddenTrigger } from '../hooks/useHiddenTrigger.ts';
 import HiddenPortalBar from './HiddenPortalBar.tsx';
+import { useSEO } from '../hooks/useSEO.ts';
 
 interface DriverViewProps {
   driverId: string;
@@ -17,6 +18,10 @@ interface DriverViewProps {
 }
 
 export default function DriverView({ driverId, onLogout, onSelectRole }: DriverViewProps) {
+  useSEO({
+    title: 'Portal Driver – TumpangGo Internal',
+    isNoIndex: true
+  });
   const { isUnlocked, handleCopyrightClick } = useHiddenTrigger();
   const [driver, setDriver] = useState<Driver | null>(null);
   const [assignedOrders, setAssignedOrders] = useState<Order[]>([]);
