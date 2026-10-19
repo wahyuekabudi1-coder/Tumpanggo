@@ -16,6 +16,7 @@ import { apiFetch as fetch, extractArrayResponse } from '../utils/apiClient.ts';
 import { calculateDeliveryFee, FLAT_TUMPANG_DELIVERY_FEE, isDestinationInKecamatanTumpang, normalizeOrderDeliveryFee } from '../utils/deliveryFee.ts';
 import { useSEO } from '../hooks/useSEO.ts';
 import UmkmEducationModule, { UMKM_ARTICLES } from './UmkmEducationModule.tsx';
+import UserTestimonialsSection from './UserTestimonialsSection.tsx';
 import { 
   Search, ShoppingBag, Store, MapPin, Clock, Star, ArrowLeft, Plus, Minus, Trash2, Check, 
   CheckCircle2, ArrowRight, Share2, Phone, Calendar, ClipboardList, RefreshCw, X,
@@ -2201,6 +2202,9 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
                     <span>Baca Semua Panduan &amp; Tips Usaha ({UMKM_ARTICLES.length} Artikel)</span>
                   </button>
                 </section>
+
+                {/* Section Cerita Pengguna TumpangGo */}
+                <UserTestimonialsSection />
 
                 {/* Section Tanya Jawab / FAQ Seputar TumpangGo */}
                 <section aria-labelledby="section-faq-title" className="bg-white rounded-3xl border border-slate-100 p-4 sm:p-5 shadow-xs flex flex-col gap-3.5 my-2">

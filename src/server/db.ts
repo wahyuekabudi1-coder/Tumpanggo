@@ -10,7 +10,8 @@ import fs from 'fs';
 import path from 'path';
 import {
   Merchant, Category, MenuItem, Order, Driver, Settlement, AuditLog, SystemConfig,
-  OrderStatus, PaymentStatus, SettlementStatus, AssignmentMode, PartnerRegistration
+  OrderStatus, PaymentStatus, SettlementStatus, AssignmentMode, PartnerRegistration,
+  Testimonial
 } from '../types';
 import { foodConfig } from './config';
 import { hashPassword, verifyPassword } from './auth';
@@ -46,6 +47,7 @@ interface DatabaseSchema {
   auditLogs: AuditLog[];
   systemConfig: SystemConfig;
   partnerRegistrations: PartnerRegistration[];
+  testimonials: Testimonial[];
 }
 
 const initialConfig: SystemConfig = {
@@ -72,7 +74,8 @@ export class FoodDatabase {
       settlements: [],
       auditLogs: [],
       systemConfig: initialConfig,
-      partnerRegistrations: []
+      partnerRegistrations: [],
+      testimonials: []
     };
     this.loadAndMigrate();
   }
@@ -229,6 +232,8 @@ export class FoodDatabase {
     if (!this.data.orders) this.data.orders = [];
     if (!this.data.drivers) this.data.drivers = [];
     if (!this.data.settlements) this.data.settlements = [];
+    if (!this.data.partnerRegistrations) this.data.partnerRegistrations = [];
+    if (!this.data.testimonials) this.data.testimonials = [];
     if (!this.data.systemConfig) {
       this.data.systemConfig = initialConfig;
     } else if (!this.data.systemConfig.qrisImage || this.data.systemConfig.qrisImage.includes('unsplash')) {
@@ -594,6 +599,20 @@ export class FoodDatabase {
         }
       } catch (e: any) {
         console.warn('[TumpangFood DB] Failed to sync partnerRegistrations with Firestore:', e.message);
+      }
+
+      // Testimonials (Cerita Pengguna)
+      try {
+        const remoteTestis = await safeAdminGetDocs('testimonials');
+        if (remoteTestis.length > 0) {
+          this.data.testimonials = remoteTestis as Testimonial[];
+        } else if (this.data.testimonials && this.data.testimonials.length > 0) {
+          for (const t of this.data.testimonials) {
+            await safeAdminSetDoc('testimonials', t.id, t);
+          }
+        }
+      } catch (e: any) {
+        console.warn('[TumpangFood DB] Failed to sync testimonials with Firestore:', e.message);
       }
 
 
@@ -1817,6 +1836,84 @@ export class FoodDatabase {
     this.save();
     this.log(userId, `Rejected partner registration ${reg.id} (${reg.name})`, 'ADMIN');
     return true;
+  }
+
+  // --- TESTIMONIALS (CERITA PENGGUNA) ---
+  public getPublishedTestimonials(): Testimonial[] {
+    if (!Array.isArray(this.data.testimonials)) return [];
+    return this.data.testimonials
+      .filter(t => t.status === 'published' && t.consentApproved === true)
+      .sort((a, b) => {
+        if (a.displayOrder !== b.displayOrder) {
+          return (a.displayOrder || 0) - (b.displayOrder || 0);
+        }
+        return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+      });
+  }
+
+  public getAllTestimonials(): Testimonial[] {
+    if (!Array.isArray(this.data.testimonials)) return [];
+    return [...this.data.testimonials].sort((a, b) => {
+      if (a.displayOrder !== b.displayOrder) {
+        return (a.displayOrder || 0) - (b.displayOrder || 0);
+      }
+      return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+    });
+  }
+
+  public async createTestimonial(testimonialData: Omit<Testimonial, 'id' | 'createdAt'>): Promise<Testimonial> {
+    if (!Array.isArray(this.data.testimonials)) this.data.testimonials = [];
+    const now = new Date().toISOString();
+    const newTesti: Testimonial = {
+      id: 'testi_' + Date.now().toString(36) + '_' + Math.random().toString(36).substring(2, 6),
+      userName: (testimonialData.userName || '').trim(),
+      category: testimonialData.category === 'umkm' ? 'umkm' : 'pelanggan',
+      content: (testimonialData.content || '').trim(),
+      avatarUrl: testimonialData.avatarUrl?.trim() || undefined,
+      roleDetail: testimonialData.roleDetail?.trim() || undefined,
+      consentApproved: Boolean(testimonialData.consentApproved),
+      status: testimonialData.status === 'published' ? 'published' : 'draft',
+      displayOrder: Number(testimonialData.displayOrder) || 1,
+      createdAt: now,
+      updatedAt: now
+    };
+
+    this.data.testimonials.push(newTesti);
+    this.save();
+    safeFirestoreSetDoc('testimonials', newTesti.id, newTesti);
+    return newTesti;
+  }
+
+  public async updateTestimonial(id: string, updates: Partial<Testimonial>): Promise<Testimonial | null> {
+    if (!Array.isArray(this.data.testimonials)) return null;
+    const index = this.data.testimonials.findIndex(t => t.id === id);
+    if (index === -1) return null;
+
+    const prev = this.data.testimonials[index];
+    const updated: Testimonial = {
+      ...prev,
+      ...updates,
+      id: prev.id, // prevent ID overwrite
+      createdAt: prev.createdAt,
+      updatedAt: new Date().toISOString()
+    };
+
+    this.data.testimonials[index] = updated;
+    this.save();
+    safeFirestoreSetDoc('testimonials', updated.id, updated);
+    return updated;
+  }
+
+  public async deleteTestimonial(id: string): Promise<boolean> {
+    if (!Array.isArray(this.data.testimonials)) return false;
+    const initialLen = this.data.testimonials.length;
+    this.data.testimonials = this.data.testimonials.filter(t => t.id !== id);
+    if (this.data.testimonials.length !== initialLen) {
+      this.save();
+      safeAdminDeleteDoc('testimonials', id);
+      return true;
+    }
+    return false;
   }
 }
 

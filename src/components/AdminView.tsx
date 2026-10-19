@@ -9,7 +9,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { 
-  Order, OrderStatus, PaymentStatus, Merchant, Driver, Settlement, SettlementStatus, SystemConfig 
+  Order, OrderStatus, PaymentStatus, Merchant, Driver, Settlement, SettlementStatus, SystemConfig, Testimonial 
 } from '../types.ts';
 import { safeStorage } from '../utils/safeStorage.ts';
 import { compressImage } from '../utils/imageCompressor.ts';
@@ -19,7 +19,7 @@ import {
   Check, X, FileText, AlertTriangle, Truck, RefreshCw, ZoomIn, Eye,
   UserPlus, Search, ArrowUpRight, Clock, Phone, MapPin, Building,
   CheckCircle2, XCircle, ChevronRight, Sliders, ArrowDownRight, Wallet, LogOut,
-  QrCode, ExternalLink, Trash2, Upload
+  QrCode, ExternalLink, Trash2, Upload, Quote
 } from 'lucide-react';
 import { useHiddenTrigger } from '../hooks/useHiddenTrigger.ts';
 import HiddenPortalBar from './HiddenPortalBar.tsx';
@@ -38,14 +38,26 @@ export default function AdminView({ onLogout, systemConfig, onUpdateConfig, onSe
     isNoIndex: true
   });
   const { isUnlocked, handleCopyrightClick } = useHiddenTrigger();
-  // Tabs: 'verify' | 'orders' | 'merchants' | 'drivers' | 'partners' | 'settlements' | 'settings'
-  const [activeTab, setActiveTab] = useState<'verify' | 'orders' | 'merchants' | 'drivers' | 'partners' | 'settlements' | 'settings'>('verify');
+  // Tabs: 'verify' | 'orders' | 'merchants' | 'drivers' | 'partners' | 'settlements' | 'settings' | 'testimonials'
+  const [activeTab, setActiveTab] = useState<'verify' | 'orders' | 'merchants' | 'drivers' | 'partners' | 'settlements' | 'settings' | 'testimonials'>('verify');
   const [orders, setOrders] = useState<Order[]>([]);
   const [merchants, setMerchants] = useState<Merchant[]>([]);
   const [drivers, setDrivers] = useState<Driver[]>([]);
   const [settlements, setSettlements] = useState<Settlement[]>([]);
   const [partnerRegistrations, setPartnerRegistrations] = useState<any[]>([]);
+  const [testimonials, setTestimonials] = useState<Testimonial[]>([]);
   const [loading, setLoading] = useState(true);
+
+  // States for adding / creating new testimonial in admin
+  const [showAddTestiForm, setShowAddTestiForm] = useState(false);
+  const [newTestiName, setNewTestiName] = useState('');
+  const [newTestiCategory, setNewTestiCategory] = useState<'umkm' | 'pelanggan'>('umkm');
+  const [newTestiRole, setNewTestiRole] = useState('');
+  const [newTestiContent, setNewTestiContent] = useState('');
+  const [newTestiOrder, setNewTestiOrder] = useState<number>(1);
+  const [newTestiStatus, setNewTestiStatus] = useState<'published' | 'draft'>('published');
+  const [newTestiConsent, setNewTestiConsent] = useState<boolean>(true);
+  const [savingTesti, setSavingTesti] = useState(false);
 
   // Search & Filter
   const [orderSearchQuery, setOrderSearchQuery] = useState('');
@@ -92,18 +104,20 @@ export default function AdminView({ onLogout, systemConfig, onUpdateConfig, onSe
   const fetchAdminData = async () => {
     setLoading(true);
     try {
-      const [ordData, merData, drData, setData, prData] = await Promise.all([
+      const [ordData, merData, drData, setData, prData, testiData] = await Promise.all([
         fetch('/api/orders').then(r => r.ok ? r.json() : []).catch(() => []),
         fetch('/api/merchants').then(r => r.ok ? r.json() : []).catch(() => []),
         fetch('/api/drivers').then(r => r.ok ? r.json() : []).catch(() => []),
         fetch('/api/settlements').then(r => r.ok ? r.json() : []).catch(() => []),
-        fetch('/api/partner-registrations').then(r => r.ok ? r.json() : []).catch(() => [])
+        fetch('/api/partner-registrations').then(r => r.ok ? r.json() : []).catch(() => []),
+        fetch('/api/admin/testimonials').then(r => r.ok ? r.json() : []).catch(() => [])
       ]);
       setOrders(extractArrayResponse<Order>(ordData, 'orders'));
       setMerchants(extractArrayResponse<Merchant>(merData, 'merchants'));
       setDrivers(extractArrayResponse<Driver>(drData, 'drivers'));
       setSettlements(extractArrayResponse<Settlement>(setData, 'settlements'));
       setPartnerRegistrations(extractArrayResponse<any>(prData, 'partnerRegistrations'));
+      setTestimonials(extractArrayResponse<Testimonial>(testiData, 'testimonials'));
     } catch (e) {
       console.error('Failed to fetch admin data:', e);
     } finally {
@@ -528,6 +542,91 @@ export default function AdminView({ onLogout, systemConfig, onUpdateConfig, onSe
     )
   );
 
+  const handleTogglePublishTestimonial = async (id: string, currentStatus: string) => {
+    try {
+      const newStatus = currentStatus === 'published' ? 'draft' : 'published';
+      const res = await fetch(`/api/admin/testimonials/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: newStatus, consentApproved: true })
+      });
+      if (res.ok) {
+        fetchAdminData();
+      } else {
+        const err = await res.json();
+        alert(err.error || 'Gagal mengubah status testimoni');
+      }
+    } catch (e: any) {
+      alert('Terjadi kesalahan: ' + e.message);
+    }
+  };
+
+  const handleToggleConsentTestimonial = async (id: string, currentConsent: boolean) => {
+    try {
+      const res = await fetch(`/api/admin/testimonials/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ consentApproved: !currentConsent })
+      });
+      if (res.ok) {
+        fetchAdminData();
+      }
+    } catch (e: any) {
+      alert('Terjadi kesalahan: ' + e.message);
+    }
+  };
+
+  const handleDeleteTestimonial = async (id: string) => {
+    if (!confirm('Hapus cerita pengguna ini?')) return;
+    try {
+      const res = await fetch(`/api/admin/testimonials/${id}`, { method: 'DELETE' });
+      if (res.ok) {
+        fetchAdminData();
+      }
+    } catch (e: any) {
+      alert('Terjadi kesalahan: ' + e.message);
+    }
+  };
+
+  const handleCreateTestimonial = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newTestiName.trim() || !newTestiContent.trim()) {
+      alert('Nama dan isi cerita wajib diisi');
+      return;
+    }
+    setSavingTesti(true);
+    try {
+      const res = await fetch('/api/admin/testimonials', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userName: newTestiName.trim(),
+          category: newTestiCategory,
+          roleDetail: newTestiRole.trim() || undefined,
+          content: newTestiContent.trim(),
+          displayOrder: Number(newTestiOrder) || 1,
+          status: newTestiStatus,
+          consentApproved: newTestiConsent
+        })
+      });
+      if (res.ok) {
+        setShowAddTestiForm(false);
+        setNewTestiName('');
+        setNewTestiRole('');
+        setNewTestiContent('');
+        setNewTestiOrder(1);
+        fetchAdminData();
+      } else {
+        const err = await res.json();
+        alert(err.error || 'Gagal menyimpan testimoni');
+      }
+    } catch (e: any) {
+      alert('Terjadi kesalahan: ' + e.message);
+    } finally {
+      setSavingTesti(false);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-slate-50 text-slate-800 font-sans pb-16">
       {/* Top Header */}
@@ -631,6 +730,7 @@ export default function AdminView({ onLogout, systemConfig, onUpdateConfig, onSe
               { id: 'drivers', label: 'Mitra Driver', count: drivers.length, icon: Users },
               { id: 'partners', label: 'Pendaftaran Mitra', count: pendingPartnerRegs.length, icon: UserPlus },
               { id: 'settlements', label: 'Settlement & Payout', count: settlements.length, icon: DollarSign },
+              { id: 'testimonials', label: 'Cerita Pengguna', count: testimonials.filter(t => t.status === 'draft').length, icon: Quote },
               { id: 'settings', label: 'Pengaturan Sistem', icon: Settings },
             ].map(tab => {
               const Icon = tab.icon;
@@ -1557,6 +1657,222 @@ export default function AdminView({ onLogout, systemConfig, onUpdateConfig, onSe
                 </button>
               </div>
             </form>
+          </div>
+        )}
+
+        {/* 8. TAB: KELOLA CERITA PENGGUNA (TESTIMONIALS) */}
+        {activeTab === 'testimonials' && (
+          <div className="space-y-6">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-4 sm:p-5 rounded-2xl border border-slate-200/80 shadow-xs">
+              <div>
+                <h2 className="font-display font-bold text-base sm:text-lg text-slate-900">Kelola Cerita Pengguna TumpangGo</h2>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Kurasi dan moderasi testimoni dari pelaku UMKM dan pelanggan. Hanya cerita yang berstatus "published" dan memiliki persetujuan publikasi yang akan ditampilkan di homepage.
+                </p>
+              </div>
+
+              <button
+                onClick={() => setShowAddTestiForm(!showAddTestiForm)}
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition-all shadow-xs cursor-pointer self-start sm:self-auto"
+              >
+                <Quote className="w-3.5 h-3.5" />
+                <span>{showAddTestiForm ? 'Tutup Formulir' : 'Tambah Cerita'}</span>
+              </button>
+            </div>
+
+            {/* Add New Testimonial Form */}
+            {showAddTestiForm && (
+              <form onSubmit={handleCreateTestimonial} className="bg-white p-4 sm:p-5 rounded-2xl border border-emerald-200 shadow-xs space-y-4">
+                <h3 className="font-bold text-xs sm:text-sm text-slate-900 flex items-center gap-2">
+                  <Quote className="w-4 h-4 text-emerald-600" />
+                  Tambah Cerita Pengguna Baru
+                </h3>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div>
+                    <label className="text-xs font-bold text-slate-700 block mb-1">Nama Pengguna *</label>
+                    <input
+                      type="text"
+                      required
+                      value={newTestiName}
+                      onChange={(e) => setNewTestiName(e.target.value)}
+                      placeholder="Contoh: Pak Slamet"
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-xs focus:outline-none focus:border-emerald-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="text-xs font-bold text-slate-700 block mb-1">Kategori *</label>
+                    <select
+                      value={newTestiCategory}
+                      onChange={(e) => setNewTestiCategory(e.target.value as any)}
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-xs focus:outline-none focus:border-emerald-500"
+                    >
+                      <option value="umkm">Pelaku UMKM</option>
+                      <option value="pelanggan">Pelanggan</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="text-xs font-bold text-slate-700 block mb-1">Peran / Keterangan</label>
+                    <input
+                      type="text"
+                      value={newTestiRole}
+                      onChange={(e) => setNewTestiRole(e.target.value)}
+                      placeholder="Contoh: Pemilik Warung Bakso Barokah"
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-xs focus:outline-none focus:border-emerald-500"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-xs font-bold text-slate-700 block mb-1">Isi Cerita / Testimoni *</label>
+                  <textarea
+                    required
+                    rows={3}
+                    maxLength={350}
+                    value={newTestiContent}
+                    onChange={(e) => setNewTestiContent(e.target.value)}
+                    placeholder="Tuliskan pengalaman nyata pengguna..."
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-xs focus:outline-none focus:border-emerald-500 resize-none"
+                  />
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div>
+                    <label className="text-xs font-bold text-slate-700 block mb-1">Urutan Tampilan</label>
+                    <input
+                      type="number"
+                      value={newTestiOrder}
+                      onChange={(e) => setNewTestiOrder(Number(e.target.value))}
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-xs focus:outline-none focus:border-emerald-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="text-xs font-bold text-slate-700 block mb-1">Status Publikasi</label>
+                    <select
+                      value={newTestiStatus}
+                      onChange={(e) => setNewTestiStatus(e.target.value as any)}
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-xs focus:outline-none focus:border-emerald-500"
+                    >
+                      <option value="published">Published (Tampil di Homepage)</option>
+                      <option value="draft">Draft (Disimpan Internal)</option>
+                    </select>
+                  </div>
+
+                  <div className="flex items-center pt-5">
+                    <label className="flex items-center gap-2 cursor-pointer text-xs font-bold text-slate-700">
+                      <input
+                        type="checkbox"
+                        checked={newTestiConsent}
+                        onChange={(e) => setNewTestiConsent(e.target.checked)}
+                        className="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
+                      />
+                      <span>Persetujuan Publikasi Terverifikasi</span>
+                    </label>
+                  </div>
+                </div>
+
+                <div className="flex justify-end gap-2 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowAddTestiForm(false)}
+                    className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl"
+                  >
+                    Batal
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={savingTesti}
+                    className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-bold rounded-xl cursor-pointer"
+                  >
+                    {savingTesti ? 'Menyimpan...' : 'Simpan Cerita'}
+                  </button>
+                </div>
+              </form>
+            )}
+
+            {/* Testimonials List */}
+            {testimonials.length === 0 ? (
+              <div className="bg-white rounded-2xl border border-slate-200 p-8 text-center text-slate-500 text-xs">
+                Belum ada data cerita pengguna. Klik "Tambah Cerita" untuk memasukkan data yang telah disetujui atau tunggu pengajuan dari pengguna.
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {testimonials.map((testi) => (
+                  <div key={testi.id} className="bg-white rounded-2xl border border-slate-200/90 p-4 shadow-xs flex flex-col justify-between">
+                    <div>
+                      <div className="flex items-center justify-between gap-2 mb-2">
+                        <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider ${
+                          testi.category === 'umkm'
+                            ? 'bg-emerald-100 text-emerald-800'
+                            : 'bg-blue-100 text-blue-800'
+                        }`}>
+                          {testi.category === 'umkm' ? 'Pelaku UMKM' : 'Pelanggan'}
+                        </span>
+
+                        <div className="flex items-center gap-1.5">
+                          <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                            testi.status === 'published'
+                              ? 'bg-emerald-100 text-emerald-700'
+                              : 'bg-amber-100 text-amber-700'
+                          }`}>
+                            {testi.status === 'published' ? 'Published' : 'Draft'}
+                          </span>
+
+                          <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                            testi.consentApproved
+                              ? 'bg-slate-100 text-emerald-700'
+                              : 'bg-red-50 text-red-600'
+                          }`}>
+                            {testi.consentApproved ? 'Izin OK' : 'Belum Ada Izin'}
+                          </span>
+                        </div>
+                      </div>
+
+                      <p className="text-xs text-slate-700 italic mb-3">"{testi.content}"</p>
+                    </div>
+
+                    <div className="pt-3 border-t border-slate-100 flex items-center justify-between gap-2">
+                      <div>
+                        <span className="font-extrabold text-xs text-slate-900 block">{testi.userName}</span>
+                        <span className="text-[10px] text-slate-500">{testi.roleDetail || '-'}</span>
+                      </div>
+
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          onClick={() => handleTogglePublishTestimonial(testi.id, testi.status)}
+                          className={`px-2.5 py-1 rounded-lg text-[10px] font-bold transition-all cursor-pointer ${
+                            testi.status === 'published'
+                              ? 'bg-amber-50 text-amber-700 hover:bg-amber-100'
+                              : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
+                          }`}
+                        >
+                          {testi.status === 'published' ? 'Draftkan' : 'Publikasikan'}
+                        </button>
+
+                        <button
+                          onClick={() => handleToggleConsentTestimonial(testi.id, testi.consentApproved)}
+                          className="px-2 py-1 rounded-lg text-[10px] font-semibold bg-slate-100 hover:bg-slate-200 text-slate-600 transition-colors"
+                          title="Ubah status persetujuan"
+                        >
+                          {testi.consentApproved ? 'Cabut Izin' : 'Beri Izin'}
+                        </button>
+
+                        <button
+                          onClick={() => handleDeleteTestimonial(testi.id)}
+                          className="p-1 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors"
+                          title="Hapus cerita"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
 

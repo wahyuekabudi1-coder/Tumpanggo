@@ -229,6 +229,20 @@ export interface PartnerRegistration {
   storeId?: string;
 }
 
+export interface Testimonial {
+  id: string;
+  userName: string;
+  category: 'umkm' | 'pelanggan';
+  content: string;
+  avatarUrl?: string;
+  roleDetail?: string; // e.g. "Pemilik Usaha Kuliner" atau "Pelanggan Setia Tumpang"
+  consentApproved: boolean; // status verifikasi persetujuan publikasi
+  status: 'draft' | 'published';
+  displayOrder: number;
+  createdAt: string;
+  updatedAt?: string;
+}
+
 export function calculateTieredServiceFee(subtotal: number): number {
   if (subtotal <= 100000) return 2000;
   if (subtotal <= 300000) return 3000;
