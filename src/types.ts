@@ -185,11 +185,13 @@ export interface Settlement {
   paidAt?: string;
 }
 
+export type AppRole = 'ADMIN' | 'MERCHANT' | 'DRIVER' | 'SYSTEM' | 'CUSTOMER' | 'SHOP_ADMIN' | 'MASTER_ADMIN';
+
 export interface AuditLog {
   id: string;
   action: string;
   userId: string; // Can be admin id, merchant id, or driver id
-  role: 'ADMIN' | 'MERCHANT' | 'DRIVER' | 'SYSTEM' | 'CUSTOMER' | 'SHOP_ADMIN';
+  role: AppRole;
   details: string;
   createdAt: string;
 }

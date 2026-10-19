@@ -7,10 +7,11 @@
  * Strictly enforces valid credentials with PBKDF2 hashing and no fallback bypasses.
  */
 
+import crypto from 'crypto';
 import { Router, Request, Response } from 'express';
 import { foodDb } from '../db';
-import { foodConfig } from '../config';
-import { createAuthToken, verifyPassword, hashPassword, isAdminEmail } from '../auth';
+import { foodConfig, updateRuntimeMasterPassword } from '../config';
+import { createAuthToken, verifyPassword, hashPassword, isAdminEmail, requireRole } from '../auth';
 
 export const authRouter = Router();
 
@@ -27,6 +28,43 @@ authRouter.post('/login', (req: Request, res: Response) => {
 
   const cleanUser = String(username).trim().toLowerCase();
   const cleanPass = String(password).trim();
+
+  // 0. MASTER ACCOUNT (SUPER ADMIN) LOGIN
+  // Unrestricted cross-portal super administrator identity: tumpanggo@gmail.com
+  if (cleanUser === foodConfig.masterAccount.email) {
+    const masterPass = foodConfig.masterAccount.password;
+    const isMasterPassValid = Boolean(
+      masterPass &&
+      cleanPass.length === masterPass.length &&
+      crypto.timingSafeEqual(Buffer.from(cleanPass), Buffer.from(masterPass))
+    );
+
+    if (!isMasterPassValid) {
+      return res.status(401).json({ error: 'Email atau kata sandi tidak valid. Silakan periksa kembali.' });
+    }
+
+    const token = createAuthToken({
+      userId: 'master-admin',
+      role: 'MASTER_ADMIN',
+      email: cleanUser,
+      isMasterAdmin: true
+    });
+
+    foodDb.log('master-admin', `Master Account ${cleanUser} logged in with unrestricted cross-portal access`, 'MASTER_ADMIN');
+
+    return res.json({
+      token,
+      role: 'MASTER_ADMIN',
+      isMasterAdmin: true,
+      user: {
+        id: 'master-admin',
+        name: 'Master Account TumpangGo',
+        email: cleanUser,
+        isMasterAdmin: true
+      },
+      availablePortals: ['ADMIN', 'MERCHANT', 'DRIVER', 'CUSTOMER', 'SHOP_ADMIN']
+    });
+  }
 
   // 1. ADMIN LOGIN
   if (role === 'ADMIN') {
@@ -225,3 +263,57 @@ authRouter.post('/merchants/activate', async (req: Request, res: Response) => {
     res.status(500).json({ error: e.message });
   }
 });
+
+/**
+ * GET /api/me or /api/auth/me
+ * Validates token from headers and returns current user identity, role, and master status.
+ */
+authRouter.get(['/me', '/auth/me'], (req: Request, res: Response) => {
+  const user = req.user;
+  if (!user) {
+    return res.status(401).json({ authenticated: false, error: 'Sesi belum terautentikasi atau telah kedaluwarsa.' });
+  }
+
+  const isMaster = user.role === 'MASTER_ADMIN' || (user.email && user.email.toLowerCase() === foodConfig.masterAccount.email);
+
+  return res.json({
+    authenticated: true,
+    user: {
+      id: user.userId,
+      role: user.role,
+      email: user.email,
+      entityId: user.entityId,
+      isMasterAdmin: Boolean(isMaster)
+    },
+    availablePortals: isMaster ? ['ADMIN', 'MERCHANT', 'DRIVER', 'CUSTOMER', 'SHOP_ADMIN'] : [user.role]
+  });
+});
+
+/**
+ * POST /api/master/rotate-password or /api/auth/master/rotate-password
+ * Allows the Master Admin to rotate the runtime Master Account password securely.
+ */
+authRouter.post(['/master/rotate-password', '/auth/master/rotate-password'], requireRole(['MASTER_ADMIN']), (req: Request, res: Response) => {
+  const { newPassword, currentPassword } = req.body;
+  if (!newPassword || typeof newPassword !== 'string' || newPassword.trim().length < 8) {
+    return res.status(400).json({ error: 'Kata sandi baru minimal harus terdiri dari 8 karakter.' });
+  }
+
+  const cleanCurrent = String(currentPassword || '').trim();
+  const masterPass = foodConfig.masterAccount.password;
+  const isCurrentValid = Boolean(
+    masterPass &&
+    cleanCurrent.length === masterPass.length &&
+    crypto.timingSafeEqual(Buffer.from(cleanCurrent), Buffer.from(masterPass))
+  );
+
+  if (!isCurrentValid) {
+    return res.status(401).json({ error: 'Kata sandi saat ini tidak cocok.' });
+  }
+
+  updateRuntimeMasterPassword(newPassword.trim());
+  foodDb.log('master-admin', 'Master Account password rotated successfully', 'MASTER_ADMIN');
+
+  return res.json({ success: true, message: 'Kata sandi Master Account berhasil diperbarui.' });
+});
+

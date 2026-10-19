@@ -182,10 +182,10 @@ export class OrderService {
   public static isValidStatusTransition(
     currentStatus: OrderStatus,
     targetStatus: OrderStatus,
-    role: 'ADMIN' | 'MERCHANT' | 'DRIVER' | 'CUSTOMER' | 'SYSTEM' | 'SHOP_ADMIN'
+    role: 'ADMIN' | 'MERCHANT' | 'DRIVER' | 'CUSTOMER' | 'SYSTEM' | 'SHOP_ADMIN' | 'MASTER_ADMIN'
   ): { allowed: boolean; reason?: string } {
-    // Admin has master override for legitimate administrative actions
-    if (role === 'ADMIN' || role === 'SYSTEM') {
+    // Admin & Master Admin have master override for legitimate administrative actions
+    if (role === 'ADMIN' || role === 'MASTER_ADMIN' || role === 'SYSTEM') {
       return { allowed: true };
     }
 

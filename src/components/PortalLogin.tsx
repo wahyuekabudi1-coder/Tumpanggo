@@ -13,7 +13,7 @@ interface PortalLoginProps {
   targetMerchantId?: string;
   targetDriverId?: string;
   initialTab?: 'login' | 'register';
-  onSuccess: (email: string, targetId?: string) => void;
+  onSuccess: (email: string, targetId?: string, isMaster?: boolean) => void;
   onCancel: () => void;
   onRegisterRedirect?: () => void;
 }
@@ -168,11 +168,20 @@ export default function PortalLogin({ role, targetMerchantId, targetDriverId, in
       const data = await res.json();
       if (res.ok && data.token) {
         const userEmail = emailInput.trim();
+        const isMaster = Boolean(data.isMasterAdmin || data.role === 'MASTER_ADMIN' || userEmail === 'tumpanggo@gmail.com');
         safeStorage.setItem('tumpang_auth_email', userEmail);
         safeStorage.setItem('tumpang_auth_token', data.token);
-        setSuccessMsg('Login Berhasil! Mengalihkan...');
+        if (isMaster) {
+          safeStorage.setItem('tumpang_is_master', 'true');
+          safeStorage.setItem('tumpang_auth_role', 'MASTER_ADMIN');
+          setSuccessMsg('Login Master Account Berhasil! Otorisasi penuh lintas portal aktif...');
+        } else {
+          safeStorage.removeItem('tumpang_is_master');
+          safeStorage.setItem('tumpang_auth_role', data.role || role);
+          setSuccessMsg('Login Berhasil! Mengalihkan...');
+        }
         setTimeout(() => {
-          onSuccess(userEmail, data.user?.id);
+          onSuccess(userEmail, data.user?.id, isMaster);
         }, 500);
       } else {
         setError(data.error || 'Email/No. Telepon atau kata sandi salah. Silakan periksa kembali.');

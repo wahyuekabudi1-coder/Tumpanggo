@@ -1882,7 +1882,7 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
                     <h2 className="font-display font-extrabold text-xs text-slate-400 uppercase tracking-wider">Layanan Tumpang Super-App</h2>
                   </div>
                   
-                  <div className="grid grid-cols-4 gap-2">
+                  <div className="grid grid-cols-3 gap-2.5 sm:gap-4">
                     {/* 1. Tumpang Food Menu */}
                     <button
                       id="btn-main-menu-food"
@@ -1928,17 +1928,19 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
                       <span className="font-extrabold text-[10px] text-slate-800 tracking-tight text-center">Tumpang Niaga</span>
                     </button>
 
-                    {/* 4. Edukasi UMKM Menu */}
-                    <button
-                      id="btn-main-menu-edukasi"
-                      onClick={() => setActiveTab('edukasi')}
-                      className="flex flex-col items-center gap-1.5 cursor-pointer group active:scale-95 transition-all"
-                    >
-                      <div className="w-13 h-13 rounded-2xl bg-[#185338] flex items-center justify-center text-white shadow-lg shadow-emerald-700/20 group-hover:scale-105 transition-transform ring-2 ring-emerald-600/30">
-                        <BookOpen className="w-5 h-5 text-amber-300" />
-                      </div>
-                      <span className="font-extrabold text-[10px] text-slate-800 tracking-tight text-center">Edukasi UMKM</span>
-                    </button>
+                    {/* 4. Edukasi UMKM Menu - Disembunyikan sementara sesuai instruksi (dapat diaktifkan kembali tanpa membangun ulang) */}
+                    {false as boolean && (
+                      <button
+                        id="btn-main-menu-edukasi"
+                        onClick={() => setActiveTab('edukasi')}
+                        className="flex flex-col items-center gap-1.5 cursor-pointer group active:scale-95 transition-all"
+                      >
+                        <div className="w-13 h-13 rounded-2xl bg-[#185338] flex items-center justify-center text-white shadow-lg shadow-emerald-700/20 group-hover:scale-105 transition-transform ring-2 ring-emerald-600/30">
+                          <BookOpen className="w-5 h-5 text-amber-300" />
+                        </div>
+                        <span className="font-extrabold text-[10px] text-slate-800 tracking-tight text-center">Edukasi UMKM</span>
+                      </button>
+                    )}
                   </div>
                 </div>
 
@@ -2111,40 +2113,6 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
                   </div>
                 </div>
 
-                {/* Section Menjadi Mitra UMKM */}
-                <div 
-                  onClick={() => onSelectRole('MERCHANT', undefined, 'login')}
-                  className="bg-[#185338] text-white rounded-[24px] sm:rounded-3xl p-5 sm:p-6 shadow-md relative overflow-hidden cursor-pointer hover:bg-[#154a32] transition-colors group my-2"
-                >
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="flex items-center gap-3.5 sm:gap-4">
-                      <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-2xl bg-[#236b49] border border-emerald-600/30 flex items-center justify-center shrink-0 shadow-inner group-hover:scale-105 transition-transform">
-                        <Store className="w-7 h-7 sm:w-8 sm:h-8 text-amber-300 fill-amber-300/10" />
-                      </div>
-                      <div>
-                        <h3 className="font-display font-extrabold text-base sm:text-lg text-white leading-tight">
-                          Menjadi Mitra UMKM
-                        </h3>
-                        <p className="text-xs sm:text-sm text-emerald-100/90 font-medium mt-0.5">
-                          Jualan online lebih mudah.
-                        </p>
-                      </div>
-                    </div>
-                    <ChevronRight className="w-5 h-5 sm:w-6 sm:h-6 text-white/90 shrink-0 group-hover:translate-x-1 transition-transform" />
-                  </div>
-
-                  <button
-                    id="btn-register-umkm"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onSelectRole('MERCHANT', undefined, 'login');
-                    }}
-                    className="w-full bg-[#fbc043] hover:bg-[#f3b325] text-slate-950 font-extrabold text-xs sm:text-sm py-3 sm:py-3.5 px-4 rounded-xl sm:rounded-2xl transition-all shadow-sm flex items-center justify-center cursor-pointer active:scale-98 mt-4 sm:mt-5"
-                  >
-                    Klik di sini
-                  </button>
-                </div>
-
                 {/* Section Edukasi & Strategi UMKM Naik Kelas */}
                 <section aria-labelledby="section-edukasi-title" className="bg-white rounded-3xl border border-slate-100 p-4 sm:p-5 shadow-xs flex flex-col gap-3.5 my-2">
                   <div className="flex items-center justify-between">
@@ -2202,9 +2170,6 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
                     <span>Baca Semua Panduan &amp; Tips Usaha ({UMKM_ARTICLES.length} Artikel)</span>
                   </button>
                 </section>
-
-                {/* Section Cerita Pengguna TumpangGo */}
-                <UserTestimonialsSection />
 
                 {/* Section Tanya Jawab / FAQ Seputar TumpangGo */}
                 <section aria-labelledby="section-faq-title" className="bg-white rounded-3xl border border-slate-100 p-4 sm:p-5 shadow-xs flex flex-col gap-3.5 my-2">
@@ -2272,7 +2237,44 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
                   </div>
                 </section>
 
-                {/* Footer Section */}
+                {/* 1. Section Cerita Pengguna TumpangGo */}
+                <UserTestimonialsSection />
+
+                {/* 2. Section Menjadi Mitra UMKM */}
+                <div 
+                  onClick={() => onSelectRole('MERCHANT', undefined, 'login')}
+                  className="bg-[#185338] text-white rounded-[24px] sm:rounded-3xl p-5 sm:p-6 shadow-md relative overflow-hidden cursor-pointer hover:bg-[#154a32] transition-colors group my-2"
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-3.5 sm:gap-4">
+                      <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-2xl bg-[#236b49] border border-emerald-600/30 flex items-center justify-center shrink-0 shadow-inner group-hover:scale-105 transition-transform">
+                        <Store className="w-7 h-7 sm:w-8 sm:h-8 text-amber-300 fill-amber-300/10" />
+                      </div>
+                      <div>
+                        <h3 className="font-display font-extrabold text-base sm:text-lg text-white leading-tight">
+                          Menjadi Mitra UMKM
+                        </h3>
+                        <p className="text-xs sm:text-sm text-emerald-100/90 font-medium mt-0.5">
+                          Jualan online lebih mudah.
+                        </p>
+                      </div>
+                    </div>
+                    <ChevronRight className="w-5 h-5 sm:w-6 sm:h-6 text-white/90 shrink-0 group-hover:translate-x-1 transition-transform" />
+                  </div>
+
+                  <button
+                    id="btn-register-umkm"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onSelectRole('MERCHANT', undefined, 'login');
+                    }}
+                    className="w-full bg-[#fbc043] hover:bg-[#f3b325] text-slate-950 font-extrabold text-xs sm:text-sm py-3 sm:py-3.5 px-4 rounded-xl sm:rounded-2xl transition-all shadow-sm flex items-center justify-center cursor-pointer active:scale-98 mt-4 sm:mt-5"
+                  >
+                    Klik di sini
+                  </button>
+                </div>
+
+                {/* 3. Footer Section */}
                 {renderFooter()}
 
               </div>

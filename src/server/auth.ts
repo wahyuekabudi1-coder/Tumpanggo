@@ -12,10 +12,11 @@ import { foodConfig, shopConfig } from './config';
 
 export interface AuthUser {
   userId: string;
-  role: 'ADMIN' | 'MERCHANT' | 'DRIVER' | 'CUSTOMER' | 'SHOP_ADMIN';
+  role: 'ADMIN' | 'MERCHANT' | 'DRIVER' | 'CUSTOMER' | 'SHOP_ADMIN' | 'MASTER_ADMIN';
   email?: string;
   entityId?: string; // Merchant ID or Driver ID
   scope?: 'food' | 'shop';
+  isMasterAdmin?: boolean;
 }
 
 declare global {
@@ -162,7 +163,8 @@ export function verifyAuthToken(token: string): AuthUser | null {
       role: data.role,
       email: data.email,
       entityId: data.entityId,
-      scope: data.scope
+      scope: data.scope,
+      isMasterAdmin: data.isMasterAdmin || data.role === 'MASTER_ADMIN'
     };
   } catch {
     return null;
@@ -171,7 +173,7 @@ export function verifyAuthToken(token: string): AuthUser | null {
 
 /**
  * Strict authorization middleware for Tumpang Shop Administrator.
- * Only accepts authenticated users with role 'SHOP_ADMIN'.
+ * Accepts authenticated users with role 'SHOP_ADMIN' or universal 'MASTER_ADMIN'.
  * Food admin credentials cannot access Shop endpoints.
  */
 export function requireShopAdmin(req: Request, res: Response, next: NextFunction) {
@@ -180,8 +182,8 @@ export function requireShopAdmin(req: Request, res: Response, next: NextFunction
     return res.status(401).json({ error: 'Akses ditolak: Autentikasi Admin Tumpang Shop diperlukan. Silakan login terlebih dahulu.' });
   }
 
-  if (user.role !== 'SHOP_ADMIN') {
-    return res.status(403).json({ error: 'Akses ditolak: Hanya Administrator Tumpang Shop yang memiliki hak akses untuk tindakan ini.' });
+  if (user.role !== 'SHOP_ADMIN' && user.role !== 'MASTER_ADMIN') {
+    return res.status(403).json({ error: 'Akses ditolak: Hanya Administrator Tumpang Shop atau Master Admin yang memiliki hak akses untuk tindakan ini.' });
   }
 
   next();
@@ -216,6 +218,7 @@ export function isAdminEmail(email?: string): boolean {
   if (!email) return false;
   const e = email.trim().toLowerCase();
   return (
+    e === foodConfig.masterAccount.email ||
     e === foodConfig.adminEmail ||
     e === 'sawahjayagroup@gmail.com' ||
     e === 'sawahjayatrans@gmail.com' ||
@@ -227,15 +230,15 @@ export function isAdminEmail(email?: string): boolean {
 /**
  * Strict role-based access control middleware
  */
-export function requireRole(allowedRoles: Array<'ADMIN' | 'MERCHANT' | 'DRIVER' | 'CUSTOMER' | 'SHOP_ADMIN'>) {
+export function requireRole(allowedRoles: Array<'ADMIN' | 'MERCHANT' | 'DRIVER' | 'CUSTOMER' | 'SHOP_ADMIN' | 'MASTER_ADMIN'>) {
   return (req: Request, res: Response, next: NextFunction) => {
     const user = req.user;
     if (!user) {
       return res.status(401).json({ error: 'Akses ditolak: Autentikasi diperlukan. Silakan login terlebih dahulu.' });
     }
 
-    if (user.role === 'ADMIN') {
-      return next(); // Admin has universal access
+    if (user.role === 'ADMIN' || user.role === 'MASTER_ADMIN') {
+      return next(); // Admin and Master Admin have universal administrative access
     }
 
     if (!allowedRoles.includes(user.role)) {
@@ -249,6 +252,7 @@ export function requireRole(allowedRoles: Array<'ADMIN' | 'MERCHANT' | 'DRIVER' 
 /**
  * Restrict merchant operations strictly to the verified store owner or admin.
  * Verifies against req.user.entityId from the cryptographically signed token.
+ * Master Admin has unrestricted cross-merchant management access without modifying owner identity.
  */
 export function requireMerchantOwner(paramName = 'merchantId') {
   return (req: Request, res: Response, next: NextFunction) => {
@@ -259,8 +263,8 @@ export function requireMerchantOwner(paramName = 'merchantId') {
       return res.status(401).json({ error: 'Akses ditolak: Autentikasi diperlukan. Silakan login terlebih dahulu.' });
     }
 
-    if (user.role === 'ADMIN') {
-      return next();
+    if (user.role === 'ADMIN' || user.role === 'MASTER_ADMIN') {
+      return next(); // Unrestricted cross-merchant administrative access
     }
 
     if (user.role === 'MERCHANT' && (user.entityId === targetMerchantId || user.userId === targetMerchantId)) {
@@ -273,6 +277,7 @@ export function requireMerchantOwner(paramName = 'merchantId') {
 
 /**
  * Restrict driver operations strictly to the verified driver themselves or admin.
+ * Master Admin has unrestricted cross-driver oversight access without modifying driver identity.
  */
 export function requireDriverSelf(paramName = 'driverId') {
   return (req: Request, res: Response, next: NextFunction) => {
@@ -283,8 +288,8 @@ export function requireDriverSelf(paramName = 'driverId') {
       return res.status(401).json({ error: 'Akses ditolak: Autentikasi diperlukan. Silakan login terlebih dahulu.' });
     }
 
-    if (user.role === 'ADMIN') {
-      return next();
+    if (user.role === 'ADMIN' || user.role === 'MASTER_ADMIN') {
+      return next(); // Unrestricted cross-driver oversight access
     }
 
     if (user.role === 'DRIVER' && (user.entityId === targetDriverId || user.userId === targetDriverId)) {

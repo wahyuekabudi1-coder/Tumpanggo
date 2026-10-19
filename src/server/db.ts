@@ -11,7 +11,7 @@ import path from 'path';
 import {
   Merchant, Category, MenuItem, Order, Driver, Settlement, AuditLog, SystemConfig,
   OrderStatus, PaymentStatus, SettlementStatus, AssignmentMode, PartnerRegistration,
-  Testimonial
+  Testimonial, AppRole
 } from '../types';
 import { foodConfig } from './config';
 import { hashPassword, verifyPassword } from './auth';
@@ -641,7 +641,7 @@ export class FoodDatabase {
   }
 
   // --- LOGGING ---
-  public log(userId: string, details: string, role: 'ADMIN' | 'MERCHANT' | 'DRIVER' | 'SYSTEM' | 'CUSTOMER' | 'SHOP_ADMIN' = 'SYSTEM'): AuditLog {
+  public log(userId: string, details: string, role: AppRole = 'SYSTEM'): AuditLog {
     const logItem: AuditLog = {
       id: 'log_' + Math.random().toString(36).substring(2, 9),
       action: details.split(' ')[0] || 'ACTION',
@@ -1206,7 +1206,7 @@ export class FoodDatabase {
     userId: string,
     id: string,
     updates: Partial<Order>,
-    role: 'ADMIN' | 'MERCHANT' | 'DRIVER' | 'SYSTEM' | 'CUSTOMER' | 'SHOP_ADMIN'
+    role: AppRole = 'SYSTEM'
   ): Promise<Order> {
     const index = this.data.orders.findIndex(o => o.id === id);
     if (index === -1) throw new Error('Order not found');
@@ -1223,7 +1223,7 @@ export class FoodDatabase {
     }
 
     // Customer or merchant cannot alter financials or item prices
-    if (role !== 'ADMIN' && role !== 'SYSTEM') {
+    if (role !== 'ADMIN' && role !== 'MASTER_ADMIN' && role !== 'SYSTEM') {
       delete (updates as any).subtotal;
       delete (updates as any).deliveryFee;
       delete (updates as any).serviceFee;
@@ -1243,7 +1243,7 @@ export class FoodDatabase {
       updates.paymentStatus = PaymentStatus.PAID;
       updates.status = OrderStatus.PAYMENT_VERIFIED;
       updates.paymentVerifiedAt = updates.paymentVerifiedAt || new Date().toISOString();
-      if ((role === 'ADMIN' || role === 'SYSTEM') && userId) {
+      if ((role === 'ADMIN' || role === 'MASTER_ADMIN' || role === 'SYSTEM') && userId) {
         updates.paymentVerifiedBy = userId;
       }
     }
@@ -1251,7 +1251,7 @@ export class FoodDatabase {
     if (updates.status === OrderStatus.PAYMENT_REJECTED || updates.paymentStatus === PaymentStatus.REJECTED) {
       updates.paymentStatus = PaymentStatus.REJECTED;
       updates.status = OrderStatus.PAYMENT_REJECTED;
-      if ((role === 'ADMIN' || role === 'SYSTEM') && userId) {
+      if ((role === 'ADMIN' || role === 'MASTER_ADMIN' || role === 'SYSTEM') && userId) {
         updates.paymentVerifiedBy = userId;
       }
     }

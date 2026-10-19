@@ -21,7 +21,7 @@ orderRouter.get('/', (req: Request, res: Response) => {
     return res.status(401).json({ error: 'Autentikasi diperlukan untuk melihat daftar pesanan.' });
   }
 
-  if (user.role === 'ADMIN') {
+  if (user.role === 'ADMIN' || user.role === 'MASTER_ADMIN') {
     return res.json(foodDb.getOrders());
   }
 
@@ -85,7 +85,7 @@ orderRouter.put('/:id', async (req: Request, res: Response) => {
     updates.status === OrderStatus.PAYMENT_VERIFIED ||
     updates.paymentStatus === PaymentStatus.PAID
   ) {
-    if (!user || user.role !== 'ADMIN') {
+    if (!user || (user.role !== 'ADMIN' && user.role !== 'MASTER_ADMIN')) {
       return res.status(403).json({
         error: 'Akses ditolak: Hanya Admin yang berwenang memverifikasi pembayaran menjadi lunas (PAID).'
       });
@@ -96,7 +96,7 @@ orderRouter.put('/:id', async (req: Request, res: Response) => {
     updates.status === OrderStatus.PAYMENT_REJECTED ||
     updates.paymentStatus === PaymentStatus.REJECTED
   ) {
-    if (!user || user.role !== 'ADMIN') {
+    if (!user || (user.role !== 'ADMIN' && user.role !== 'MASTER_ADMIN')) {
       return res.status(403).json({
         error: 'Akses ditolak: Hanya Admin yang berwenang menolak bukti pembayaran.'
       });
@@ -185,7 +185,7 @@ orderRouter.put('/:id', async (req: Request, res: Response) => {
   // 4. EXPIRED / CANCELLED ORDERS GUARD
   if (currentOrder.status === OrderStatus.EXPIRED || currentOrder.status === OrderStatus.CANCELLED) {
     if (updates.status && updates.status !== currentOrder.status) {
-      if (user.role === 'ADMIN' && currentOrder.status === OrderStatus.EXPIRED) {
+      if ((user.role === 'ADMIN' || user.role === 'MASTER_ADMIN') && currentOrder.status === OrderStatus.EXPIRED) {
         if (!overrideExpired) {
           return res.status(400).json({
             error:
@@ -327,7 +327,7 @@ orderRouter.post('/:id/reject-payment', requireRole(['ADMIN']), async (req: Requ
 });
 
 // Driver delivery proof upload - Protected
-orderRouter.post('/:id/upload-delivery', requireRole(['DRIVER', 'ADMIN']), async (req: Request, res: Response) => {
+orderRouter.post('/:id/upload-delivery', requireRole(['DRIVER', 'ADMIN', 'MASTER_ADMIN']), async (req: Request, res: Response) => {
   const { deliveryProof } = req.body;
   if (!deliveryProof) {
     return res.status(400).json({ error: 'Bukti foto pengantaran wajib disertakan.' });

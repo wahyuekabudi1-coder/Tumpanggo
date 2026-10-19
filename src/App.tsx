@@ -13,6 +13,7 @@ import PortalLogin from './components/PortalLogin.tsx';
 import MerchantRegisterPage from './components/MerchantRegisterPage.tsx';
 import ShopAdminView from './components/ShopAdminView.tsx';
 import ErrorBoundary from './components/ErrorBoundary.tsx';
+import MasterPortalBar from './components/MasterPortalBar.tsx';
 import { SystemConfig } from './types.ts';
 import { safeStorage } from './utils/safeStorage.ts';
 import { apiFetch as fetch, extractArrayResponse } from './utils/apiClient.ts';
@@ -22,6 +23,9 @@ import { useSEO } from './hooks/useSEO.ts';
 
 export default function App() {
   const [currentRole, setCurrentRole] = useState<'CUSTOMER' | 'MERCHANT' | 'DRIVER' | 'ADMIN' | 'SHOP_ADMIN'>('CUSTOMER');
+  const [isMasterAdmin, setIsMasterAdmin] = useState<boolean>(() => {
+    return safeStorage.getItem('tumpang_is_master') === 'true' || safeStorage.getItem('tumpang_auth_role') === 'MASTER_ADMIN';
+  });
 
   // Dynamic SEO Synchronization at App Level for Internal Roles
   useSEO({
@@ -136,6 +140,34 @@ export default function App() {
     });
   }, []);
 
+  // Revalidate session on mount via /api/auth/me
+  useEffect(() => {
+    const token = safeStorage.getItem('tumpang_auth_token');
+    if (token) {
+      fetch('/api/auth/me')
+        .then(res => res.json())
+        .then(data => {
+          if (data && data.authenticated && data.user) {
+            const isMaster = Boolean(data.user.isMasterAdmin || data.user.role === 'MASTER_ADMIN' || (data.user.email && data.user.email.toLowerCase() === 'tumpanggo@gmail.com'));
+            if (isMaster) {
+              setIsMasterAdmin(true);
+              setVerifiedEmail(data.user.email || 'tumpanggo@gmail.com');
+              safeStorage.setItem('tumpang_is_master', 'true');
+              safeStorage.setItem('tumpang_auth_role', 'MASTER_ADMIN');
+            } else if (data.user.email) {
+              setVerifiedEmail(data.user.email);
+            }
+          } else {
+            if (safeStorage.getItem('tumpang_is_master') === 'true') {
+              setIsMasterAdmin(false);
+              safeStorage.removeItem('tumpang_is_master');
+            }
+          }
+        })
+        .catch(() => {});
+    }
+  }, []);
+
   // Helper for admin email check
   const isAdminEmail = (email: string) => {
     if (!email) return false;
@@ -143,10 +175,21 @@ export default function App() {
     return e === 'tumpanggo@gmail.com' || e === 'sawahjayagroup@gmail.com' || e === 'sawahjayatrans@gmail.com' || e === 'admin' || e.includes('admin') || e.endsWith('@tumpanggo.com');
   };
 
-  // Auto-route logged in merchant owners to their specific store
+  // Master Admin auto-selection of first entity if none is selected
+  useEffect(() => {
+    if (isMasterAdmin) {
+      if (currentRole === 'MERCHANT' && !activeMerchantId && merchants.length > 0) {
+        setActiveMerchantId(merchants[0].id);
+      } else if (currentRole === 'DRIVER' && !activeDriverId && drivers.length > 0) {
+        setActiveDriverId(drivers[0].id);
+      }
+    }
+  }, [isMasterAdmin, currentRole, activeMerchantId, activeDriverId, merchants, drivers]);
+
+  // Auto-route logged in merchant owners to their specific store (regular merchants)
   useEffect(() => {
     const safeMerchants = Array.isArray(merchants) ? merchants : [];
-    if (currentRole === 'MERCHANT' && !activeMerchantId && verifiedEmail && !isAdminEmail(verifiedEmail) && safeMerchants.length > 0) {
+    if (!isMasterAdmin && currentRole === 'MERCHANT' && !activeMerchantId && verifiedEmail && !isAdminEmail(verifiedEmail) && safeMerchants.length > 0) {
       const ownedMerchant = safeMerchants.find(m => m && m.email?.trim().toLowerCase() === verifiedEmail.trim().toLowerCase());
       if (ownedMerchant) {
         setActiveMerchantId(ownedMerchant.id);
@@ -156,12 +199,12 @@ export default function App() {
         safeStorage.removeItem('tumpang_auth_email');
       }
     }
-  }, [currentRole, activeMerchantId, verifiedEmail, merchants]);
+  }, [isMasterAdmin, currentRole, activeMerchantId, verifiedEmail, merchants]);
 
-  // Auto-route logged in drivers to their specific driver panel
+  // Auto-route logged in drivers to their specific driver panel (regular drivers)
   useEffect(() => {
     const safeDrivers = Array.isArray(drivers) ? drivers : [];
-    if (currentRole === 'DRIVER' && !activeDriverId && verifiedEmail && !isAdminEmail(verifiedEmail) && safeDrivers.length > 0) {
+    if (!isMasterAdmin && currentRole === 'DRIVER' && !activeDriverId && verifiedEmail && !isAdminEmail(verifiedEmail) && safeDrivers.length > 0) {
       const matchedDriver = safeDrivers.find(d => d && d.email?.trim().toLowerCase() === verifiedEmail.trim().toLowerCase());
       if (matchedDriver) {
         setActiveDriverId(matchedDriver.id);
@@ -171,19 +214,33 @@ export default function App() {
         safeStorage.removeItem('tumpang_auth_email');
       }
     }
-  }, [currentRole, activeDriverId, verifiedEmail, drivers]);
+  }, [isMasterAdmin, currentRole, activeDriverId, verifiedEmail, drivers]);
 
   const handleRoleSelection = (role: 'CUSTOMER' | 'MERCHANT' | 'DRIVER' | 'ADMIN' | 'SHOP_ADMIN', id?: string, initialTab?: 'login' | 'register') => {
     setCurrentRole(role);
-    setVerifiedEmail('');
-    safeStorage.removeItem('tumpang_auth_email');
+    if (!isMasterAdmin) {
+      setVerifiedEmail('');
+      safeStorage.removeItem('tumpang_auth_email');
+    }
     if (role === 'MERCHANT') {
-      setActiveMerchantId(id || '');
+      setActiveMerchantId(id || (merchants[0]?.id || ''));
       setMerchantPortalTab(initialTab || 'login');
     } else if (role === 'DRIVER') {
-      setActiveDriverId(id || '');
+      setActiveDriverId(id || (drivers[0]?.id || ''));
     }
     setShowAuthModal(false);
+  };
+
+  const handleMasterLogout = () => {
+    setIsMasterAdmin(false);
+    setVerifiedEmail('');
+    safeStorage.removeItem('tumpang_auth_email');
+    safeStorage.removeItem('tumpang_auth_token');
+    safeStorage.removeItem('tumpang_auth_role');
+    safeStorage.removeItem('tumpang_is_master');
+    setActiveMerchantId('');
+    setActiveDriverId('');
+    setCurrentRole('CUSTOMER');
   };
 
   const handleInstantDashboardAccess = (role: 'ADMIN' | 'MERCHANT' | 'DRIVER') => {
@@ -209,7 +266,7 @@ export default function App() {
   }
 
   // If merchant role is selected but no merchant ID is provided (direct link ?role=merchant)
-  if (currentRole === 'MERCHANT' && !activeMerchantId) {
+  if (currentRole === 'MERCHANT' && !activeMerchantId && !isMasterAdmin) {
     if (!verifiedEmail && !isDemoMode) {
       return (
         <PortalLogin 
@@ -267,7 +324,7 @@ export default function App() {
   }
 
   // If driver role is selected but no driver ID is provided (direct link ?role=driver)
-  if (currentRole === 'DRIVER' && !activeDriverId) {
+  if (currentRole === 'DRIVER' && !activeDriverId && !isMasterAdmin) {
     // Driver does not need email verification to choose their identity and access their dashboard
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4 font-sans">
@@ -314,8 +371,36 @@ export default function App() {
   return (
     <div className="bg-slate-100 min-h-screen text-slate-900 selection:bg-rose-500 selection:text-white">
       
-      {/* Simulation Persona Control Top Bar - ONLY shown when explicit demo=true URL query is active */}
-      {isDemoMode && (
+      {/* Master Account Portal Switcher & Administration Bar */}
+      {isMasterAdmin && (
+        <MasterPortalBar
+          currentRole={currentRole}
+          activeMerchantId={activeMerchantId}
+          activeDriverId={activeDriverId}
+          merchants={merchants}
+          drivers={drivers}
+          onSelectRole={(role, entityId) => {
+            setCurrentRole(role);
+            if (role === 'MERCHANT') {
+              setActiveMerchantId(entityId || activeMerchantId || merchants[0]?.id || '');
+            } else if (role === 'DRIVER') {
+              setActiveDriverId(entityId || activeDriverId || drivers[0]?.id || '');
+            }
+          }}
+          onSelectMerchant={(mId) => {
+            setActiveMerchantId(mId);
+            if (currentRole !== 'MERCHANT') setCurrentRole('MERCHANT');
+          }}
+          onSelectDriver={(dId) => {
+            setActiveDriverId(dId);
+            if (currentRole !== 'DRIVER') setCurrentRole('DRIVER');
+          }}
+          onLogout={handleMasterLogout}
+        />
+      )}
+
+      {/* Simulation Persona Control Top Bar - ONLY shown when explicit demo=true URL query is active and not master */}
+      {isDemoMode && !isMasterAdmin && (
         <div className="bg-slate-950 text-white py-2 px-4 flex justify-between items-center text-xs border-b border-white/10 z-[80] sticky top-0 shadow">
           <div className="flex items-center gap-1.5">
             <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-ping"></span>
@@ -350,13 +435,27 @@ export default function App() {
         )}
 
         {currentRole === 'MERCHANT' && (
-          (!verifiedEmail && !isDemoMode) ? (
+          isMasterAdmin ? (
+            <ErrorBoundary fallbackTitle="Kendala Memuat Portal Mitra Toko">
+              <MerchantView 
+                merchantId={activeMerchantId || merchants[0]?.id || ''} 
+                onLogout={handleMasterLogout}
+                onSelectRole={handleRoleSelection}
+              />
+            </ErrorBoundary>
+          ) : (!verifiedEmail && !isDemoMode) ? (
             <PortalLogin 
               role="MERCHANT" 
               initialTab={merchantPortalTab}
-              onSuccess={(email, mId) => {
-                setVerifiedEmail(email);
-                if (mId) setActiveMerchantId(mId);
+              onSuccess={(email, mId, isMaster) => {
+                if (isMaster) {
+                  setIsMasterAdmin(true);
+                  setVerifiedEmail(email || 'tumpanggo@gmail.com');
+                  setActiveMerchantId(mId || merchants[0]?.id || '');
+                } else {
+                  setVerifiedEmail(email);
+                  if (mId) setActiveMerchantId(mId);
+                }
               }} 
               onCancel={() => {
                 setCurrentRole('CUSTOMER');
@@ -369,7 +468,14 @@ export default function App() {
             <PortalLogin 
               role="MERCHANT" 
               targetMerchantId={activeMerchantId} 
-              onSuccess={(email) => setVerifiedEmail(email)} 
+              onSuccess={(email, _mId, isMaster) => {
+                if (isMaster) {
+                  setIsMasterAdmin(true);
+                  setVerifiedEmail(email || 'tumpanggo@gmail.com');
+                } else {
+                  setVerifiedEmail(email);
+                }
+              }} 
               onCancel={() => {
                 setActiveMerchantId('');
                 setCurrentRole('CUSTOMER');
@@ -392,12 +498,26 @@ export default function App() {
         )}
 
         {currentRole === 'DRIVER' && (
-          (!verifiedEmail && !isDemoMode) ? (
+          isMasterAdmin ? (
+            <ErrorBoundary fallbackTitle="Kendala Memuat Portal Kurir">
+              <DriverView 
+                driverId={activeDriverId || drivers[0]?.id || ''} 
+                onLogout={handleMasterLogout}
+                onSelectRole={handleRoleSelection}
+              />
+            </ErrorBoundary>
+          ) : (!verifiedEmail && !isDemoMode) ? (
             <PortalLogin 
               role="DRIVER" 
-              onSuccess={(email, dId) => {
-                setVerifiedEmail(email);
-                if (dId) setActiveDriverId(dId);
+              onSuccess={(email, dId, isMaster) => {
+                if (isMaster) {
+                  setIsMasterAdmin(true);
+                  setVerifiedEmail(email || 'tumpanggo@gmail.com');
+                  setActiveDriverId(dId || drivers[0]?.id || '');
+                } else {
+                  setVerifiedEmail(email);
+                  if (dId) setActiveDriverId(dId);
+                }
               }} 
               onCancel={() => {
                 setCurrentRole('CUSTOMER');
@@ -410,7 +530,14 @@ export default function App() {
             <PortalLogin 
               role="DRIVER" 
               targetDriverId={activeDriverId} 
-              onSuccess={(email) => setVerifiedEmail(email)} 
+              onSuccess={(email, _dId, isMaster) => {
+                if (isMaster) {
+                  setIsMasterAdmin(true);
+                  setVerifiedEmail(email || 'tumpanggo@gmail.com');
+                } else {
+                  setVerifiedEmail(email);
+                }
+              }} 
               onCancel={() => {
                 setActiveDriverId('');
                 setCurrentRole('CUSTOMER');
@@ -433,18 +560,12 @@ export default function App() {
         )}
 
         {currentRole === 'ADMIN' && (
-          (!verifiedEmail && !isDemoMode) ? (
-            <PortalLogin 
-              role="ADMIN" 
-              onSuccess={(email) => setVerifiedEmail(email || 'tumpanggo@gmail.com')} 
-              onCancel={() => setCurrentRole('CUSTOMER')} 
-            />
-          ) : (
+          (isMasterAdmin || (verifiedEmail && isAdminEmail(verifiedEmail)) || isDemoMode) ? (
             <ErrorBoundary fallbackTitle="Kendala Memuat Portal Admin">
               <AdminView 
                 systemConfig={systemConfig}
                 onUpdateConfig={(conf) => setSystemConfig(conf)}
-                onLogout={() => {
+                onLogout={isMasterAdmin ? handleMasterLogout : () => {
                   setVerifiedEmail('');
                   safeStorage.removeItem('tumpang_auth_email');
                   setCurrentRole('CUSTOMER');
@@ -452,6 +573,19 @@ export default function App() {
                 onSelectRole={handleRoleSelection}
               />
             </ErrorBoundary>
+          ) : (
+            <PortalLogin 
+              role="ADMIN" 
+              onSuccess={(email, _id, isMaster) => {
+                if (isMaster) {
+                  setIsMasterAdmin(true);
+                  setVerifiedEmail(email || 'tumpanggo@gmail.com');
+                } else {
+                  setVerifiedEmail(email || 'tumpanggo@gmail.com');
+                }
+              }} 
+              onCancel={() => setCurrentRole('CUSTOMER')} 
+            />
           )
         )}
 

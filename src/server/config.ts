@@ -33,6 +33,10 @@ const localDbFile = isServerless
 let runtimeAdminPassword = (process.env.FOOD_ADMIN_PASSWORD || 'TumpangGoAdmin#2026').trim();
 let runtimeAdminEmail = (process.env.FOOD_ADMIN_EMAIL || 'tumpanggo@gmail.com').trim().toLowerCase();
 
+// Master Account Configuration (Unrestricted Cross-Portal Access)
+let runtimeMasterAdminEmail = (process.env.MASTER_ADMIN_EMAIL || 'tumpanggo@gmail.com').trim().toLowerCase();
+let runtimeMasterAdminPassword = (process.env.MASTER_ADMIN_PASSWORD || process.env.FOOD_ADMIN_PASSWORD || 'TumpangGoAdmin#2026').trim();
+
 function resolveServerPort(): number {
   if (process.env.PORT) {
     const parsed = parseInt(process.env.PORT, 10);
@@ -183,6 +187,14 @@ export const foodConfig = {
   jwtSecret: runtimeJwtSecret || 'dev_secret_fallback_do_not_use_in_prod',
   adminEmail: runtimeAdminEmail.toLowerCase(),
   adminPassword: runtimeAdminPassword,
+
+  // Master Account (Unrestricted Cross-Portal Access)
+  masterAccount: {
+    email: runtimeMasterAdminEmail,
+    get password(): string {
+      return (process.env.MASTER_ADMIN_PASSWORD || process.env.FOOD_ADMIN_PASSWORD || runtimeMasterAdminPassword).trim();
+    }
+  },
   
   // System operational defaults
   defaults: {
@@ -194,6 +206,22 @@ export const foodConfig = {
     qrisImage: '/qris-merchant.png',
   }
 };
+
+/**
+ * Check if an email matches the configured Master Account email
+ */
+export function isMasterAdminEmail(email?: string): boolean {
+  if (!email) return false;
+  return email.trim().toLowerCase() === foodConfig.masterAccount.email;
+}
+
+/**
+ * Securely rotate/update runtime Master Account password
+ */
+export function updateRuntimeMasterPassword(newPassword: string): void {
+  runtimeMasterAdminPassword = newPassword.trim();
+  process.env.MASTER_ADMIN_PASSWORD = newPassword.trim();
+}
 
 // --- TUMPANG SHOP ISOLATED CONFIGURATION ---
 // Re-exported from dedicated microservice configuration in src/services/shop/config/shopEnv.ts
