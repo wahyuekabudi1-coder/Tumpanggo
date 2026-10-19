@@ -7,13 +7,17 @@ import {
   Navigation, CheckCircle2, ShoppingBag, Eye, Phone, MapPin, ClipboardList, 
   User, ToggleLeft, ToggleRight, LogOut, Check, ChevronRight, X, Image
 } from 'lucide-react';
+import { useHiddenTrigger } from '../hooks/useHiddenTrigger.ts';
+import HiddenPortalBar from './HiddenPortalBar.tsx';
 
 interface DriverViewProps {
   driverId: string;
   onLogout: () => void;
+  onSelectRole?: (role: 'CUSTOMER' | 'MERCHANT' | 'DRIVER' | 'ADMIN') => void;
 }
 
-export default function DriverView({ driverId, onLogout }: DriverViewProps) {
+export default function DriverView({ driverId, onLogout, onSelectRole }: DriverViewProps) {
+  const { isUnlocked, handleCopyrightClick } = useHiddenTrigger();
   const [driver, setDriver] = useState<Driver | null>(null);
   const [assignedOrders, setAssignedOrders] = useState<Order[]>([]);
   const [historyOrders, setHistoryOrders] = useState<Order[]>([]);
@@ -497,6 +501,27 @@ export default function DriverView({ driverId, onLogout }: DriverViewProps) {
             </div>
           </div>
         )}
+
+        {/* Driver Footer & Copyright (Independent secret trigger) */}
+        <footer className="mt-8 pt-4 pb-20 border-t border-slate-200/60 px-4 flex flex-col items-center justify-center text-center">
+          <p 
+            onClick={handleCopyrightClick}
+            className="text-[11px] text-slate-400 font-normal select-none cursor-default"
+          >
+            © 2026 TumpangGo. All rights reserved.
+          </p>
+
+          {isUnlocked && (
+            <HiddenPortalBar 
+              currentPortal="DRIVER"
+              onNavigatePortal={(portal) => {
+                if (onSelectRole) onSelectRole(portal);
+              }}
+              onLogout={onLogout}
+              variant="light"
+            />
+          )}
+        </footer>
 
       </main>
 

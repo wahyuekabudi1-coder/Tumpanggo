@@ -107,7 +107,7 @@ export default function AuthModal({ onSelectRole, onClose, currentRole }: AuthMo
             </div>
           </button>
 
-          {/* 3. SHOP ADMIN (TUMPANG SHOP) */}
+          {/* 3. SHOP ADMIN (TUMPANG NIAGA) */}
           <button
             onClick={() => {
               onSelectRole('SHOP_ADMIN');
@@ -123,7 +123,7 @@ export default function AuthModal({ onSelectRole, onClose, currentRole }: AuthMo
               <Store className="w-5 h-5" />
             </div>
             <div className="flex flex-col min-w-0 flex-1">
-              <span className="font-bold text-slate-800 text-xs">Admin Tumpang Shop</span>
+              <span className="font-bold text-slate-800 text-xs">Admin Tumpang Niaga</span>
               <span className="text-[10px] text-slate-400 mt-0.5">Kelola stok produk, pesanan, verifikasi & kargo</span>
             </div>
           </button>

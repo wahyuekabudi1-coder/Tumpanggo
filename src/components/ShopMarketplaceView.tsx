@@ -13,6 +13,7 @@ import {
   ShopPaymentStatus, ShopOrderStatus 
 } from '../types/shop';
 import BannerCarousel from './BannerCarousel';
+import TumpangNiagaComingSoon from './TumpangNiagaComingSoon.tsx';
 import { apiFetch as fetch, extractArrayResponse } from '../utils/apiClient.ts';
 import { openPayment, configure } from '@arto-pay/js-sdk';
 import { 
@@ -53,6 +54,13 @@ const DISTRICT_OPTIONS = [
 ];
 
 export default function ShopMarketplaceView({ onBackToMain }: ShopMarketplaceViewProps) {
+  // Access Guard: Tumpang Niaga is in Coming Soon teaser mode.
+  // Marketplace catalog, browsing, cart, and checkout are locked for customers.
+  const isComingSoon = true;
+  if (isComingSoon) {
+    return <TumpangNiagaComingSoon onBackToMain={onBackToMain} />;
+  }
+
   // Navigation View State: 'catalog' | 'checkout' | 'confirmation' | 'tracking'
   const [viewMode, setViewMode] = useState<'catalog' | 'checkout' | 'confirmation' | 'tracking'>('catalog');
 

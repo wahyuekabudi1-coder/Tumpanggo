@@ -6,7 +6,10 @@ import MapPicker from './MapPicker.tsx';
 import Logo from './Logo.tsx';
 import BannerCarousel from './BannerCarousel.tsx';
 import ShopMarketplaceView from './ShopMarketplaceView.tsx';
+import TumpangNiagaComingSoon from './TumpangNiagaComingSoon.tsx';
+import HiddenPortalBar from './HiddenPortalBar.tsx';
 import ErrorBoundary from './ErrorBoundary.tsx';
+import { useHiddenTrigger } from '../hooks/useHiddenTrigger.ts';
 import { compressImage, compressBase64 } from '../utils/imageCompressor.ts';
 import { safeStorage } from '../utils/safeStorage.ts';
 import { apiFetch as fetch, extractArrayResponse } from '../utils/apiClient.ts';
@@ -98,54 +101,8 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
   // buylink.id/tumpangGo store states
   const [buylinkPhone, setBuylinkPhone] = useState<string>('081234567890');
 
-  // Secret Portal Access State (Unlocked by clicking copyright 10+ times, lasts 2 minutes)
-  const [copyrightClicks, setCopyrightClicks] = useState<number>(0);
-  const [portalAccessUnlocked, setPortalAccessUnlocked] = useState<boolean>(() => {
-    try {
-      const expiry = safeStorage.getItem('tumpang_portal_access_until');
-      if (expiry) {
-        return Date.now() < Number(expiry);
-      }
-    } catch {
-      // ignore
-    }
-    return false;
-  });
-
-  useEffect(() => {
-    if (!portalAccessUnlocked) return;
-
-    const checkExpiry = () => {
-      try {
-        const expiry = safeStorage.getItem('tumpang_portal_access_until');
-        if (!expiry || Date.now() >= Number(expiry)) {
-          setPortalAccessUnlocked(false);
-          safeStorage.removeItem('tumpang_portal_access_until');
-        }
-      } catch {
-        setPortalAccessUnlocked(false);
-      }
-    };
-
-    checkExpiry();
-    const interval = setInterval(checkExpiry, 1000);
-    return () => clearInterval(interval);
-  }, [portalAccessUnlocked]);
-
-  const handleCopyrightClick = () => {
-    // Secret trigger: no visual feedback, no alert, no sound
-    setCopyrightClicks(prev => {
-      const nextCount = prev + 1;
-      if (nextCount >= 10) {
-        const TWO_MINUTES_MS = 2 * 60 * 1000;
-        const expiryTime = Date.now() + TWO_MINUTES_MS;
-        safeStorage.setItem('tumpang_portal_access_until', expiryTime.toString());
-        setPortalAccessUnlocked(true);
-        return 0;
-      }
-      return nextCount;
-    });
-  };
+  // Secret Portal Access State (Managed cleanly via useHiddenTrigger: 10-13 clicks active, 14 reset, resets on reload)
+  const { isUnlocked: portalAccessUnlocked, handleCopyrightClick } = useHiddenTrigger();
   const [buylinkCategory, setBuylinkCategory] = useState<'saldo' | 'pulsa' | 'data' | 'pln'>('saldo');
   const [buylinkSelectedProduct, setBuylinkSelectedProduct] = useState<any | null>(null);
   const [buylinkPaymentMethod, setBuylinkPaymentMethod] = useState<string>('qris');
@@ -1522,36 +1479,16 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
           © 2026 TumpangGo. All rights reserved.
         </p>
 
-        {/* Portal Login & Akses Dashboard (Secret - Unlocked via 10 clicks on copyright) */}
+        {/* Portal Login & Akses Dashboard (Secret - Unlocked strictly between 10 to 13 clicks on copyright) */}
         {portalAccessUnlocked && (
-          <div id={`demo-dashboard-quick-access${idSuffix}`} className="mt-3 w-full p-2 bg-[#183a27] border border-emerald-600/40 rounded-xl flex items-center justify-center gap-2 animate-fadeIn">
-            <button
-              id={`btn-switch-admin${idSuffix}`}
-              onClick={() => { if (onSelectRole) onSelectRole('ADMIN'); }}
-              className="flex-1 bg-white hover:bg-slate-50 border border-slate-200 text-slate-800 font-bold text-xs py-2 px-2.5 rounded-lg transition-all shadow-2xs flex items-center justify-center gap-1.5 cursor-pointer active:scale-95"
-            >
-              <span>🛡️</span>
-              <span>Admin</span>
-            </button>
-
-            <button
-              id={`btn-switch-merchant${idSuffix}`}
-              onClick={() => { if (onSelectRole) onSelectRole('MERCHANT'); }}
-              className="flex-1 bg-white hover:bg-slate-50 border border-slate-200 text-slate-800 font-bold text-xs py-2 px-2.5 rounded-lg transition-all shadow-2xs flex items-center justify-center gap-1.5 cursor-pointer active:scale-95"
-            >
-              <span>🏪</span>
-              <span>Merchant</span>
-            </button>
-
-            <button
-              id={`btn-switch-driver${idSuffix}`}
-              onClick={() => { if (onSelectRole) onSelectRole('DRIVER'); }}
-              className="flex-1 bg-white hover:bg-slate-50 border border-slate-200 text-slate-800 font-bold text-xs py-2 px-2.5 rounded-lg transition-all shadow-2xs flex items-center justify-center gap-1.5 cursor-pointer active:scale-95"
-            >
-              <span>🚴</span>
-              <span>Driver</span>
-            </button>
-          </div>
+          <HiddenPortalBar 
+            currentPortal="CUSTOMER"
+            onNavigatePortal={(portal) => {
+              if (onSelectRole) onSelectRole(portal);
+            }}
+            idSuffix={idSuffix}
+            variant="emerald"
+          />
         )}
       </div>
     </footer>
@@ -1922,7 +1859,7 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
                       <span className="font-extrabold text-[11px] text-slate-800 tracking-tight text-center">Tumpang Pay</span>
                     </button>
 
-                    {/* 3. Tumpang Shop Marketplace Menu */}
+                    {/* 3. Tumpang Niaga Menu (Coming Soon) */}
                     <button
                       id="btn-main-menu-shop"
                       onClick={() => setHomeSubView('shop')}
@@ -1932,11 +1869,11 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
                         <div className="w-14 h-14 rounded-2xl bg-[#0F82FF] flex items-center justify-center text-white shadow-lg shadow-blue-500/20 group-hover:scale-105 transition-transform ring-2 ring-blue-500/20">
                           <ShoppingBag className="w-6 h-6 text-white" />
                         </div>
-                        <span className="absolute -top-1.5 -right-2.5 bg-emerald-600 text-white text-[8px] font-black px-1.5 py-0.5 rounded-full shadow-xs uppercase tracking-tight">
-                          Toko
+                        <span className="absolute -top-1.5 -right-2.5 bg-blue-600 text-white text-[8px] font-black px-1.5 py-0.5 rounded-full shadow-xs uppercase tracking-tight">
+                          Segera
                         </span>
                       </div>
-                      <span className="font-extrabold text-[11px] text-slate-800 tracking-tight text-center">Tumpang Shop</span>
+                      <span className="font-extrabold text-[11px] text-slate-800 tracking-tight text-center">Tumpang Niaga</span>
                     </button>
                   </div>
                 </div>
@@ -2491,13 +2428,9 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
           </div>
         )}
 
-        {/* Tumpang Shop - Live Marketplace View */}
+        {/* Tumpang Niaga - Coming Soon Teaser View */}
         {homeSubView === 'shop' && (
-          <div className="pb-24 animate-in fade-in duration-200">
-            <ErrorBoundary fallbackTitle="Kendala Memuat Tumpang Shop">
-              <ShopMarketplaceView onBackToMain={() => setHomeSubView('main')} />
-            </ErrorBoundary>
-          </div>
+          <TumpangNiagaComingSoon onBackToMain={() => setHomeSubView('main')} />
         )}
 
         {/* If we are on the Tumpang Bike view */}
@@ -5519,7 +5452,7 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
           >
             <Home className="w-5 h-5" />
             <span className="text-[10px] tracking-tight">
-              {homeSubView === 'food' ? 'Beranda Food' : homeSubView === 'shop' ? 'Beranda Shop' : homeSubView === 'taxi' ? 'Beranda Taxi' : homeSubView === 'pay' ? 'Beranda Pay' : 'Beranda'}
+              {homeSubView === 'food' ? 'Beranda Food' : homeSubView === 'shop' ? 'Beranda Niaga' : homeSubView === 'taxi' ? 'Beranda Taxi' : homeSubView === 'pay' ? 'Beranda Pay' : 'Beranda'}
             </span>
           </button>
 
@@ -5543,7 +5476,7 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
           >
             <ClipboardList className="w-5 h-5" />
             <span className="text-[10px] tracking-tight">
-              {homeSubView === 'food' ? 'Riwayat Food' : homeSubView === 'shop' ? 'Riwayat Shop' : homeSubView === 'taxi' ? 'Riwayat Taxi' : homeSubView === 'pay' ? 'Riwayat Pay' : 'Riwayat'}
+              {homeSubView === 'food' ? 'Riwayat Food' : homeSubView === 'shop' ? 'Riwayat Niaga' : homeSubView === 'taxi' ? 'Riwayat Taxi' : homeSubView === 'pay' ? 'Riwayat Pay' : 'Riwayat'}
             </span>
           </button>
 
@@ -5565,19 +5498,21 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
           >
             <UserPlus className="w-5 h-5" />
             <span className="text-[10px] tracking-tight">
-              {homeSubView === 'food' ? 'Mitra Food' : homeSubView === 'shop' ? 'Mitra Shop' : homeSubView === 'taxi' ? 'Driver Taxi' : 'Kemitraan'}
+              {homeSubView === 'food' ? 'Mitra Food' : homeSubView === 'shop' ? 'Mitra Niaga' : homeSubView === 'taxi' ? 'Driver Taxi' : 'Kemitraan'}
             </span>
           </button>
 
-          {/* Portal Demo */}
-          <button 
-            id="nav-portal-demo"
-            onClick={onOpenAuthModal}
-            className="flex flex-col items-center gap-1.5 flex-1 py-1 cursor-pointer transition-all text-amber-600 hover:text-amber-700 font-extrabold hover:scale-105"
-          >
-            <Key className="w-5 h-5 animate-pulse text-amber-500" />
-            <span className="text-[10px] tracking-tight">Portal Demo</span>
-          </button>
+          {/* Portal Demo (Only shown when secret portal access is unlocked) */}
+          {portalAccessUnlocked && (
+            <button 
+              id="nav-portal-demo"
+              onClick={onOpenAuthModal}
+              className="flex flex-col items-center gap-1.5 flex-1 py-1 cursor-pointer transition-all text-amber-600 hover:text-amber-700 font-extrabold hover:scale-105"
+            >
+              <Key className="w-5 h-5 animate-pulse text-amber-500" />
+              <span className="text-[10px] tracking-tight">Portal Demo</span>
+            </button>
+          )}
         </nav>
       )}
 

@@ -20,6 +20,8 @@ export interface ShopProductVariation {
   options: ShopProductVariationOption[];
 }
 
+export type ShopProductVariant = ShopProductVariation;
+
 export interface ShopProduct {
   id: string;
   sku: string;
@@ -28,10 +30,14 @@ export interface ShopProduct {
   categoryId: string;
   price: number;       // Base price in IDR
   basePrice?: number;  // Optional alias for price
+  originalPrice?: number; // Optional strike-through price
   stock: number;       // Base stock count
   images: string[];    // Image URLs or base64
+  image?: string;      // Primary single image accessor
   variations?: ShopProductVariation[];
+  variants?: any[];    // Alias for variations
   unit: string;        // e.g. "kg", "liter", "pcs", "pack", "ikat"
+  minOrder?: number;
   isActive: boolean;
   isFeatured?: boolean;
   createdAt: string;
@@ -103,14 +109,20 @@ export interface ShopOrder {
   orderStatus: ShopOrderStatus;
   paymentProof?: string;
   paymentVerifiedAt?: string;
-  paymentExpiresAt: string;
+  paidAt?: string;
+  deliveredAt?: string;
+  cancelledAt?: string;
   cancelReason?: string;
+  cancellationReason?: string;
+  rejectionReason?: string;
+  paymentExpiresAt: string;
   clientRequestId?: string; // Idempotency key preventing duplicate submission
   paymentMethod?: 'MANUAL_TRANSFER' | 'ARTOPAY_QRIS';
   artopayPaymentId?: string;
   artopayCheckoutUrl?: string;
   artopayStatus?: 'PENDING' | 'SUCCESS' | 'FAILED' | 'EXPIRED';
   artopayExpiredAt?: string;
+  artopayPaidAt?: string;
   artopayQrString?: string;
   artopayClientSecret?: string;
   artopayCustomerToken?: string;
@@ -118,6 +130,9 @@ export interface ShopOrder {
   artopayOrderId?: string;
   artopaySandbox?: boolean;
   shipment?: ShopShipment;
+  shipmentId?: string;
+  trackingNumber?: string;
+  shippingOption?: any;
   createdAt: string;
   updatedAt: string;
 }
@@ -141,35 +156,36 @@ export enum ShopShipmentStatus {
 export interface ShopTrackingEvent {
   id: string;
   status: ShopShipmentStatus;
-  statusLabel: string;
+  statusLabel?: string;
   location: string;
   description: string;
   timestamp: string;
-  source: 'MANUAL_ADMIN' | 'COURIER_API_STUB' | 'SYSTEM';
+  source?: 'MANUAL_ADMIN' | 'COURIER_API_STUB' | 'SYSTEM';
 }
 
 export interface ShopShipment {
   id: string;
   orderId: string;
-  orderNumber: string;
+  orderNumber?: string;
   scope: ShopShipmentScope;
   courierCode: string;
   courierName: string;
-  serviceType: string;
+  serviceType?: string;
   serviceName: string;
   trackingNumber: string;
   originCountry: string;      // e.g. "ID", "CN"
   originCity: string;         // e.g. "Tumpang, Malang" or "Shenzhen, Guangdong"
   destinationCountry: string; // e.g. "ID"
   destinationCity: string;    // e.g. "Kecamatan Tumpang, Malang"
-  shippingCost: number;
-  estimatedArrival: string;
+  shippingCost?: number;
+  estimatedArrival?: string;
+  estimatedArrivalNote?: string;
   isEstimateVerified: boolean;
   status: ShopShipmentStatus;
-  statusLabel: string;
+  statusLabel?: string;
   trackingHistory: ShopTrackingEvent[];
-  liveCourierApiIntegrated: boolean; // false until real courier API credentials exist
-  courierAdapterNote: string;
+  liveCourierApiIntegrated?: boolean; // false until real courier API credentials exist
+  courierAdapterNote?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -206,9 +222,11 @@ export interface ShopConfig {
 export interface ShopAuditLog {
   id: string;
   action: string;
-  userId: string;
-  role: 'SHOP_ADMIN' | 'SYSTEM' | 'CUSTOMER';
+  userId?: string;
+  actor?: string;
+  role?: 'SHOP_ADMIN' | 'SYSTEM' | 'CUSTOMER';
   details: string;
-  createdAt: string;
+  timestamp?: string;
+  createdAt?: string;
 }
 

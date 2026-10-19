@@ -588,6 +588,7 @@ router.post('/payments/artopay/intent', async (req: Request, res: Response) => {
       currency: 'IDR',
       customerName: order.customerName,
       customerPhone: order.customerPhone,
+      serviceType: 'SHOP',
       description: `Pembayaran Tumpang Shop #${order.orderNumber || order.id}`,
       expiryMinutes: 20,
       callbackUrl: `${origin}/api/artopay/webhook`,

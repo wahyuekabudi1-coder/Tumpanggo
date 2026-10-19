@@ -19,9 +19,9 @@ import { shopEnv } from '../config/shopEnv';
 import { ShopDatabaseSchema, ShopSchemaValidator } from './shopSchema';
 import { ShopMigrationRunner } from './shopMigration';
 import { 
-  getAdminDb, safeAdminSetDoc, safeAdminDeleteDoc, safeAdminGetDoc, 
-  safeAdminGetDocs, removeUndefinedFields, isFirestoreAdminConfigured,
-  isUsingServiceAccount, testFirestoreConnection, getFirestoreDiagnosticStatus
+  safeAdminSetDoc, safeAdminDeleteDoc, safeAdminGetDoc, 
+  safeAdminGetDocs, isFirestoreAdminConfigured,
+  testFirestoreConnection
 } from '../../../server/firebaseAdmin';
 
 const SHOP_DB_FILE = shopEnv.database.filePath;
@@ -144,32 +144,31 @@ export class ShopDatabase {
 
   private async syncFromCloud() {
     try {
-      const db = getAdminDb();
-      if (!db) return;
+      if (!isFirestoreAdminConfigured()) return;
 
       const pfx = shopEnv.database.firestoreCollectionPrefix;
-      const [cfgDoc, catSnap, prodSnap, ordSnap, shipSnap] = await Promise.all([
-        safeAdminGetDoc(db.collection(`${pfx}config`).doc('shop_config_default')),
-        safeAdminGetDocs(db.collection(`${pfx}categories`)),
-        safeAdminGetDocs(db.collection(`${pfx}products`)),
-        safeAdminGetDocs(db.collection(`${pfx}orders`)),
-        safeAdminGetDocs(db.collection(`${pfx}shipments`))
+      const [cfgDoc, catDocs, prodDocs, ordDocs, shipDocs] = await Promise.all([
+        safeAdminGetDoc(`${pfx}config`, 'shop_config_default'),
+        safeAdminGetDocs(`${pfx}categories`),
+        safeAdminGetDocs(`${pfx}products`),
+        safeAdminGetDocs(`${pfx}orders`),
+        safeAdminGetDocs(`${pfx}shipments`)
       ]);
 
-      if (cfgDoc && cfgDoc.exists) {
-        this.schema.config = { ...this.schema.config, ...cfgDoc.data() };
+      if (cfgDoc) {
+        this.schema.config = { ...this.schema.config, ...cfgDoc };
       }
-      if (catSnap && !catSnap.empty) {
-        this.schema.categories = catSnap.docs.map((d: any) => d.data() as ShopCategory);
+      if (catDocs && catDocs.length > 0) {
+        this.schema.categories = catDocs as ShopCategory[];
       }
-      if (prodSnap && !prodSnap.empty) {
-        this.schema.products = prodSnap.docs.map((d: any) => d.data() as ShopProduct);
+      if (prodDocs && prodDocs.length > 0) {
+        this.schema.products = prodDocs as ShopProduct[];
       }
-      if (ordSnap && !ordSnap.empty) {
-        this.schema.orders = ordSnap.docs.map((d: any) => d.data() as ShopOrder);
+      if (ordDocs && ordDocs.length > 0) {
+        this.schema.orders = ordDocs as ShopOrder[];
       }
-      if (shipSnap && !shipSnap.empty) {
-        this.schema.shipments = shipSnap.docs.map((d: any) => d.data() as ShopShipment);
+      if (shipDocs && shipDocs.length > 0) {
+        this.schema.shipments = shipDocs as ShopShipment[];
       }
 
       this.persistToLocal();
@@ -207,7 +206,7 @@ export class ShopDatabase {
       totalProducts: this.schema.products.length,
       totalOrders: this.schema.orders.length,
       totalShipments: this.schema.shipments.length,
-      diagnosticReason: cloudCheck.reason,
+      diagnosticReason: cloudCheck.diagnosticReason,
       timestamp: new Date().toISOString()
     };
   }
@@ -245,11 +244,8 @@ export class ShopDatabase {
     this.logAudit('UPDATE_SHOP_CONFIG', `Pembaruan konfigurasi toko oleh ${actor}`, actor);
 
     try {
-      const db = getAdminDb();
-      if (db) {
-        const pfx = shopEnv.database.firestoreCollectionPrefix;
-        await safeAdminSetDoc(db.collection(`${pfx}config`).doc('shop_config_default'), removeUndefinedFields(this.schema.config));
-      }
+      const pfx = shopEnv.database.firestoreCollectionPrefix;
+      await safeAdminSetDoc(`${pfx}config`, 'shop_config_default', this.schema.config);
     } catch {}
 
     return this.getConfig();
@@ -286,11 +282,8 @@ export class ShopDatabase {
     this.logAudit('CREATE_CATEGORY', `Kategori ${newCategory.name} dibuat oleh ${actor}`, actor);
 
     try {
-      const db = getAdminDb();
-      if (db) {
-        const pfx = shopEnv.database.firestoreCollectionPrefix;
-        await safeAdminSetDoc(db.collection(`${pfx}categories`).doc(newCategory.id), removeUndefinedFields(newCategory));
-      }
+      const pfx = shopEnv.database.firestoreCollectionPrefix;
+      await safeAdminSetDoc(`${pfx}categories`, newCategory.id, newCategory);
     } catch {}
 
     return newCategory;
@@ -311,11 +304,8 @@ export class ShopDatabase {
     this.logAudit('UPDATE_CATEGORY', `Kategori ${updated.name} (${id}) diperbarui oleh ${actor}`, actor);
 
     try {
-      const db = getAdminDb();
-      if (db) {
-        const pfx = shopEnv.database.firestoreCollectionPrefix;
-        await safeAdminSetDoc(db.collection(`${pfx}categories`).doc(id), removeUndefinedFields(updated));
-      }
+      const pfx = shopEnv.database.firestoreCollectionPrefix;
+      await safeAdminSetDoc(`${pfx}categories`, id, updated);
     } catch {}
 
     return updated;
@@ -330,11 +320,8 @@ export class ShopDatabase {
     this.logAudit('DELETE_CATEGORY', `Kategori ${deleted.name} (${id}) dihapus oleh ${actor}`, actor);
 
     try {
-      const db = getAdminDb();
-      if (db) {
-        const pfx = shopEnv.database.firestoreCollectionPrefix;
-        await safeAdminDeleteDoc(db.collection(`${pfx}categories`).doc(id));
-      }
+      const pfx = shopEnv.database.firestoreCollectionPrefix;
+      await safeAdminDeleteDoc(`${pfx}categories`, id);
     } catch {}
 
     return true;
@@ -393,11 +380,8 @@ export class ShopDatabase {
     this.logAudit('CREATE_PRODUCT', `Produk ${newProduct.name} (${newProduct.sku}) dibuat oleh ${actor}`, actor);
 
     try {
-      const db = getAdminDb();
-      if (db) {
-        const pfx = shopEnv.database.firestoreCollectionPrefix;
-        await safeAdminSetDoc(db.collection(`${pfx}products`).doc(newProduct.id), removeUndefinedFields(newProduct));
-      }
+      const pfx = shopEnv.database.firestoreCollectionPrefix;
+      await safeAdminSetDoc(`${pfx}products`, newProduct.id, newProduct);
     } catch {}
 
     return newProduct;
@@ -424,11 +408,8 @@ export class ShopDatabase {
     this.logAudit('UPDATE_PRODUCT', `Produk ${updated.name} (${id}) diperbarui oleh ${actor}`, actor);
 
     try {
-      const db = getAdminDb();
-      if (db) {
-        const pfx = shopEnv.database.firestoreCollectionPrefix;
-        await safeAdminSetDoc(db.collection(`${pfx}products`).doc(id), removeUndefinedFields(updated));
-      }
+      const pfx = shopEnv.database.firestoreCollectionPrefix;
+      await safeAdminSetDoc(`${pfx}products`, id, updated);
     } catch {}
 
     return updated;
@@ -443,11 +424,8 @@ export class ShopDatabase {
     this.logAudit('DELETE_PRODUCT', `Produk ${deleted.name} (${id}) dihapus oleh ${actor}`, actor);
 
     try {
-      const db = getAdminDb();
-      if (db) {
-        const pfx = shopEnv.database.firestoreCollectionPrefix;
-        await safeAdminDeleteDoc(db.collection(`${pfx}products`).doc(id));
-      }
+      const pfx = shopEnv.database.firestoreCollectionPrefix;
+      await safeAdminDeleteDoc(`${pfx}products`, id);
     } catch {}
 
     return true;
@@ -691,14 +669,11 @@ export class ShopDatabase {
     this.logAudit('CREATE_SHOP_ORDER', `Pesanan dibuat: ${newOrder.orderNumber} (Resi: ${trackingNumber}) senilai Rp ${newOrder.total.toLocaleString('id-ID')}`, 'CUSTOMER');
 
     try {
-      const db = getAdminDb();
-      if (db) {
-        const pfx = shopEnv.database.firestoreCollectionPrefix;
-        await Promise.all([
-          safeAdminSetDoc(db.collection(`${pfx}orders`).doc(newOrder.id), removeUndefinedFields(newOrder)),
-          safeAdminSetDoc(db.collection(`${pfx}shipments`).doc(initialShipment.id), removeUndefinedFields(initialShipment))
-        ]);
-      }
+      const pfx = shopEnv.database.firestoreCollectionPrefix;
+      await Promise.all([
+        safeAdminSetDoc(`${pfx}orders`, newOrder.id, newOrder),
+        safeAdminSetDoc(`${pfx}shipments`, initialShipment.id, initialShipment)
+      ]);
     } catch {}
 
     return newOrder;
@@ -755,11 +730,8 @@ export class ShopDatabase {
     this.schema.shipments.unshift(shipment);
 
     try {
-      const db = getAdminDb();
-      if (db) {
-        const pfx = shopEnv.database.firestoreCollectionPrefix;
-        await safeAdminSetDoc(db.collection(`${pfx}shipments`).doc(shipment.id), removeUndefinedFields(shipment));
-      }
+      const pfx = shopEnv.database.firestoreCollectionPrefix;
+      await safeAdminSetDoc(`${pfx}shipments`, shipment.id, shipment);
     } catch {}
   }
 
@@ -789,12 +761,9 @@ export class ShopDatabase {
     if (local) return local;
 
     try {
-      const db = getAdminDb();
-      if (db) {
-        const pfx = shopEnv.database.firestoreCollectionPrefix;
-        const doc = await safeAdminGetDoc(db.collection(`${pfx}orders`).doc(id));
-        if (doc && doc.exists) return doc.data() as ShopOrder;
-      }
+      const pfx = shopEnv.database.firestoreCollectionPrefix;
+      const doc = await safeAdminGetDoc(`${pfx}orders`, id);
+      if (doc) return doc as ShopOrder;
     } catch {}
     return undefined;
   }
@@ -823,11 +792,8 @@ export class ShopDatabase {
     this.logAudit('UPLOAD_PAYMENT_PROOF', `Bukti bayar diunggah untuk #${order.orderNumber}`, order.customerName);
 
     try {
-      const db = getAdminDb();
-      if (db) {
-        const pfx = shopEnv.database.firestoreCollectionPrefix;
-        await safeAdminSetDoc(db.collection(`${pfx}orders`).doc(order.id), removeUndefinedFields(order));
-      }
+      const pfx = shopEnv.database.firestoreCollectionPrefix;
+      await safeAdminSetDoc(`${pfx}orders`, order.id, order);
     } catch {}
 
     return order;
@@ -853,11 +819,8 @@ export class ShopDatabase {
     this.persistToLocal();
 
     try {
-      const db = getAdminDb();
-      if (db) {
-        const pfx = shopEnv.database.firestoreCollectionPrefix;
-        await safeAdminSetDoc(db.collection(`${pfx}orders`).doc(order.id), removeUndefinedFields(order));
-      }
+      const pfx = shopEnv.database.firestoreCollectionPrefix;
+      await safeAdminSetDoc(`${pfx}orders`, order.id, order);
     } catch {}
 
     return order;
@@ -871,11 +834,8 @@ export class ShopDatabase {
     this.persistToLocal();
 
     try {
-      const db = getAdminDb();
-      if (db) {
-        const pfx = shopEnv.database.firestoreCollectionPrefix;
-        await safeAdminSetDoc(db.collection(`${pfx}orders`).doc(order.id), removeUndefinedFields(order));
-      }
+      const pfx = shopEnv.database.firestoreCollectionPrefix;
+      await safeAdminSetDoc(`${pfx}orders`, order.id, order);
     } catch {}
 
     return order;
@@ -908,11 +868,8 @@ export class ShopDatabase {
     this.persistToLocal();
 
     try {
-      const db = getAdminDb();
-      if (db) {
-        const pfx = shopEnv.database.firestoreCollectionPrefix;
-        await safeAdminSetDoc(db.collection(`${pfx}orders`).doc(order.id), removeUndefinedFields(order));
-      }
+      const pfx = shopEnv.database.firestoreCollectionPrefix;
+      await safeAdminSetDoc(`${pfx}orders`, order.id, order);
     } catch {}
 
     return order;
@@ -1023,11 +980,8 @@ export class ShopDatabase {
     this.logAudit('UPDATE_SHIPMENT_STATUS', `Status pengiriman #${shipment.trackingNumber} diubah ke ${status} oleh ${actor}`, actor);
 
     try {
-      const db = getAdminDb();
-      if (db) {
-        const pfx = shopEnv.database.firestoreCollectionPrefix;
-        await safeAdminSetDoc(db.collection(`${pfx}shipments`).doc(shipment.id), removeUndefinedFields(shipment));
-      }
+      const pfx = shopEnv.database.firestoreCollectionPrefix;
+      await safeAdminSetDoc(`${pfx}shipments`, shipment.id, shipment);
     } catch {}
 
     return shipment;

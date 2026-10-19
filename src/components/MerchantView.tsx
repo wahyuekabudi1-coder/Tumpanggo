@@ -19,13 +19,17 @@ import {
   Phone, MapPin, AlertCircle, ChefHat, PackageCheck, Eye, RefreshCw, Upload,
   QrCode, ZoomIn
 } from 'lucide-react';
+import { useHiddenTrigger } from '../hooks/useHiddenTrigger.ts';
+import HiddenPortalBar from './HiddenPortalBar.tsx';
 
 interface MerchantViewProps {
   merchantId: string;
   onLogout: () => void;
+  onSelectRole?: (role: 'CUSTOMER' | 'MERCHANT' | 'DRIVER' | 'ADMIN') => void;
 }
 
-export default function MerchantView({ merchantId, onLogout }: MerchantViewProps) {
+export default function MerchantView({ merchantId, onLogout, onSelectRole }: MerchantViewProps) {
+  const { isUnlocked, handleCopyrightClick } = useHiddenTrigger();
   const [merchant, setMerchant] = useState<Merchant | null>(null);
   const [orders, setOrders] = useState<Order[]>([]);
   const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
@@ -1278,6 +1282,27 @@ export default function MerchantView({ merchantId, onLogout }: MerchantViewProps
             </div>
           </div>
         )}
+
+        {/* Merchant Footer & Copyright (Independent secret trigger) */}
+        <footer className="mt-12 pt-6 pb-8 border-t border-slate-200/80 px-4 flex flex-col items-center justify-center text-center">
+          <p 
+            onClick={handleCopyrightClick}
+            className="text-[11px] text-slate-400 font-normal select-none cursor-default"
+          >
+            © 2026 TumpangGo. All rights reserved.
+          </p>
+
+          {isUnlocked && (
+            <HiddenPortalBar 
+              currentPortal="MERCHANT"
+              onNavigatePortal={(portal) => {
+                if (onSelectRole) onSelectRole(portal);
+              }}
+              onLogout={onLogout}
+              variant="light"
+            />
+          )}
+        </footer>
 
       </main>
 

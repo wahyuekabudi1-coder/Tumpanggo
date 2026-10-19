@@ -163,6 +163,7 @@ export default function App() {
   const handleRoleSelection = (role: 'CUSTOMER' | 'MERCHANT' | 'DRIVER' | 'ADMIN' | 'SHOP_ADMIN', id?: string, initialTab?: 'login' | 'register') => {
     setCurrentRole(role);
     setVerifiedEmail('');
+    safeStorage.removeItem('tumpang_auth_email');
     if (role === 'MERCHANT') {
       setActiveMerchantId(id || '');
       setMerchantPortalTab(initialTab || 'login');
@@ -371,6 +372,7 @@ export default function App() {
                   setActiveMerchantId('');
                   setCurrentRole('CUSTOMER');
                 }}
+                onSelectRole={handleRoleSelection}
               />
             </ErrorBoundary>
           )
@@ -411,6 +413,7 @@ export default function App() {
                   setActiveDriverId('');
                   setCurrentRole('CUSTOMER');
                 }}
+                onSelectRole={handleRoleSelection}
               />
             </ErrorBoundary>
           )
@@ -433,6 +436,7 @@ export default function App() {
                   safeStorage.removeItem('tumpang_auth_email');
                   setCurrentRole('CUSTOMER');
                 }}
+                onSelectRole={handleRoleSelection}
               />
             </ErrorBoundary>
           )

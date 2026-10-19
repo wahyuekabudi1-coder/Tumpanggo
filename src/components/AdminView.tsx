@@ -21,14 +21,18 @@ import {
   CheckCircle2, XCircle, ChevronRight, Sliders, ArrowDownRight, Wallet, LogOut,
   QrCode, ExternalLink, Trash2, Upload
 } from 'lucide-react';
+import { useHiddenTrigger } from '../hooks/useHiddenTrigger.ts';
+import HiddenPortalBar from './HiddenPortalBar.tsx';
 
 interface AdminViewProps {
   onLogout: () => void;
   systemConfig: SystemConfig;
   onUpdateConfig: (config: SystemConfig) => void;
+  onSelectRole?: (role: 'CUSTOMER' | 'MERCHANT' | 'DRIVER' | 'ADMIN') => void;
 }
 
-export default function AdminView({ onLogout, systemConfig, onUpdateConfig }: AdminViewProps) {
+export default function AdminView({ onLogout, systemConfig, onUpdateConfig, onSelectRole }: AdminViewProps) {
+  const { isUnlocked, handleCopyrightClick } = useHiddenTrigger();
   // Tabs: 'verify' | 'orders' | 'merchants' | 'drivers' | 'partners' | 'settlements' | 'settings'
   const [activeTab, setActiveTab] = useState<'verify' | 'orders' | 'merchants' | 'drivers' | 'partners' | 'settlements' | 'settings'>('verify');
   const [orders, setOrders] = useState<Order[]>([]);
@@ -1550,6 +1554,27 @@ export default function AdminView({ onLogout, systemConfig, onUpdateConfig }: Ad
             </form>
           </div>
         )}
+
+        {/* Admin Footer & Copyright (Independent secret trigger) */}
+        <footer className="mt-12 pt-6 pb-8 border-t border-slate-200/80 px-4 flex flex-col items-center justify-center text-center">
+          <p 
+            onClick={handleCopyrightClick}
+            className="text-[11px] text-slate-400 font-normal select-none cursor-default"
+          >
+            © 2026 TumpangGo. All rights reserved.
+          </p>
+
+          {isUnlocked && (
+            <HiddenPortalBar 
+              currentPortal="ADMIN"
+              onNavigatePortal={(portal) => {
+                if (onSelectRole) onSelectRole(portal);
+              }}
+              onLogout={onLogout}
+              variant="light"
+            />
+          )}
+        </footer>
 
       </main>
 

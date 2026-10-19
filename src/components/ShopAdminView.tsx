@@ -276,7 +276,7 @@ export default function ShopAdminView({ onBackToCustomer }: ShopAdminViewProps) 
 
   // Handle Logout
   const handleLogout = () => {
-    if (window.confirm('Apakah Anda yakin ingin keluar dari Portal Admin Tumpang Shop?')) {
+    if (window.confirm('Apakah Anda yakin ingin keluar dari Portal Admin Tumpang Niaga?')) {
       safeStorage.removeItem('tumpang_shop_token');
       safeStorage.removeItem('tumpang_shop_user');
       setToken('');
@@ -631,7 +631,7 @@ export default function ShopAdminView({ onBackToCustomer }: ShopAdminViewProps) 
               </div>
               <div>
                 <span className="text-[10px] font-black uppercase tracking-wider text-blue-400">Portal Terisolasi</span>
-                <h3 className="font-extrabold text-lg text-white">Admin Tumpang Shop</h3>
+                <h3 className="font-extrabold text-lg text-white">Admin Tumpang Niaga</h3>
               </div>
             </div>
 
@@ -653,7 +653,7 @@ export default function ShopAdminView({ onBackToCustomer }: ShopAdminViewProps) 
               Keamanan Terisolasi RBAC:
             </p>
             <p className="mt-0.5 text-slate-300">
-              Portal ini khusus Administrator Tumpang Shop. Kredensial terpisah dari Tumpang Food.
+              Portal ini khusus Administrator Tumpang Niaga. Kredensial terpisah dari Tumpang Food.
             </p>
           </div>
 
@@ -746,7 +746,7 @@ export default function ShopAdminView({ onBackToCustomer }: ShopAdminViewProps) 
             <div>
               <div className="flex items-center gap-2">
                 <h1 className="font-extrabold text-sm sm:text-base leading-tight tracking-tight">
-                  Tumpang Shop Admin
+                  Tumpang Niaga Admin
                 </h1>
                 <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-300 border border-blue-400/20">
                   PORTAL TOKO
@@ -965,7 +965,7 @@ export default function ShopAdminView({ onBackToCustomer }: ShopAdminViewProps) 
               <div className="flex items-center justify-between">
                 <div>
                   <h3 className="font-extrabold text-base text-slate-900">Pesanan Belanja Terkini</h3>
-                  <p className="text-xs text-slate-400">Daftar transaksi pesanan marketplace Tumpang Shop</p>
+                  <p className="text-xs text-slate-400">Daftar transaksi pesanan marketplace Tumpang Niaga</p>
                 </div>
                 <button
                   type="button"
@@ -1357,7 +1357,7 @@ export default function ShopAdminView({ onBackToCustomer }: ShopAdminViewProps) 
           <div className="flex flex-col gap-5 animate-fadeIn">
             <div className="bg-white rounded-3xl p-5 sm:p-6 border border-slate-200/80 shadow-xs flex flex-col sm:flex-row gap-4 items-stretch sm:items-center justify-between">
               <div>
-                <h3 className="font-extrabold text-base text-slate-900">Kategori Toko Tumpang Shop</h3>
+                <h3 className="font-extrabold text-base text-slate-900">Kategori Toko Tumpang Niaga</h3>
                 <p className="text-xs text-slate-400">Atur kategori etalase produk belanja untuk memudahkan pelanggan</p>
               </div>
 
@@ -1715,7 +1715,7 @@ export default function ShopAdminView({ onBackToCustomer }: ShopAdminViewProps) 
               <form onSubmit={handleSaveSettings} className="flex flex-col gap-4">
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1">
-                    Nama Toko Tumpang Shop
+                    Nama Toko Tumpang Niaga
                   </label>
                   <input
                     type="text"
