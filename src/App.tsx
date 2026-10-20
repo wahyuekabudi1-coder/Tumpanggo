@@ -225,7 +225,7 @@ export default function App() {
   const isAdminEmail = (email: string) => {
     if (!email) return false;
     const e = email.trim().toLowerCase();
-    return e === 'tumpanggo@gmail.com' || e === 'sawahjayagroup@gmail.com' || e === 'sawahjayatrans@gmail.com' || e === 'admin' || e.includes('admin') || e.endsWith('@tumpanggo.com');
+    return e === 'tumpanggo@gmail.com' || e === 'admin@tumpanggo.com' || e === 'sawahjayagroup@gmail.com' || e === 'sawahjayatrans@gmail.com' || e === 'admin' || e.includes('admin');
   };
 
   // Master Admin auto-selection of first entity if none is selected

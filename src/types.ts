@@ -207,6 +207,17 @@ export interface SystemConfig {
   systemOpen?: boolean;
 }
 
+export interface AdminUser {
+  id: string;
+  name: string;
+  email: string;
+  role: 'ADMIN' | 'MASTER_ADMIN';
+  password?: string;
+  active: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface PartnerRegistration {
   id: string;
   name: string;

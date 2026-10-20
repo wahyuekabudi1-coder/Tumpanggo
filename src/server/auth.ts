@@ -238,10 +238,10 @@ export function isAdminEmail(email?: string): boolean {
   return (
     e === foodConfig.masterAccount.email ||
     e === foodConfig.adminEmail ||
+    e === 'admin@tumpanggo.com' ||
     e === 'sawahjayagroup@gmail.com' ||
     e === 'sawahjayatrans@gmail.com' ||
-    e === 'admin' ||
-    e.endsWith('@tumpanggo.com')
+    e === 'admin'
   );
 }
 
