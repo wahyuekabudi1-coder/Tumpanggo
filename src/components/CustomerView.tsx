@@ -488,6 +488,7 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
   const [checkoutDetails, setCheckoutDetails] = useState('');
   const [checkoutLandmark, setCheckoutLandmark] = useState('');
   const [checkoutLat, setCheckoutLat] = useState(-7.9482);
+  const [checkoutLng, setCheckoutLng] = useState(112.7612);
   const [isSubmittingOrder, setIsSubmittingOrder] = useState<boolean>(false);
   const [checkoutErrorMsg, setCheckoutErrorMsg] = useState<string | null>(null);
 
@@ -962,7 +963,12 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
       if (existing) {
         return prev.map(i => i.menuItemId === item.id ? { ...i, quantity: i.quantity + 1 } : i);
       }
-      return [...prev, { menuItemId: item.id, name: item.name, price: item.price, quantity: 1 }];
+      return [...prev, { 
+        menuItemId: item.id, 
+        name: item.name, 
+        price: item.price, 
+        quantity: 1
+      }];
     });
     setCartMerchantId(merchant.id);
     setCartMerchant(merchant);
@@ -972,7 +978,12 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
     if (!showClearCartConfirm) return;
     const { pendingItem, pendingMerchant } = showClearCartConfirm;
 
-    setCart([{ menuItemId: pendingItem.id, name: pendingItem.name, price: pendingItem.price, quantity: 1 }]);
+    setCart([{ 
+      menuItemId: pendingItem.id, 
+      name: pendingItem.name, 
+      price: pendingItem.price, 
+      quantity: 1
+    }]);
     setCartMerchantId(pendingMerchant.id);
     setCartMerchant(pendingMerchant);
     setShowClearCartConfirm(null);
@@ -3351,133 +3362,46 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
               </div>
 
               <div className="flex flex-col gap-2.5">
-                {cart.map((item) => {
-                  const minQty = getMenuItemPreOrderMin(item);
-                  const isPreOrder = cartMerchant.preOrderOnly || checkoutDeliveryType === 'PREORDER';
-                  const isBelowMin = isPreOrder && item.quantity < minQty;
+                {cart.map((item) => (
+                  <div 
+                    key={item.menuItemId} 
+                    className="flex gap-3 items-center p-3 rounded-xl border border-slate-100 bg-slate-50/30 transition-colors"
+                  >
+                    <div className="flex-1 min-w-0">
+                      <h5 className="font-semibold text-slate-800 text-xs truncate">{item.name}</h5>
+                      <p className="text-[10px] text-slate-400 font-medium mt-0.5">
+                        Rp {item.price.toLocaleString('id-ID')} / porsi
+                      </p>
+                    </div>
 
-                  return (
-                    <div 
-                      key={item.menuItemId} 
-                      className={`flex gap-3 items-center p-3 rounded-xl border transition-colors ${
-                        isBelowMin 
-                          ? 'border-rose-200 bg-rose-50/10' 
-                          : 'border-slate-100 bg-slate-50/30'
-                      }`}
-                    >
-                      <div className="flex-1 min-w-0">
-                        <h5 className="font-semibold text-slate-800 text-xs truncate">{item.name}</h5>
-                        <p className="text-[10px] text-slate-400 font-medium mt-0.5">
-                          Rp {item.price.toLocaleString('id-ID')} / porsi
-                        </p>
-                        
-                        {isPreOrder && minQty > 1 && (
-                          <div className="flex items-center gap-1.5 mt-1.5">
-                            <span className={`text-[9px] font-extrabold px-1.5 py-0.5 rounded-full ${
-                              isBelowMin 
-                                ? 'bg-rose-100 text-rose-700 border border-rose-200' 
-                                : 'bg-emerald-50 text-emerald-700 border border-emerald-100'
-                            }`}>
-                              Min. Order: {minQty}
-                            </span>
-                            {isBelowMin && (
-                              <span className="text-[9px] text-rose-600 font-bold animate-pulse">
-                                (Kurang {minQty - item.quantity} porsi)
-                              </span>
-                            )}
-                          </div>
-                        )}
-                      </div>
-
-                      {/* Quantity Selector */}
-                      <div className="flex items-center gap-2">
-                        <div className="flex items-center gap-1 bg-white border border-slate-200 rounded-lg p-0.5 shadow-sm">
-                          <button
-                            type="button"
-                            onClick={() => updateCartQuantity(item.menuItemId, -1)}
-                            className="w-5 h-5 rounded-md hover:bg-slate-50 text-slate-500 font-bold text-xs flex items-center justify-center transition-colors"
-                            title="Kurangi Jumlah"
-                          >
-                            -
-                          </button>
-                          <span className="w-6 text-center text-xs font-bold font-mono text-slate-800">
-                            {item.quantity}
-                          </span>
-                          <button
-                            type="button"
-                            onClick={() => updateCartQuantity(item.menuItemId, 1)}
-                            className="w-5 h-5 rounded-md hover:bg-slate-50 text-slate-500 font-bold text-xs flex items-center justify-center transition-colors"
-                            title="Tambah Jumlah"
-                          >
-                            +
-                          </button>
-                        </div>
+                    {/* Quantity Selector */}
+                    <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-1 bg-white border border-slate-200 rounded-lg p-0.5 shadow-sm">
+                        <button
+                          type="button"
+                          onClick={() => updateCartQuantity(item.menuItemId, -1)}
+                          className="w-5 h-5 rounded-md hover:bg-slate-50 text-slate-500 font-bold text-xs flex items-center justify-center transition-colors"
+                          title="Kurangi Jumlah"
+                        >
+                          -
+                        </button>
+                        <span className="w-6 text-center text-xs font-bold font-mono text-slate-800">
+                          {item.quantity}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => updateCartQuantity(item.menuItemId, 1)}
+                          className="w-5 h-5 rounded-md hover:bg-slate-50 text-slate-500 font-bold text-xs flex items-center justify-center transition-colors"
+                          title="Tambah Jumlah"
+                        >
+                          +
+                        </button>
                       </div>
                     </div>
-                  );
-                })}
+                  </div>
+                ))}
               </div>
             </div>
-
-            {/* If Merchant supports both Instant and Pre-Order, allow customer selection */}
-            {cartMerchant.allowInstantAndPreOrder && (
-              <div className="bg-white border border-slate-200 rounded-xl p-3.5 shadow-sm flex flex-col gap-2.5">
-                <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Metode Pemesanan</span>
-                <div className="grid grid-cols-2 gap-2 p-1 bg-slate-100 rounded-lg">
-                  <button
-                    type="button"
-                    onClick={() => setCheckoutDeliveryType('INSTANT')}
-                    className={`py-2 text-xs font-bold rounded-md transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
-                      checkoutDeliveryType === 'INSTANT'
-                        ? 'bg-white text-rose-600 shadow-sm'
-                        : 'text-slate-500 hover:text-slate-800'
-                    }`}
-                  >
-                    <span>🚀 Kirim Instan</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setCheckoutDeliveryType('PREORDER')}
-                    className={`py-2 text-xs font-bold rounded-md transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
-                      checkoutDeliveryType === 'PREORDER'
-                        ? 'bg-white text-amber-600 shadow-sm'
-                        : 'text-slate-500 hover:text-slate-800'
-                    }`}
-                  >
-                    <span>📅 Pre-Order</span>
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {/* Pre-order Delivery Date Selector */}
-            {(cartMerchant.preOrderOnly || (cartMerchant.allowInstantAndPreOrder && checkoutDeliveryType === 'PREORDER')) && (
-              <div className="bg-gradient-to-br from-amber-50 to-orange-50 border border-amber-200 rounded-xl p-4 shadow-sm flex flex-col gap-2.5">
-                <div className="flex justify-between items-center border-b border-amber-200/60 pb-2">
-                  <h4 className="font-display font-semibold text-xs text-amber-900 flex items-center gap-1.5">
-                    <Calendar className="w-4 h-4 text-amber-700" />
-                    Tanggal Pengiriman Pre-Order
-                  </h4>
-                  <span className="text-[9px] bg-amber-200 text-amber-900 font-extrabold px-2 py-0.5 rounded-full uppercase">
-                    Wajib H-{cartMerchant.preOrderLeadDays || 1}
-                  </span>
-                </div>
-                
-                <p className="text-[10px] text-amber-700 leading-relaxed">
-                  Toko ini membutuhkan waktu persiapan minimal <strong>{cartMerchant.preOrderLeadDays || 1} hari</strong>. Silakan pilih tanggal pengiriman Anda di bawah ini:
-                </p>
-
-                <div>
-                  <input
-                    type="date"
-                    required
-                    value={preOrderDate}
-                    onChange={(e) => setPreOrderDate(e.target.value)}
-                    className="w-full bg-white border border-slate-300 rounded-lg p-2.5 text-xs focus:outline-none focus:border-rose-500 font-bold text-slate-700"
-                  />
-                </div>
-              </div>
-            )}
 
             {/* Customer Inputs */}
             <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm flex flex-col gap-3.5">
@@ -3549,78 +3473,6 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
               </div>
             </div>
 
-            {/* Portions/Items Progress and Validation for Pre-order */}
-            {(() => {
-              if (!cartMerchant) return null;
-              const isPreOrder = cartMerchant.preOrderOnly || checkoutDeliveryType === 'PREORDER';
-              if (!isPreOrder) return null;
-
-              const safeCart = Array.isArray(cart) ? cart : [];
-              const invalidItems = safeCart.filter(item => {
-                if (!item) return false;
-                const min = getMenuItemPreOrderMin(item);
-                return item.quantity < min;
-              });
-
-              const hasInvalidItem = invalidItems.length > 0;
-              const merchantMin = Number(cartMerchant.preOrderMinAmount || 0);
-              const totalQty = safeCart.reduce((sum, item) => Number(sum) + Number(item?.quantity || 0), 0);
-              const isTotalInvalid = totalQty < merchantMin;
-
-              const isBlocked = hasInvalidItem || isTotalInvalid;
-
-              return (
-                <div className={`p-4 rounded-xl border flex flex-col gap-2 text-xs transition-all ${
-                  !isBlocked 
-                    ? 'bg-emerald-50 border-emerald-200 text-emerald-800' 
-                    : 'bg-rose-50 border-rose-200 text-rose-800 animate-pulse'
-                }`}>
-                  <div className="flex items-center justify-between font-bold">
-                    <span className="flex items-center gap-1.5">
-                      <ClipboardList className="w-4 h-4" />
-                      Status Batas Minimal Order Pre-Order:
-                    </span>
-                    <span className="font-mono text-[9px] bg-white/60 px-2 py-0.5 rounded-full border border-slate-200/40">
-                      {isBlocked ? '⚠️ BELUM TERPENUHI' : '✓ TERPENUHI'}
-                    </span>
-                  </div>
-
-                  <div className="flex flex-col gap-1.5 mt-1">
-                    {/* Overall merchant min check */}
-                    {merchantMin > 0 && (
-                      <div className="flex justify-between items-center text-[11px]">
-                        <span>• Total Order Toko (Min. {merchantMin} porsi):</span>
-                        <span className={`font-bold ${totalQty >= merchantMin ? 'text-emerald-700' : 'text-rose-700'}`}>
-                          {totalQty} / {merchantMin} porsi
-                        </span>
-                      </div>
-                    )}
-
-                    {/* Item-specific checks */}
-                    {cart.map(item => {
-                      const min = getMenuItemPreOrderMin(item);
-                      const satisfies = item.quantity >= min;
-                      if (min <= 1) return null; // No custom minimum
-                      return (
-                        <div key={item.menuItemId} className="flex justify-between items-center text-[11px] pl-3 border-l-2 border-slate-200">
-                          <span className="truncate max-w-[180px]">{item.name}:</span>
-                          <span className={`font-bold ${satisfies ? 'text-emerald-700' : 'text-rose-700'}`}>
-                            {item.quantity} / {min} porsi {satisfies ? '✓' : `(Kurang ${min - item.quantity})`}
-                          </span>
-                        </div>
-                      );
-                    })}
-                  </div>
-
-                  <p className="text-[10px] opacity-90 leading-normal border-t border-slate-200/40 pt-1.5 mt-1 font-medium">
-                    {!isBlocked 
-                      ? '✓ Semua syarat jumlah minimal pesanan terpenuhi! Anda dapat melakukan checkout.' 
-                      : '⚠️ Silakan sesuaikan jumlah pesanan Anda agar memenuhi batas minimal sebelum menekan tombol checkout.'}
-                  </p>
-                </div>
-              );
-            })()}
-
             {/* Ringkasan Biaya */}
             <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
               <h4 className="font-display font-semibold text-sm text-slate-700 border-b border-slate-100 pb-2 mb-3">Ringkasan Pembayaran</h4>
@@ -3658,60 +3510,39 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
               </p>
             </div>
 
-            {(() => {
-              if (!cartMerchant) return null;
-              const isPreOrder = cartMerchant.preOrderOnly || checkoutDeliveryType === 'PREORDER';
-              
-              const safeCart = Array.isArray(cart) ? cart : [];
-              const invalidItems = isPreOrder ? safeCart.filter(item => {
-                if (!item) return false;
-                const min = getMenuItemPreOrderMin(item);
-                return item.quantity < min;
-              }) : [];
-
-              const hasInvalidItem = invalidItems.length > 0;
-              const merchantMin = Number(cartMerchant.preOrderMinAmount || 0);
-              const totalQty = safeCart.reduce((sum, item) => Number(sum) + Number(item?.quantity || 0), 0);
-              const isTotalInvalid = isPreOrder && totalQty < merchantMin;
-
-              const isBlocked = isPreOrder && (hasInvalidItem || isTotalInvalid);
-
-              return (
-                <div className="flex flex-col gap-2.5">
-                  {checkoutErrorMsg && (
-                    <div className="p-3.5 bg-rose-50 border border-rose-200 rounded-xl flex items-start gap-2.5 text-xs text-rose-800 animate-fade-in shadow-xs">
-                      <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
-                      <div className="flex-1">
-                        <span className="font-bold block">Pemberitahuan Pesanan:</span>
-                        <p className="mt-0.5 leading-relaxed">{checkoutErrorMsg}</p>
-                      </div>
-                    </div>
-                  )}
-                  <button
-                    type="submit"
-                    disabled={isBlocked || isSubmittingOrder}
-                    className={`w-full py-3.5 font-extrabold rounded-xl transition-all text-sm flex items-center justify-center gap-2 ${
-                      isBlocked || isSubmittingOrder
-                        ? 'bg-slate-200 text-slate-400 border border-slate-300 shadow-none cursor-not-allowed'
-                        : 'bg-rose-600 hover:bg-rose-700 text-white shadow-lg shadow-rose-600/25 cursor-pointer'
-                    }`}
-                  >
-                    {isSubmittingOrder ? (
-                      <>
-                        <RefreshCw className="w-4 h-4 animate-spin" />
-                        <span>Memproses Pesanan...</span>
-                      </>
-                    ) : (
-                      <>
-                        <QrCode className="w-4 h-4" />
-                        <span>{isBlocked ? 'Batas Minimal Order Belum Terpenuhi' : 'Bayar dengan QRIS'}</span>
-                        <ArrowRight className="w-4 h-4" />
-                      </>
-                    )}
-                  </button>
+            <div className="flex flex-col gap-2.5">
+              {checkoutErrorMsg && (
+                <div className="p-3.5 bg-rose-50 border border-rose-200 rounded-xl flex items-start gap-2.5 text-xs text-rose-800 animate-fade-in shadow-xs">
+                  <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                  <div className="flex-1">
+                    <span className="font-bold block">Pemberitahuan Pesanan:</span>
+                    <p className="mt-0.5 leading-relaxed">{checkoutErrorMsg}</p>
+                  </div>
                 </div>
-              );
-            })()}
+              )}
+              <button
+                type="submit"
+                disabled={isSubmittingOrder}
+                className={`w-full py-3.5 font-extrabold rounded-xl transition-all text-sm flex items-center justify-center gap-2 ${
+                  isSubmittingOrder
+                    ? 'bg-slate-200 text-slate-400 border border-slate-300 shadow-none cursor-not-allowed'
+                    : 'bg-rose-600 hover:bg-rose-700 text-white shadow-lg shadow-rose-600/25 cursor-pointer'
+                }`}
+              >
+                {isSubmittingOrder ? (
+                  <>
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                    <span>Memproses Pesanan...</span>
+                  </>
+                ) : (
+                  <>
+                    <QrCode className="w-4 h-4" />
+                    <span>Bayar dengan QRIS</span>
+                    <ArrowRight className="w-4 h-4" />
+                  </>
+                )}
+              </button>
+            </div>
           </form>
         )}
 
@@ -4222,15 +4053,6 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
                       <span className="text-slate-400 font-medium">Driver:</span>
                       <p className="font-semibold text-emerald-600 mt-0.5">{activeOrder.driverName || 'Menunggu penugasan...'}</p>
                     </div>
-                    
-                    {activeOrder.preOrderDate && (
-                      <div className="col-span-2 bg-amber-50 border border-amber-200/60 p-2.5 rounded-xl text-amber-900 mt-1">
-                        <span className="font-bold flex items-center gap-1 text-[10px] text-amber-800 uppercase tracking-wide">
-                          📅 Tanggal Pengantaran Pre-Order
-                        </span>
-                        <p className="font-extrabold text-sm mt-0.5">{new Date(activeOrder.preOrderDate).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })}</p>
-                      </div>
-                    )}
                   </div>
                 </div>
 

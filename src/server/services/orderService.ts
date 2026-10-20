@@ -23,13 +23,12 @@ export interface CreateOrderInput {
     notes?: string;
   }>;
   merchantId: string;
-  preOrderDate?: string;
 }
 
 export class OrderService {
   /**
    * Validates and recalculates an incoming order against official database records.
-   * Prevents customer-side price tampering and validates pre-order rules.
+   * Prevents customer-side price tampering.
    */
   public static validateAndBuildOrder(
     input: CreateOrderInput,
@@ -127,8 +126,7 @@ export class OrderService {
       subtotal: calculatedSubtotal,
       deliveryFee: calculatedDeliveryFee,
       serviceFee: calculatedServiceFee,
-      paymentExpiresAt,
-      preOrderDate: input.preOrderDate || ''
+      paymentExpiresAt
     });
   }
 

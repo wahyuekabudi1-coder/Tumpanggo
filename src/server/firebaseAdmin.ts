@@ -367,11 +367,27 @@ export function getAdminDb(): Firestore | null {
   return adminDb;
 }
 
+// Test simulation hook for fail-safe verification
+export interface FirestoreTestMockState {
+  isConfigured?: boolean;
+  probeResult?: FirestoreProbeResult;
+  writeSuccess?: boolean;
+}
+
+let testMockState: FirestoreTestMockState | null = null;
+
+export function __setFirestoreMockForTesting(mock: FirestoreTestMockState | null): void {
+  testMockState = mock;
+}
+
 /**
  * Checks if Firestore Admin is configured AND connection is verified.
  * Does NOT return true merely because the adminApp object exists.
  */
 export function isFirestoreAdminConfigured(): boolean {
+  if (testMockState && testMockState.isConfigured !== undefined) {
+    return testMockState.isConfigured;
+  }
   return adminDb !== null && isConfiguredWithServiceAccount === true && isFirestoreVerified === true;
 }
 
@@ -427,6 +443,10 @@ const PROBE_CACHE_TTL_MS = 10000;
  * preserving database cleanliness and avoiding quota burn.
  */
 export async function testFirestoreConnection(force = false): Promise<FirestoreProbeResult> {
+  if (testMockState && testMockState.probeResult !== undefined) {
+    return { ...testMockState.probeResult };
+  }
+
   if (!force && lastProbeResult && (Date.now() - lastProbeResult.timestamp < PROBE_CACHE_TTL_MS)) {
     return { ...lastProbeResult.result };
   }
@@ -575,6 +595,9 @@ export async function resetFirebaseAdmin(): Promise<void> {
  * Safe administrative setDoc write. Bypasses client Firestore Security Rules.
  */
 export async function safeAdminSetDoc(collectionName: string, docId: string, data: any): Promise<boolean> {
+  if (testMockState && testMockState.writeSuccess !== undefined) {
+    return testMockState.writeSuccess;
+  }
   if (!adminDb || !isConfiguredWithServiceAccount) return false;
   try {
     const cleaned = removeUndefinedFields(data);

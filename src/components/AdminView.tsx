@@ -1152,7 +1152,7 @@ export default function AdminView({ onLogout, systemConfig, onUpdateConfig, onSe
             <div className="bg-white p-4 sm:p-5 rounded-2xl border border-slate-200/80 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div>
                 <h2 className="font-display font-bold text-base sm:text-lg text-slate-900">Daftar Mitra Toko & Resto</h2>
-                <p className="text-xs text-slate-500 mt-0.5">Kelola status aktif merchant, pengaturan pre-order, dan kredensial akses.</p>
+                <p className="text-xs text-slate-500 mt-0.5">Kelola status aktif merchant dan kredensial akses.</p>
               </div>
 
               <div className="relative">
@@ -1208,19 +1208,6 @@ export default function AdminView({ onLogout, systemConfig, onUpdateConfig, onSe
                         <span className="font-mono text-[11px]">{m.bankName} - {m.bankAccount}</span>
                       </div>
                     </div>
-
-                    {/* Pre-Order Capabilities (Native without license) */}
-                    {(m.preOrderOnly || m.allowInstantAndPreOrder) && (
-                      <div className="bg-amber-50/70 border border-amber-200/60 rounded-xl p-2.5 text-[11px] text-amber-900 space-y-0.5">
-                        <span className="font-bold block flex items-center gap-1">
-                          📦 Fitur Pre-Order Aktif
-                        </span>
-                        <div className="flex justify-between text-[10px] text-amber-800">
-                          <span>Model: {m.preOrderOnly ? 'Khusus Pre-Order' : 'Instan + Pre-Order'}</span>
-                          <span>H-{m.preOrderLeadDays || 1} Hari</span>
-                        </div>
-                      </div>
-                    )}
 
                     {/* Edit Merchant Email Section */}
                     <div className="pt-2 border-t border-slate-100">

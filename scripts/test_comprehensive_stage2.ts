@@ -430,9 +430,9 @@ async function runStage2Audit() {
   );
 
   // -------------------------------------------------------------------------
-  // 7. SISTEM PRE-ORDER NATIVE (BEBAS LISENSI) & PENGHAPUSAN SISTEM PREMIUM
+  // 7. PENGHAPUSAN SISTEM PREMIUM & UPDATE PROFIL MITRA
   // -------------------------------------------------------------------------
-  console.log('\n📦 7. FITUR PRE-ORDER NATIVE & PENGHAPUSAN SISTEM PREMIUM');
+  console.log('\n📦 7. PENGHAPUSAN SISTEM PREMIUM & UPDATE PROFIL MITRA');
 
   // Verify license endpoints are completely removed (404)
   const licensesRes = await fetch(`${BASE_URL}/api/licenses`, {
@@ -445,41 +445,25 @@ async function runStage2Audit() {
     `Status ${licensesRes.status} (Not Found)`
   );
 
-  // Verify merchant can natively configure and use pre-order without any license
-  const updatePreOrderRes = await fetch(`${BASE_URL}/api/merchants/${m1.id}`, {
+  // Verify merchant can update profile smoothly
+  const updateMerchantRes = await fetch(`${BASE_URL}/api/merchants/${m1.id}`, {
     method: 'PUT',
     headers: {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${m1Token}`
     },
     body: JSON.stringify({
-      preOrderOnly: true,
-      preOrderMinAmount: 25000,
-      preOrderLeadDays: 2
+      description: 'Warung kuliner lokal pilihan Tumpang'
     })
   });
-  const updatedMerchant = await updatePreOrderRes.json();
+  const updatedMerchant = await updateMerchantRes.json();
 
   record(
-    '7. Fitur Pre-Order Native',
-    `Pengaturan Pre-Order aktif secara native pada Merchant ${m1.name} tanpa lisensi`,
-    updatePreOrderRes.status === 200 && Boolean(updatedMerchant.preOrderOnly) && updatedMerchant.preOrderLeadDays === 2,
-    `Status ${updatePreOrderRes.status}, preOrderOnly: true, minAmount: Rp 25.000, leadDays: 2`
+    '7. Update Profil Merchant',
+    `Pengaturan Profil aktif dan dapat diperbarui pada Merchant ${m1.name}`,
+    updateMerchantRes.status === 200 && updatedMerchant.description === 'Warung kuliner lokal pilihan Tumpang',
+    `Status ${updateMerchantRes.status}, description updated successfully`
   );
-
-  // Restore m1 settings so other tests continue normally
-  await fetch(`${BASE_URL}/api/merchants/${m1.id}`, {
-    method: 'PUT',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${m1Token}`
-    },
-    body: JSON.stringify({
-      preOrderOnly: false,
-      preOrderMinAmount: 0,
-      preOrderLeadDays: 0
-    })
-  });
 
   // -------------------------------------------------------------------------
   // 8. PERSISTENSI DATA SETELAH RESTART & BACKUP

@@ -4,7 +4,7 @@
  * 
  * Tumpang Food Merchant Portal
  * Dashboard operasional mitra toko & resto: manajemen pesanan dapur,
- * katalog menu & kategori, konfigurasi pemesanan (instan & pre-order), serta settlement.
+ * katalog menu & kategori, serta settlement.
  */
 
 import React, { useState, useEffect } from 'react';
@@ -76,12 +76,6 @@ export default function MerchantView({ merchantId, onLogout, onSelectRole }: Mer
   const [profileCategory, setProfileCategory] = useState('Nasi & Lauk');
   const [isSavingProfile, setIsSavingProfile] = useState(false);
 
-  // Pre-order settings (Unlocked for all merchants)
-  const [preOrderOnly, setPreOrderOnly] = useState(false);
-  const [allowInstantAndPreOrder, setAllowInstantAndPreOrder] = useState(false);
-  const [preOrderMinAmount, setPreOrderMinAmount] = useState<number>(0);
-  const [preOrderLeadDays, setPreOrderLeadDays] = useState<number>(1);
-
   // Filter orders
   const [orderSubTab, setOrderSubTab] = useState<'need_cooking' | 'waiting' | 'cooking' | 'ready' | 'history'>('need_cooking');
 
@@ -114,10 +108,6 @@ export default function MerchantView({ merchantId, onLogout, onSelectRole }: Mer
         setProfileOpenTime(profRes.openTime || '08:00');
         setProfileCloseTime(profRes.closeTime || '21:00');
         setProfileCategory(profRes.category || 'Nasi & Lauk');
-        setPreOrderOnly(profRes.preOrderOnly || false);
-        setAllowInstantAndPreOrder(profRes.allowInstantAndPreOrder || false);
-        setPreOrderMinAmount(profRes.preOrderMinAmount || 0);
-        setPreOrderLeadDays(profRes.preOrderLeadDays || 1);
       }
 
       setOrders(extractArrayResponse<Order>(ordRes, 'orders'));
@@ -236,8 +226,7 @@ export default function MerchantView({ merchantId, onLogout, onSelectRole }: Mer
         body: JSON.stringify({
           ...editingItem,
           price: Number(editingItem.price),
-          available: editingItem.available !== undefined ? editingItem.available : true,
-          allowInstant: editingItem.allowInstant !== undefined ? editingItem.allowInstant : true
+          available: editingItem.available !== undefined ? editingItem.available : true
         })
       });
       if (res.ok) {
@@ -304,16 +293,12 @@ export default function MerchantView({ merchantId, onLogout, onSelectRole }: Mer
           openTime: profileOpenTime,
           closeTime: profileCloseTime,
           category: profileCategory,
-          preOrderOnly,
-          allowInstantAndPreOrder,
-          preOrderMinAmount: Number(preOrderMinAmount || 0),
-          preOrderLeadDays: Number(preOrderLeadDays || 1),
           role: 'MERCHANT',
           userId: merchantId
         })
       });
       if (res.ok) {
-        alert('Profil toko dan pengaturan pemesanan berhasil diperbarui!');
+        alert('Profil toko berhasil diperbarui!');
         fetchMerchantData();
       }
     } catch (err) {
@@ -479,7 +464,7 @@ export default function MerchantView({ merchantId, onLogout, onSelectRole }: Mer
               { id: 'menu', label: 'Katalog Menu', count: menuItems.length, icon: Utensils },
               { id: 'dashboard', label: 'Ringkasan & Metrik', icon: TrendingUp },
               { id: 'settlement', label: 'Settlement & Hasil', count: settlements.length, icon: DollarSign },
-              { id: 'profile', label: 'Profil Toko & PO', icon: Settings },
+              { id: 'profile', label: 'Profil Toko', icon: Settings },
             ].map(tab => {
               const Icon = tab.icon;
               const isActive = activeTab === tab.id;
@@ -588,17 +573,6 @@ export default function MerchantView({ merchantId, onLogout, onSelectRole }: Mer
 
                         {/* Order Content */}
                         <div className="p-4 space-y-3">
-                          {/* Pre-order notice if any */}
-                          {order.preOrderDate && (
-                            <div className="bg-amber-50 border border-amber-200/60 rounded-xl p-2.5 text-xs text-amber-900 flex items-center gap-2">
-                              <Calendar className="w-4 h-4 text-amber-700 shrink-0" />
-                              <div>
-                                <span className="text-[10px] uppercase font-bold text-amber-700 block">Jadwal Pengantaran Pre-Order</span>
-                                <span className="font-bold">{new Date(order.preOrderDate).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })}</span>
-                              </div>
-                            </div>
-                          )}
-
                           {/* Items */}
                           <div className="bg-slate-50 rounded-xl p-3 space-y-1.5">
                             <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Menu yang Dipesan:</span>
@@ -700,7 +674,7 @@ export default function MerchantView({ merchantId, onLogout, onSelectRole }: Mer
             <div className="bg-white p-4 sm:p-5 rounded-2xl border border-slate-200/80 shadow-xs flex flex-wrap items-center justify-between gap-3">
               <div>
                 <h2 className="font-display font-bold text-base sm:text-lg text-slate-900">Katalog Menu & Kategori</h2>
-                <p className="text-xs text-slate-500 mt-0.5">Tambah menu baru, atur ketersediaan instan maupun pre-order, dan kelola harga.</p>
+                <p className="text-xs text-slate-500 mt-0.5">Tambah menu baru, atur ketersediaan menu, dan kelola harga.</p>
               </div>
 
               <div className="flex items-center gap-2">
@@ -711,7 +685,7 @@ export default function MerchantView({ merchantId, onLogout, onSelectRole }: Mer
                   + Tambah Kategori
                 </button>
                 <button
-                  onClick={() => { setEditingItem({ available: true, allowInstant: true, categoryId: categories[0]?.id || '' }); setShowItemForm(true); }}
+                  onClick={() => { setEditingItem({ available: true, categoryId: categories[0]?.id || '' }); setShowItemForm(true); }}
                   className="px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition-all shadow-xs cursor-pointer flex items-center gap-1.5"
                 >
                   <Plus className="w-4 h-4" />
@@ -740,13 +714,6 @@ export default function MerchantView({ merchantId, onLogout, onSelectRole }: Mer
                           {item.available ? 'Tersedia' : 'Habis'}
                         </span>
                       </div>
-                      {item.allowInstant === false && (
-                        <div className="absolute bottom-2 left-2">
-                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-amber-500 text-white">
-                            Khusus Pre-Order
-                          </span>
-                        </div>
-                      )}
                     </div>
 
                     <div className="p-3.5 space-y-1">
@@ -754,9 +721,6 @@ export default function MerchantView({ merchantId, onLogout, onSelectRole }: Mer
                       <p className="text-[11px] text-slate-500 line-clamp-2 leading-relaxed">{item.description || 'Tidak ada deskripsi'}</p>
                       <div className="pt-2 flex items-center justify-between">
                         <span className="font-mono font-bold text-sm text-emerald-800">Rp {item.price.toLocaleString('id-ID')}</span>
-                        {item.preOrderMinAmount ? (
-                          <span className="text-[10px] text-slate-400">Min. {item.preOrderMinAmount} porsi</span>
-                        ) : null}
                       </div>
                     </div>
                   </div>
@@ -871,12 +835,12 @@ export default function MerchantView({ merchantId, onLogout, onSelectRole }: Mer
           </div>
         )}
 
-        {/* 5. TAB: PROFIL & PENGATURAN PRE-ORDER */}
+        {/* 5. TAB: PROFIL TOKO */}
         {activeTab === 'profile' && (
           <div className="max-w-3xl bg-white rounded-2xl border border-slate-200/80 p-5 sm:p-6 shadow-xs space-y-6">
             <div>
-              <h2 className="font-display font-bold text-base sm:text-lg text-slate-900">Profil Toko & Pengaturan Pemesanan</h2>
-              <p className="text-xs text-slate-500 mt-0.5">Kelola identitas outlet, nomor rekening pembayaran, serta konfigurasi sistem pengantaran.</p>
+              <h2 className="font-display font-bold text-base sm:text-lg text-slate-900">Profil Toko</h2>
+              <p className="text-xs text-slate-500 mt-0.5">Kelola identitas outlet, nomor rekening pembayaran, serta informasi operasional.</p>
             </div>
 
             <form onSubmit={handleUpdateProfile} className="space-y-4">
@@ -987,98 +951,6 @@ export default function MerchantView({ merchantId, onLogout, onSelectRole }: Mer
                     />
                   </div>
                 </div>
-              </div>
-
-              {/* Pre-Order System Configuration (Available to all merchants natively) */}
-              <div className="pt-4 border-t border-slate-100 space-y-3">
-                <div>
-                  <h3 className="font-display font-bold text-sm text-slate-900 flex items-center gap-1.5">
-                    <Calendar className="w-4 h-4 text-emerald-600" />
-                    Sistem Pemesanan & Pengantaran (Instan vs Pre-Order)
-                  </h3>
-                  <p className="text-xs text-slate-500 mt-0.5">
-                    Pilih model operasional outlet Anda. Apakah melayani pesanan langsung (instan) atau sistem Pre-Order (PO).
-                  </p>
-                </div>
-
-                <div className="space-y-2">
-                  <label className={`flex items-start gap-3 p-3 rounded-xl border cursor-pointer transition-all ${
-                    !preOrderOnly && !allowInstantAndPreOrder ? 'bg-emerald-50 border-emerald-300' : 'bg-slate-50 border-slate-200'
-                  }`}>
-                    <input
-                      type="radio"
-                      name="preOrderMode"
-                      checked={!preOrderOnly && !allowInstantAndPreOrder}
-                      onChange={() => { setPreOrderOnly(false); setAllowInstantAndPreOrder(false); }}
-                      className="mt-0.5"
-                    />
-                    <div>
-                      <span className="font-bold text-xs text-slate-900 block">Pengantaran Instan Langsung (Standar GoFood)</span>
-                      <span className="text-[11px] text-slate-500">Pelanggan memesan dan pesanan langsung dimasak dan diantar seketika.</span>
-                    </div>
-                  </label>
-
-                  <label className={`flex items-start gap-3 p-3 rounded-xl border cursor-pointer transition-all ${
-                    preOrderOnly && !allowInstantAndPreOrder ? 'bg-emerald-50 border-emerald-300' : 'bg-slate-50 border-slate-200'
-                  }`}>
-                    <input
-                      type="radio"
-                      name="preOrderMode"
-                      checked={preOrderOnly && !allowInstantAndPreOrder}
-                      onChange={() => { setPreOrderOnly(true); setAllowInstantAndPreOrder(false); }}
-                      className="mt-0.5"
-                    />
-                    <div>
-                      <span className="font-bold text-xs text-slate-900 block">Khusus Sistem Pre-Order (PO Saja)</span>
-                      <span className="text-[11px] text-slate-500">Cocok untuk toko kue, katering, atau makanan custom yang butuh disiapkan H-1 atau H-2.</span>
-                    </div>
-                  </label>
-
-                  <label className={`flex items-start gap-3 p-3 rounded-xl border cursor-pointer transition-all ${
-                    allowInstantAndPreOrder ? 'bg-emerald-50 border-emerald-300' : 'bg-slate-50 border-slate-200'
-                  }`}>
-                    <input
-                      type="radio"
-                      name="preOrderMode"
-                      checked={allowInstantAndPreOrder}
-                      onChange={() => { setPreOrderOnly(false); setAllowInstantAndPreOrder(true); }}
-                      className="mt-0.5"
-                    />
-                    <div>
-                      <span className="font-bold text-xs text-slate-900 block">Mendukung Instan & Pre-Order Sekaligus</span>
-                      <span className="text-[11px] text-slate-500">Pelanggan dapat memilih apakah ingin diantar sekarang atau memilih tanggal pengantaran masa depan.</span>
-                    </div>
-                  </label>
-                </div>
-
-                {(preOrderOnly || allowInstantAndPreOrder) && (
-                  <div className="grid grid-cols-2 gap-3 pt-2 bg-slate-50 p-3 rounded-xl border border-slate-200">
-                    <div>
-                      <label className="text-[10px] font-bold text-slate-600 block mb-1">Minimal Hari Pemesanan (Lead Days)</label>
-                      <select
-                        value={preOrderLeadDays}
-                        onChange={(e) => setPreOrderLeadDays(Number(e.target.value))}
-                        className="w-full bg-white border border-slate-200 rounded-lg p-2 text-xs"
-                      >
-                        <option value={1}>H-1 (1 Hari Sebelumnya)</option>
-                        <option value={2}>H-2 (2 Hari Sebelumnya)</option>
-                        <option value={3}>H-3 (3 Hari Sebelumnya)</option>
-                        <option value={7}>H-7 (1 Minggu Sebelumnya)</option>
-                      </select>
-                    </div>
-
-                    <div>
-                      <label className="text-[10px] font-bold text-slate-600 block mb-1">Minimal Porsi Pembelian PO (Opsional)</label>
-                      <input
-                        type="number"
-                        value={preOrderMinAmount || ''}
-                        onChange={(e) => setPreOrderMinAmount(Number(e.target.value))}
-                        placeholder="Contoh: 10 porsi"
-                        className="w-full bg-white border border-slate-200 rounded-lg p-2 text-xs"
-                      />
-                    </div>
-                  </div>
-                )}
               </div>
 
               <div className="pt-3">
@@ -1395,16 +1267,6 @@ export default function MerchantView({ merchantId, onLogout, onSelectRole }: Mer
                     className="rounded text-emerald-600 focus:ring-emerald-500"
                   />
                   <span className="text-xs font-semibold text-slate-700">Tersedia untuk Dipesan Pelanggan</span>
-                </label>
-
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={editingItem.allowInstant !== false}
-                    onChange={(e) => setEditingItem({ ...editingItem, allowInstant: e.target.checked })}
-                    className="rounded text-emerald-600 focus:ring-emerald-500"
-                  />
-                  <span className="text-xs font-semibold text-slate-700">Dapat Dipesan Instan (Bukan Khusus PO)</span>
                 </label>
               </div>
 

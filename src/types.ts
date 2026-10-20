@@ -63,12 +63,6 @@ export interface Merchant {
   qrisImage?: string;
   qrisUpdatedAt?: string;
 
-  // Pre-order and Delivery Settings (Available for all merchants natively)
-  preOrderOnly?: boolean;
-  allowInstantAndPreOrder?: boolean;
-  preOrderMinAmount?: number;
-  preOrderLeadDays?: number; // e.g., 2 for H-2
-
   // Activation and Authentication
   isActivated?: boolean;
   password?: string;
@@ -95,8 +89,6 @@ export interface MenuItem {
   image: string;
   createdAt: string;
   updatedAt: string;
-  preOrderMinAmount?: number;
-  allowInstant?: boolean;
 }
 
 export interface OrderItem {
@@ -104,8 +96,6 @@ export interface OrderItem {
   name: string;
   price: number;
   quantity: number;
-  preOrderMinAmount?: number;
-  allowInstant?: boolean;
 }
 
 export interface Order {
