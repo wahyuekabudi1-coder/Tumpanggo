@@ -26,9 +26,18 @@ if (process.env.NODE_ENV === 'production' && fs.existsSync(distServer)) {
   const prodMod = _require(distServer);
   app = prodMod.app || prodMod;
 } else {
-  // Development mode under tsx (default)
-  const devMod = await import('./src/server/serverCore');
-  app = devMod.app;
+  // Development mode under tsx (default), with fallback to bundled dist if running plain node
+  try {
+    const devMod = await import('./src/server/serverCore');
+    app = devMod.app;
+  } catch (err) {
+    if (fs.existsSync(distServer)) {
+      const prodMod = _require(distServer);
+      app = prodMod.app || prodMod;
+    } else {
+      throw err;
+    }
+  }
 }
 
 export { app };
