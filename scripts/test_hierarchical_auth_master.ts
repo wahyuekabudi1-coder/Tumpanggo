@@ -248,7 +248,7 @@ async function runTests() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           username: m1.phone || m1.email,
-          password: 'TF-1234',
+          password: m1.id + '123',
           role: 'MERCHANT'
         })
       });
@@ -310,7 +310,7 @@ async function runTests() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           username: d1.phone || d1.email,
-          password: 'TF-1234',
+          password: d1.id + '123',
           role: 'DRIVER'
         })
       });

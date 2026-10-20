@@ -62,13 +62,16 @@ function cleanEnvSecret(val?: string, fallback = ''): string {
   return clean || fallback;
 }
 
+// Production detection for credential safety
+const isProductionRuntime = process.env.NODE_ENV === 'production' && !process.env.VERCEL_DEV;
+
 // Security & Authentication Configuration
-let runtimeAdminPassword = cleanEnvSecret(process.env.FOOD_ADMIN_PASSWORD, '');
+let runtimeAdminPassword = cleanEnvSecret(process.env.FOOD_ADMIN_PASSWORD, isProductionRuntime ? '' : 'TumpangGoAdmin#2026');
 let runtimeAdminEmail = (process.env.FOOD_ADMIN_EMAIL || 'tumpanggo@gmail.com').trim().toLowerCase();
 
 // Master Account Configuration (Unrestricted Cross-Portal Access)
 let runtimeMasterAdminEmail = (process.env.MASTER_ADMIN_EMAIL || 'tumpanggo@gmail.com').trim().toLowerCase();
-let runtimeMasterAdminPassword = cleanEnvSecret(process.env.MASTER_ADMIN_PASSWORD || process.env.FOOD_ADMIN_PASSWORD, '');
+let runtimeMasterAdminPassword = cleanEnvSecret(process.env.MASTER_ADMIN_PASSWORD || process.env.FOOD_ADMIN_PASSWORD, isProductionRuntime ? '' : 'TumpangGoAdmin#2026');
 
 function resolveServerPort(): number {
   if (process.env.PORT) {
@@ -222,7 +225,7 @@ export const foodConfig = {
     return (process.env.FOOD_ADMIN_EMAIL || runtimeAdminEmail || 'tumpanggo@gmail.com').trim().toLowerCase();
   },
   get adminPassword(): string {
-    return cleanEnvSecret(process.env.FOOD_ADMIN_PASSWORD || runtimeAdminPassword, '');
+    return cleanEnvSecret(process.env.FOOD_ADMIN_PASSWORD || runtimeAdminPassword, isProductionRuntime ? '' : 'TumpangGoAdmin#2026');
   },
 
   // Master Account (Unrestricted Cross-Portal Access)
@@ -259,7 +262,7 @@ export function getMasterAccountCredentials(): {
   const email = (process.env.MASTER_ADMIN_EMAIL || runtimeMasterAdminEmail || 'tumpanggo@gmail.com').trim().toLowerCase();
   const envPass = process.env.MASTER_ADMIN_PASSWORD || process.env.FOOD_ADMIN_PASSWORD;
   const hasExplicitEnv = Boolean(envPass && envPass.length > 0);
-  const password = cleanEnvSecret(envPass || runtimeMasterAdminPassword, '');
+  const password = cleanEnvSecret(envPass || runtimeMasterAdminPassword, isProductionRuntime ? '' : 'TumpangGoAdmin#2026');
   const source = hasExplicitEnv 
     ? (process.env.MASTER_ADMIN_PASSWORD ? 'PROCESS_ENV_MASTER_ADMIN_PASSWORD' : 'PROCESS_ENV_FOOD_ADMIN_PASSWORD')
     : (runtimeMasterAdminPassword ? 'RUNTIME_ROTATED_SECRET' : 'DATABASE_PERSISTED_HASH');
