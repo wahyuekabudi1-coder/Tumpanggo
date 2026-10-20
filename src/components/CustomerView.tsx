@@ -488,41 +488,8 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
   const [checkoutDetails, setCheckoutDetails] = useState('');
   const [checkoutLandmark, setCheckoutLandmark] = useState('');
   const [checkoutLat, setCheckoutLat] = useState(-7.9482);
-  const [checkoutLng, setCheckoutLng] = useState(112.7612);
-  const [preOrderDate, setPreOrderDate] = useState('');
-  const [checkoutDeliveryType, setCheckoutDeliveryType] = useState<'INSTANT' | 'PREORDER'>('INSTANT');
   const [isSubmittingOrder, setIsSubmittingOrder] = useState<boolean>(false);
   const [checkoutErrorMsg, setCheckoutErrorMsg] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (cartMerchant) {
-      if (cartMerchant.preOrderOnly) {
-        setCheckoutDeliveryType('PREORDER');
-      } else {
-        setCheckoutDeliveryType('INSTANT');
-      }
-    } else if (selectedMerchant) {
-      if (selectedMerchant.preOrderOnly) {
-        setCheckoutDeliveryType('PREORDER');
-      } else {
-        setCheckoutDeliveryType('INSTANT');
-      }
-    }
-  }, [cartMerchant, selectedMerchant]);
-
-  // Helper to determine the pre-order minimum quantity for a cart item or menu item
-  const getMenuItemPreOrderMin = (item: { menuItemId?: string; id?: string; preOrderMinAmount?: number }) => {
-    const isPreOrder = cartMerchant?.preOrderOnly || checkoutDeliveryType === 'PREORDER';
-    if (!isPreOrder) return 1;
-
-    const itemId = item.menuItemId || item.id;
-    const menuItem = selectedMerchantMenu.find(m => m.id === itemId);
-    const itemMin = menuItem?.preOrderMinAmount ?? item.preOrderMinAmount;
-
-    const merchantMin = cartMerchant?.preOrderMinAmount;
-
-    return Number(itemMin) || Number(merchantMin) || 1;
-  };
 
   // Active Order / Tracking state
   const [activeOrder, setActiveOrder] = useState<Order | null>(() => {
@@ -990,24 +957,12 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
       return;
     }
 
-    let targetDeliveryType = checkoutDeliveryType;
-    if (item.allowInstant === false && checkoutDeliveryType === 'INSTANT') {
-      setCheckoutDeliveryType('PREORDER');
-      targetDeliveryType = 'PREORDER';
-    }
-
-    const isPreOrder = merchant.preOrderOnly || (merchant.allowInstantAndPreOrder && targetDeliveryType === 'PREORDER');
-    const itemMinQty = isPreOrder ? (Number(item.preOrderMinAmount) || Number(merchant.preOrderMinAmount) || 1) : 1;
-    const initialQty = itemMinQty > 0 ? itemMinQty : 1;
-
     setCart(prev => {
       const existing = prev.find(i => i.menuItemId === item.id);
       if (existing) {
-        const currentQty = Number(existing.quantity || 0);
-        const newQty = currentQty < itemMinQty ? itemMinQty : currentQty + 1;
-        return prev.map(i => i.menuItemId === item.id ? { ...i, quantity: newQty, preOrderMinAmount: itemMinQty, allowInstant: item.allowInstant } : i);
+        return prev.map(i => i.menuItemId === item.id ? { ...i, quantity: i.quantity + 1 } : i);
       }
-      return [...prev, { menuItemId: item.id, name: item.name, price: item.price, quantity: initialQty, preOrderMinAmount: itemMinQty, allowInstant: item.allowInstant }];
+      return [...prev, { menuItemId: item.id, name: item.name, price: item.price, quantity: 1 }];
     });
     setCartMerchantId(merchant.id);
     setCartMerchant(merchant);
@@ -1016,18 +971,8 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
   const handleClearCartAndAdd = () => {
     if (!showClearCartConfirm) return;
     const { pendingItem, pendingMerchant } = showClearCartConfirm;
-    
-    let targetDeliveryType = checkoutDeliveryType;
-    if (pendingItem.allowInstant === false && checkoutDeliveryType === 'INSTANT') {
-      setCheckoutDeliveryType('PREORDER');
-      targetDeliveryType = 'PREORDER';
-    }
 
-    const isPreOrder = pendingMerchant.preOrderOnly || (pendingMerchant.allowInstantAndPreOrder && targetDeliveryType === 'PREORDER');
-    const itemMinQty = isPreOrder ? (Number(pendingItem.preOrderMinAmount) || Number(pendingMerchant.preOrderMinAmount) || 1) : 1;
-    const initialQty = itemMinQty > 0 ? itemMinQty : 1;
-
-    setCart([{ menuItemId: pendingItem.id, name: pendingItem.name, price: pendingItem.price, quantity: initialQty, preOrderMinAmount: itemMinQty, allowInstant: pendingItem.allowInstant }]);
+    setCart([{ menuItemId: pendingItem.id, name: pendingItem.name, price: pendingItem.price, quantity: 1 }]);
     setCartMerchantId(pendingMerchant.id);
     setCartMerchant(pendingMerchant);
     setShowClearCartConfirm(null);
@@ -1035,19 +980,9 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
 
   const updateCartQuantity = (menuItemId: string, change: number) => {
     setCart(prev => {
-      const isPreOrder = cartMerchant?.preOrderOnly || (cartMerchant?.allowInstantAndPreOrder && checkoutDeliveryType === 'PREORDER');
-      
       const updated = prev.map(i => {
         if (i.menuItemId === menuItemId) {
-          const itemMinQty = isPreOrder ? (Number(i.preOrderMinAmount) || Number(cartMerchant?.preOrderMinAmount) || 1) : 1;
-          const targetMinQty = itemMinQty > 0 ? itemMinQty : 1;
-          
           const qty = i.quantity + change;
-          
-          if (change < 0 && qty < targetMinQty) {
-            return null; // Directly drops to 0 (removes from cart)
-          }
-          
           return qty > 0 ? { ...i, quantity: qty } : null;
         }
         return i;
@@ -1115,61 +1050,6 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
       return;
     }
 
-    const safeCart = Array.isArray(cart) ? cart : [];
-    const isPreOrder = cartMerchant?.preOrderOnly || checkoutDeliveryType === 'PREORDER';
-
-    // Validate that instant delivery does not contain pre-order-only items
-    if (!isPreOrder) {
-      const nonInstantItems = safeCart.filter(item => item && item.allowInstant === false);
-      if (nonInstantItems.length > 0) {
-        const itemNames = nonInstantItems.map(item => `- ${item.name}`).join('\n');
-        alert(`Beberapa item dalam keranjang Anda hanya bisa dipesan melalui Pre-Order (tidak bisa dipesan langsung):\n${itemNames}\n\nSilakan ubah metode pemesanan ke Pre-Order atau hapus item tersebut.`);
-        return;
-      }
-    }
-
-    // Pre-order Validation for Premium/Pre-Order merchants
-    if (isPreOrder) {
-      if (!preOrderDate) {
-        alert('Mohon tentukan Tanggal Pengiriman Terlebih Dahulu untuk pesanan Pre-Order.');
-        return;
-      }
-
-      // Check item-specific minimums
-      const invalidItems = safeCart.filter(item => {
-        if (!item) return false;
-        const min = getMenuItemPreOrderMin(item);
-        return item.quantity < min;
-      });
-
-      if (invalidItems.length > 0) {
-        const itemAlerts = invalidItems.map(item => `- ${item.name} (baru ${item.quantity} dari minimal ${getMenuItemPreOrderMin(item)} porsi)`).join('\n');
-        alert(`Beberapa item dalam keranjang Anda belum memenuhi batas minimal order:\n${itemAlerts}\n\nMohon sesuaikan jumlah pesanan Anda.`);
-        return;
-      }
-
-      // Check merchant-level total minimum order quantity (porsi/item)
-      const minQty = Number(cartMerchant?.preOrderMinAmount || 0);
-      const totalQty = cart.reduce((sum, item) => Number(sum) + Number(item.quantity), 0);
-      if (totalQty < minQty) {
-        alert(`Minimal total pembelian untuk pesanan Pre-Order ini adalah ${minQty} porsi. Keranjang belanja Anda baru berisi ${totalQty} porsi. Silakan tambah jumlah item.`);
-        return;
-      }
-
-      // Check lead notice days
-      const selected = new Date(preOrderDate);
-      selected.setHours(0,0,0,0);
-      const minDate = new Date();
-      minDate.setDate(minDate.getDate() + (Number(cartMerchant?.preOrderLeadDays) || 1));
-      minDate.setHours(0,0,0,0);
-
-      if (selected < minDate) {
-        const leadDays = Number(cartMerchant?.preOrderLeadDays) || 1;
-        alert(`Pesanan Pre-Order memerlukan persiapan minimal ${leadDays} hari. Tanggal pengiriman terdekat yang diperbolehkan adalah ${minDate.toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })}.`);
-        return;
-      }
-    }
-
     setIsSubmittingOrder(true);
     setCheckoutErrorMsg(null);
 
@@ -1188,7 +1068,6 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
       subtotal: getSubtotal(),
       deliveryFee: getDeliveryFee(),
       serviceFee: getServiceFee(),
-      preOrderDate: isPreOrder ? preOrderDate : undefined,
       clientRequestId
     };
 
@@ -1212,7 +1091,6 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
         setCart([]);
         setCartMerchantId(null);
         setCartMerchant(null);
-        setPreOrderDate(''); // Reset pre-order date state
         setActiveTab('payment');
       } else {
         const errorMsg = order?.error || order?.message || order?.cancelReason || 'Gagal membuat pesanan. Silakan periksa kembali data pesanan Anda.';
@@ -1680,12 +1558,6 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
                       Rp {selectedMenuItemDetail.item.price.toLocaleString('id-ID')}
                     </span>
                   </div>
-                  
-                  {selectedMenuItemDetail.item.allowInstant === false && (
-                    <span className="mt-1.5 inline-block bg-amber-50 text-amber-800 border border-amber-200 text-[9px] px-2 py-0.5 rounded-full font-bold uppercase tracking-wider">
-                      Khusus Pre-Order
-                    </span>
-                  )}
                 </div>
 
                 {/* Detailed Description Box */}
@@ -3369,11 +3241,6 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
                             Lihat Rincian &rarr;
                           </span>
                         </div>
-                        {item.allowInstant === false && (
-                          <span className="mt-1 inline-block bg-amber-50 text-amber-800 border border-amber-200 text-[9px] px-1.5 py-0.5 rounded font-extrabold uppercase tracking-wider">
-                            Khusus Pre-Order
-                          </span>
-                        )}
                       </div>
 
                       {/* Quantity Selector or Add Button */}

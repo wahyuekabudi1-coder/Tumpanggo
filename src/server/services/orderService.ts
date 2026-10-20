@@ -54,18 +54,6 @@ export class OrderService {
       throw new Error('Mohon lengkapi Nama Pemesan, Nomor WhatsApp, dan Alamat Pengiriman.');
     }
 
-    // Pre-order verification
-    const isPreOrder = Boolean(merchant.preOrderOnly || input.preOrderDate);
-    const totalItemCount = input.items.reduce((acc, it) => acc + (Number(it.quantity) || 0), 0);
-
-    if (merchant.preOrderOnly && !input.preOrderDate) {
-      throw new Error('Toko ini beroperasi dengan sistem Pre-Order. Mohon tentukan tanggal pengiriman.');
-    }
-
-    if (isPreOrder && merchant.preOrderMinAmount && totalItemCount < merchant.preOrderMinAmount) {
-      throw new Error(`Minimal pemesanan untuk toko Pre-Order ini adalah ${merchant.preOrderMinAmount} porsi/item.`);
-    }
-
     // Validate each menu item against official catalog
     const validatedItems: OrderItem[] = [];
     let calculatedSubtotal = 0;
@@ -89,9 +77,7 @@ export class OrderService {
         menuItemId: menuItem.id,
         name: menuItem.name,
         price: officialPrice,
-        quantity: quantity,
-        allowInstant: menuItem.allowInstant,
-        preOrderMinAmount: menuItem.preOrderMinAmount
+        quantity: quantity
       });
     }
 
