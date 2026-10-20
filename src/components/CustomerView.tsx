@@ -491,6 +491,14 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
   const [checkoutLng, setCheckoutLng] = useState(112.7612);
   const [preOrderDate, setPreOrderDate] = useState('');
   const [checkoutDeliveryType, setCheckoutDeliveryType] = useState<'INSTANT' | 'PREORDER'>('INSTANT');
+  const [isSubmittingOrder, setIsSubmittingOrder] = useState<boolean>(false);
+  const [checkoutErrorMsg, setCheckoutErrorMsg] = useState<string | null>(null);
+
+  // ArtoPay Food Payment States
+  const [artopayLoading, setArtopayLoading] = useState<boolean>(false);
+  const [artopayChecking, setArtopayChecking] = useState<boolean>(false);
+  const [artopayStatusMsg, setArtopayStatusMsg] = useState<{ type: 'success' | 'error' | 'info'; text: string } | null>(null);
+  const [paymentOptionTab, setPaymentOptionTab] = useState<'artopay_qris' | 'merchant_qris'>('artopay_qris');
 
   useEffect(() => {
     if (cartMerchant) {
@@ -1098,9 +1106,11 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
     return calculateTieredServiceFee(subtotal);
   };
 
-  // Submit checkout
+  // Submit checkout with idempotency and robust error diagnostics
   const handleCheckout = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSubmittingOrder) return;
+
     if (!checkoutName || !checkoutPhone || !checkoutAddress) {
       alert('Mohon lengkapi Nama, No WhatsApp, dan Alamat Pengantaran');
       return;
@@ -1166,6 +1176,11 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
       }
     }
 
+    setIsSubmittingOrder(true);
+    setCheckoutErrorMsg(null);
+
+    const clientRequestId = 'req_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7);
+
     const payload = {
       customerName: checkoutName,
       customerPhone: checkoutPhone,
@@ -1179,33 +1194,187 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
       subtotal: getSubtotal(),
       deliveryFee: getDeliveryFee(),
       serviceFee: getServiceFee(),
-      preOrderDate: isPreOrder ? preOrderDate : undefined
+      preOrderDate: isPreOrder ? preOrderDate : undefined,
+      clientRequestId
     };
 
     try {
       const res = await fetch('/api/orders', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'X-Request-Id': clientRequestId
+        },
         body: JSON.stringify(payload)
       });
-      const order: Order = await res.json();
+      const order = await res.json().catch(() => null);
       
-      if (res.ok) {
+      if (res.ok && order && order.id) {
         const normalized = normalizeOrderDeliveryFee(order);
         setActiveOrder(normalized);
         setTrackingOrderId(normalized.id);
+        setCheckoutErrorMsg(null);
         // Clear cart
         setCart([]);
         setCartMerchantId(null);
         setCartMerchant(null);
         setPreOrderDate(''); // Reset pre-order date state
         setActiveTab('payment');
+
+        // Check if ArtoPay is configured, and if so, proactively prepare Payment Intent
+        try {
+          const cfgRes = await fetch('/api/artopay/config');
+          const cfg = await cfgRes.json().catch(() => null);
+          if (cfg?.gatewayConfigured) {
+            handleCreateArtoPayFoodPayment(normalized);
+          }
+        } catch {}
+
       } else {
-        alert(order.cancelReason || 'Gagal membuat pesanan');
+        const errorMsg = order?.error || order?.message || order?.cancelReason || 'Gagal membuat pesanan. Silakan periksa kembali data pesanan Anda.';
+        setCheckoutErrorMsg(errorMsg);
+        alert(errorMsg);
       }
-    } catch (e) {
+    } catch (e: any) {
       console.error('Checkout error:', e);
-      alert('Terjadi kesalahan saat memproses pesanan.');
+      const networkMsg = 'Terjadi kesalahan koneksi saat memproses pesanan ke server. Silakan coba kembali.';
+      setCheckoutErrorMsg(networkMsg);
+      alert(networkMsg);
+    } finally {
+      setIsSubmittingOrder(false);
+    }
+  };
+
+  // Initiate ArtoPay dynamic QRIS payment intent for active Food order
+  const handleCreateArtoPayFoodPayment = async (targetOrder?: Order | null) => {
+    const orderToPay = targetOrder || activeOrder;
+    if (!orderToPay || !orderToPay.id) {
+      setArtopayStatusMsg({ type: 'error', text: 'Data pesanan tidak ditemukan.' });
+      return;
+    }
+
+    setArtopayLoading(true);
+    setArtopayStatusMsg(null);
+
+    try {
+      const res = await fetch('/api/artopay/payment-intent', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          orderId: orderToPay.id,
+          serviceType: 'FOOD',
+          customerPhone: orderToPay.customerPhone,
+          amount: Math.round(Number(orderToPay.total))
+        })
+      });
+
+      const data = await res.json().catch(() => null);
+
+      if (!res.ok || !data?.success) {
+        const errorDetail = data?.error || 'Gagal membuat sesi transaksi ArtoPay.';
+        if (errorDetail.includes('belum dikonfigurasi') || errorDetail.includes('kredensial')) {
+          setArtopayStatusMsg({
+            type: 'info',
+            text: 'Gateway ArtoPay dinamis sedang dalam persiapan kredensial. Anda dapat menggunakan QRIS Resmi Toko di bawah.'
+          });
+        } else {
+          setArtopayStatusMsg({ type: 'error', text: errorDetail });
+        }
+        return;
+      }
+
+      const updatedDetails: Partial<Order> = {
+        paymentMethod: 'ARTOPAY_QRIS',
+        artopayPaymentId: data.paymentIntentId,
+        artopayCheckoutUrl: data.checkoutUrl,
+        artopayClientSecret: data.clientSecret,
+        artopayCustomerToken: data.customerToken,
+        artopayPublicKey: data.publicKey,
+        artopayOrderId: data.orderId || orderToPay.id,
+        artopayStatus: 'PENDING',
+        artopayExpiredAt: data.expiresAt,
+        artopaySandbox: data.sandbox
+      };
+
+      const updatedOrder = { ...orderToPay, ...updatedDetails };
+      setActiveOrder(normalizeOrderDeliveryFee(updatedOrder));
+
+      const checkoutUrl = String(data.checkoutUrl || '').trim();
+      if (checkoutUrl && checkoutUrl.startsWith('http')) {
+        setArtopayStatusMsg({ type: 'success', text: 'Mengalihkan ke halaman pembayaran resmi ArtoPay...' });
+        window.location.href = checkoutUrl;
+        return;
+      }
+
+      // If SDK Modal mode
+      if (data.clientSecret && typeof window !== 'undefined') {
+        try {
+          const sdk = await import('@arto-pay/js-sdk').catch(() => null);
+          const openModal = sdk?.openPayment || (sdk as any)?.default?.openPayment;
+          if (typeof openModal === 'function') {
+            openModal({
+              clientSecret: data.clientSecret,
+              secret: data.clientSecret,
+              paymentId: data.paymentIntentId,
+              orderId: data.orderId || orderToPay.id,
+              token: data.customerToken,
+              customerToken: data.customerToken,
+              sandbox: data.sandbox !== undefined ? data.sandbox : true,
+              publicKey: data.publicKey,
+              onSuccess: () => {
+                handleCheckArtoPayFoodStatus(updatedOrder);
+              },
+              onClose: () => {
+                handleCheckArtoPayFoodStatus(updatedOrder);
+              }
+            });
+          }
+        } catch (e) {
+          console.warn('[ArtoPay SDK open warning]', e);
+        }
+      }
+    } catch (err: any) {
+      console.error('[ArtoPay Error]', err);
+      setArtopayStatusMsg({ type: 'error', text: 'Koneksi ke gateway pembayaran gagal. Silakan coba kembali.' });
+    } finally {
+      setArtopayLoading(false);
+    }
+  };
+
+  // Check ArtoPay payment status actively and sync
+  const handleCheckArtoPayFoodStatus = async (targetOrder?: Order | null) => {
+    const orderToCheck = targetOrder || activeOrder;
+    if (!orderToCheck || !orderToCheck.id) return;
+
+    setArtopayChecking(true);
+    setArtopayStatusMsg(null);
+
+    try {
+      const res = await fetch(`/api/artopay/status/${orderToCheck.id}?serviceType=FOOD`);
+      const data = await res.json().catch(() => null);
+
+      if (res.ok && data) {
+        if (data.status === 'PAID' || data.artopayStatus === 'SUCCESS') {
+          setActiveOrder(prev => prev ? {
+            ...prev,
+            status: OrderStatus.PAYMENT_VERIFIED,
+            paymentStatus: PaymentStatus.PAID,
+            artopayStatus: 'SUCCESS'
+          } : null);
+          setArtopayStatusMsg({ type: 'success', text: 'Pembayaran QRIS ArtoPay berhasil diverifikasi (LUNAS)!' });
+        } else {
+          setArtopayStatusMsg({
+            type: 'info',
+            text: `Status pembayaran gateway: ${data.artopayStatus || 'PENDING'}. Jika Anda telah menyelesaikan pembayaran, klik periksa status kembali.`
+          });
+        }
+      } else {
+        setArtopayStatusMsg({ type: 'error', text: data?.error || 'Gagal memeriksa status pembayaran ke server.' });
+      }
+    } catch (err: any) {
+      setArtopayStatusMsg({ type: 'error', text: 'Koneksi gagal saat memeriksa status pembayaran.' });
+    } finally {
+      setArtopayChecking(false);
     }
   };
 
@@ -3790,19 +3959,39 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
               const isBlocked = isPreOrder && (hasInvalidItem || isTotalInvalid);
 
               return (
-                <button
-                  type="submit"
-                  disabled={isBlocked}
-                  className={`w-full py-3.5 font-extrabold rounded-xl transition-all text-sm flex items-center justify-center gap-2 ${
-                    isBlocked
-                      ? 'bg-slate-200 text-slate-400 border border-slate-300 shadow-none cursor-not-allowed'
-                      : 'bg-rose-600 hover:bg-rose-700 text-white shadow-lg shadow-rose-600/25 cursor-pointer'
-                  }`}
-                >
-                  <QrCode className="w-4 h-4" />
-                  <span>{isBlocked ? 'Batas Minimal Order Belum Terpenuhi' : 'Bayar dengan QRIS'}</span>
-                  <ArrowRight className="w-4 h-4" />
-                </button>
+                <div className="flex flex-col gap-2.5">
+                  {checkoutErrorMsg && (
+                    <div className="p-3.5 bg-rose-50 border border-rose-200 rounded-xl flex items-start gap-2.5 text-xs text-rose-800 animate-fade-in shadow-xs">
+                      <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                      <div className="flex-1">
+                        <span className="font-bold block">Pemberitahuan Pesanan:</span>
+                        <p className="mt-0.5 leading-relaxed">{checkoutErrorMsg}</p>
+                      </div>
+                    </div>
+                  )}
+                  <button
+                    type="submit"
+                    disabled={isBlocked || isSubmittingOrder}
+                    className={`w-full py-3.5 font-extrabold rounded-xl transition-all text-sm flex items-center justify-center gap-2 ${
+                      isBlocked || isSubmittingOrder
+                        ? 'bg-slate-200 text-slate-400 border border-slate-300 shadow-none cursor-not-allowed'
+                        : 'bg-rose-600 hover:bg-rose-700 text-white shadow-lg shadow-rose-600/25 cursor-pointer'
+                    }`}
+                  >
+                    {isSubmittingOrder ? (
+                      <>
+                        <RefreshCw className="w-4 h-4 animate-spin" />
+                        <span>Memproses Pesanan...</span>
+                      </>
+                    ) : (
+                      <>
+                        <QrCode className="w-4 h-4" />
+                        <span>{isBlocked ? 'Batas Minimal Order Belum Terpenuhi' : 'Bayar dengan QRIS'}</span>
+                        <ArrowRight className="w-4 h-4" />
+                      </>
+                    )}
+                  </button>
+                </div>
               );
             })()}
           </form>
@@ -4014,8 +4203,139 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
                 </div>
               )}
 
-              {/* STATIC MERCHANT QRIS CONTAINER */}
-              {qrisImageUrl ? (
+              {/* Payment Method Switcher (Dynamic ArtoPay QRIS vs Static Merchant QRIS) */}
+              {isPending && (
+                <div className="flex bg-slate-100 p-1 rounded-2xl gap-1">
+                  <button
+                    type="button"
+                    onClick={() => setPaymentOptionTab('artopay_qris')}
+                    className={`flex-1 py-2.5 px-3 rounded-xl text-xs font-extrabold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                      paymentOptionTab === 'artopay_qris'
+                        ? 'bg-white text-rose-700 shadow-xs'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    <QrCode className="w-3.5 h-3.5" />
+                    <span>QRIS Dinamis (ArtoPay)</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPaymentOptionTab('merchant_qris')}
+                    className={`flex-1 py-2.5 px-3 rounded-xl text-xs font-extrabold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                      paymentOptionTab === 'merchant_qris'
+                        ? 'bg-white text-rose-700 shadow-xs'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    <Store className="w-3.5 h-3.5" />
+                    <span>QRIS Toko & Bukti</span>
+                  </button>
+                </div>
+              )}
+
+              {/* 1. DYNAMIC ARTOPAY QRIS SECTION */}
+              {isPending && paymentOptionTab === 'artopay_qris' && (
+                <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-xs flex flex-col gap-4">
+                  <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                    <div className="flex items-center gap-2">
+                      <div className="w-8 h-8 rounded-xl bg-rose-50 flex items-center justify-center text-rose-600">
+                        <QrCode className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <h4 className="font-display font-bold text-sm text-slate-900">Pembayaran QRIS Dinamis Otomatis</h4>
+                        <span className="text-[10px] text-slate-400 font-semibold">Didukung oleh Gateway Resmi ArtoPay</span>
+                      </div>
+                    </div>
+                    <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
+                      Verifikasi Instan
+                    </span>
+                  </div>
+
+                  {artopayStatusMsg && (
+                    <div className={`p-3 rounded-xl text-xs flex items-start gap-2 animate-fade-in ${
+                      artopayStatusMsg.type === 'success'
+                        ? 'bg-emerald-50 border border-emerald-200 text-emerald-800'
+                        : artopayStatusMsg.type === 'error'
+                        ? 'bg-rose-50 border border-rose-200 text-rose-800'
+                        : 'bg-blue-50 border border-blue-200 text-blue-800'
+                    }`}>
+                      {artopayStatusMsg.type === 'success' ? (
+                        <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                      ) : artopayStatusMsg.type === 'error' ? (
+                        <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                      ) : (
+                        <Info className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
+                      )}
+                      <span className="flex-1 font-medium">{artopayStatusMsg.text}</span>
+                    </div>
+                  )}
+
+                  {activeOrder.artopayCheckoutUrl ? (
+                    <div className="flex flex-col gap-2">
+                      <a
+                        href={activeOrder.artopayCheckoutUrl}
+                        target="_self"
+                        className="w-full py-3.5 bg-rose-600 hover:bg-rose-700 text-white font-extrabold rounded-xl shadow-md shadow-rose-600/20 text-xs flex items-center justify-center gap-2 transition-all cursor-pointer text-center"
+                      >
+                        <ExternalLink className="w-4 h-4" />
+                        <span>Buka Halaman Pembayaran ArtoPay (Payment Link)</span>
+                      </a>
+                    </div>
+                  ) : activeOrder.artopayPaymentId && activeOrder.artopayClientSecret ? (
+                    <button
+                      type="button"
+                      onClick={() => handleCreateArtoPayFoodPayment(activeOrder)}
+                      disabled={artopayLoading}
+                      className="w-full py-3.5 bg-rose-600 hover:bg-rose-700 disabled:bg-slate-300 text-white font-extrabold rounded-xl shadow-md shadow-rose-600/20 text-xs flex items-center justify-center gap-2 transition-all cursor-pointer"
+                    >
+                      <QrCode className="w-4 h-4" />
+                      <span>Buka Modal QRIS ArtoPay</span>
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => handleCreateArtoPayFoodPayment(activeOrder)}
+                      disabled={artopayLoading}
+                      className="w-full py-3.5 bg-rose-600 hover:bg-rose-700 disabled:bg-slate-300 text-white font-extrabold rounded-xl shadow-md shadow-rose-600/20 text-xs flex items-center justify-center gap-2 transition-all cursor-pointer"
+                    >
+                      {artopayLoading ? (
+                        <>
+                          <RefreshCw className="w-4 h-4 animate-spin" />
+                          <span>Menyiapkan Sesi QRIS ArtoPay...</span>
+                        </>
+                      ) : (
+                        <>
+                          <QrCode className="w-4 h-4" />
+                          <span>Bayar Sekarang via ArtoPay (QRIS Dinamis)</span>
+                        </>
+                      )}
+                    </button>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={() => handleCheckArtoPayFoodStatus(activeOrder)}
+                    disabled={artopayChecking}
+                    className="w-full py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold rounded-xl text-xs flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${artopayChecking ? 'animate-spin' : ''}`} />
+                    <span>{artopayChecking ? 'Memeriksa status ke Gateway...' : 'Cek Status Pembayaran (Sinkronkan)'}</span>
+                  </button>
+
+                  <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 text-[11px] text-slate-600 leading-relaxed flex flex-col gap-1">
+                    <span className="font-bold text-slate-800 flex items-center gap-1">
+                      <ShieldCheck className="w-3.5 h-3.5 text-rose-600" />
+                      Petunjuk Pembayaran QRIS Otomatis:
+                    </span>
+                    <span>1. Klik tombol pembayaran di atas untuk membuka sesi QRIS resmi ArtoPay.</span>
+                    <span>2. Scan kode QRIS menggunakan aplikasi e-Wallet atau m-Banking pilihan Anda.</span>
+                    <span>3. Setelah menyelesaikan pembayaran, klik tombol <strong>Cek Status Pembayaran (Sinkronkan)</strong> atau tunggu verifikasi otomatis.</span>
+                  </div>
+                </div>
+              )}
+
+              {/* 2. STATIC MERCHANT QRIS CONTAINER */}
+              {(paymentOptionTab === 'merchant_qris' || !isPending) && (qrisImageUrl ? (
                 <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-xs flex flex-col items-center">
                   <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-slate-100 text-slate-700 text-[11px] font-bold mb-3">
                     <Store className="w-3.5 h-3.5 text-rose-600" />
@@ -4110,10 +4430,10 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
                     </button>
                   </div>
                 </div>
-              )}
+              ))}
 
-              {/* UPLOAD PAYMENT PROOF SECTION (Show if pending or rejected) */}
-              {(isPending || isRejected) && (
+              {/* UPLOAD PAYMENT PROOF SECTION (Show if merchant_qris selected, or if payment rejected/waiting) */}
+              {(isRejected || (isPending && paymentOptionTab === 'merchant_qris')) && (
                 <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-xs">
                   <div className="flex items-center justify-between border-b border-slate-100 pb-2.5 mb-3.5">
                     <h4 className="font-display font-bold text-sm text-slate-800 flex items-center gap-1.5">

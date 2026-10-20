@@ -869,9 +869,9 @@ export class FoodDatabase {
       newMerchant.password = hashPassword(newMerchant.password);
     }
 
-    if (foodConfig.isProduction) {
+    if (isFirestoreAdminConfigured()) {
       const persisted = await safeFirestoreSetDoc('merchants', newMerchant.id, newMerchant);
-      if (!persisted) {
+      if (!persisted && foodConfig.isProduction) {
         throw new Error('[Produksi] Gagal menyimpan merchant ke cloud Firestore. Transaksi dibatalkan demi menjaga integritas data.');
       }
     } else {
@@ -904,9 +904,9 @@ export class FoodDatabase {
       updatedAt: new Date().toISOString()
     };
 
-    if (foodConfig.isProduction) {
+    if (isFirestoreAdminConfigured()) {
       const persisted = await safeFirestoreSetDoc('merchants', id, nextMerchant);
-      if (!persisted) {
+      if (!persisted && foodConfig.isProduction) {
         throw new Error('[Produksi] Gagal memperbarui merchant pada cloud Firestore. Perubahan dibatalkan demi integritas data.');
       }
     } else {
@@ -995,9 +995,9 @@ export class FoodDatabase {
       orderIndex
     };
 
-    if (foodConfig.isProduction) {
+    if (isFirestoreAdminConfigured()) {
       const persisted = await safeFirestoreSetDoc('categories', newCat.id, newCat);
-      if (!persisted) {
+      if (!persisted && foodConfig.isProduction) {
         throw new Error('[Produksi] Gagal menyimpan kategori menu ke cloud Firestore. Operasi dibatalkan.');
       }
     } else {
@@ -1016,9 +1016,9 @@ export class FoodDatabase {
     const prevName = cat.name;
     cat.name = name.trim();
 
-    if (foodConfig.isProduction) {
+    if (isFirestoreAdminConfigured()) {
       const persisted = await safeFirestoreSetDoc('categories', id, cat);
-      if (!persisted) {
+      if (!persisted && foodConfig.isProduction) {
         cat.name = prevName;
         throw new Error('[Produksi] Gagal memperbarui kategori menu di cloud Firestore. Operasi dibatalkan.');
       }
@@ -1034,9 +1034,9 @@ export class FoodDatabase {
     const index = this.data.categories.findIndex(c => c.id === id && c.merchantId === merchantId);
     if (index === -1) return false;
 
-    if (foodConfig.isProduction) {
+    if (isFirestoreAdminConfigured()) {
       const deleted = await safeAdminDeleteDoc('categories', id);
-      if (!deleted) {
+      if (!deleted && foodConfig.isProduction) {
         throw new Error('[Produksi] Gagal menghapus kategori menu pada cloud Firestore. Operasi dibatalkan.');
       }
     } else {
@@ -1067,9 +1067,9 @@ export class FoodDatabase {
       updatedAt: new Date().toISOString()
     };
 
-    if (foodConfig.isProduction) {
+    if (isFirestoreAdminConfigured()) {
       const persisted = await safeFirestoreSetDoc('menuItems', newItem.id, newItem);
-      if (!persisted) {
+      if (!persisted && foodConfig.isProduction) {
         throw new Error('[Produksi] Gagal menyimpan item menu ke cloud Firestore. Operasi dibatalkan.');
       }
     } else {
@@ -1093,9 +1093,9 @@ export class FoodDatabase {
       updatedAt: new Date().toISOString()
     };
 
-    if (foodConfig.isProduction) {
+    if (isFirestoreAdminConfigured()) {
       const persisted = await safeFirestoreSetDoc('menuItems', id, nextItem);
-      if (!persisted) {
+      if (!persisted && foodConfig.isProduction) {
         throw new Error('[Produksi] Gagal memperbarui item menu pada cloud Firestore. Operasi dibatalkan.');
       }
     } else {
@@ -1112,9 +1112,9 @@ export class FoodDatabase {
     const index = this.data.menuItems.findIndex(i => i.id === id && i.merchantId === merchantId);
     if (index === -1) return false;
 
-    if (foodConfig.isProduction) {
+    if (isFirestoreAdminConfigured()) {
       const deleted = await safeAdminDeleteDoc('menuItems', id);
-      if (!deleted) {
+      if (!deleted && foodConfig.isProduction) {
         throw new Error('[Produksi] Gagal menghapus item menu pada cloud Firestore. Operasi dibatalkan.');
       }
     } else {
@@ -1179,9 +1179,9 @@ export class FoodDatabase {
       updatedAt: new Date().toISOString()
     };
 
-    if (foodConfig.isProduction) {
+    if (isFirestoreAdminConfigured()) {
       const persisted = await safeFirestoreSetDoc('drivers', newDriver.id, newDriver);
-      if (!persisted) {
+      if (!persisted && foodConfig.isProduction) {
         throw new Error('[Produksi] Gagal menyimpan driver ke cloud Firestore. Transaksi dibatalkan.');
       }
     } else {
@@ -1205,9 +1205,9 @@ export class FoodDatabase {
       updatedAt: new Date().toISOString()
     };
 
-    if (foodConfig.isProduction) {
+    if (isFirestoreAdminConfigured()) {
       const persisted = await safeFirestoreSetDoc('drivers', id, nextDriver);
-      if (!persisted) {
+      if (!persisted && foodConfig.isProduction) {
         throw new Error('[Produksi] Gagal memperbarui driver pada cloud Firestore. Perubahan dibatalkan.');
       }
     } else {
@@ -1224,9 +1224,9 @@ export class FoodDatabase {
     const index = this.data.drivers.findIndex(d => d.id === id);
     if (index === -1) return false;
 
-    if (foodConfig.isProduction) {
+    if (isFirestoreAdminConfigured()) {
       const deleted = await safeAdminDeleteDoc('drivers', id);
-      if (!deleted) {
+      if (!deleted && foodConfig.isProduction) {
         throw new Error('[Produksi] Gagal menghapus driver pada cloud Firestore. Operasi dibatalkan.');
       }
     } else {
@@ -1330,16 +1330,22 @@ export class FoodDatabase {
     this.save();
     this.log('CUSTOMER', `Created order ${newOrder.id} Total: Rp ${newOrder.total.toLocaleString()} (UniqueCode: ${newOrder.uniqueCode})`, 'CUSTOMER');
 
-    const probe = await testFirestoreConnection();
-    if (foodConfig.isProduction || probe.connected) {
-      const persisted = await safeFirestoreSetDoc('orders', newOrder.id, newOrder);
-      if (!persisted) {
+    if (isFirestoreAdminConfigured()) {
+      const probe = await testFirestoreConnection();
+      if (probe.connected) {
+        const persisted = await safeFirestoreSetDoc('orders', newOrder.id, newOrder);
+        if (!persisted) {
+          this.data.orders.shift();
+          this.save();
+          throw new Error('Gagal menyimpan pesanan ke cloud Firestore. Transaksi dibatalkan secara aman demi mencegah kehilangan data atau transaksi ganda.');
+        }
+      } else if (foodConfig.isProduction) {
         this.data.orders.shift();
         this.save();
-        throw new Error('Gagal menyimpan pesanan ke cloud Firestore. Transaksi dibatalkan secara aman demi mencegah kehilangan data atau transaksi ganda.');
+        throw new Error(`Koneksi cloud Firestore tidak terhubung (${probe.diagnosticReason}: ${probe.error || probe.diagnosticDetail}). Transaksi dibatalkan secara aman.`);
       }
     } else {
-      safeFirestoreSetDoc('orders', newOrder.id, newOrder);
+      console.warn('[TumpangFood DB] Variabel FIREBASE_SERVICE_ACCOUNT_KEY belum dikonfigurasi di Environment Variables Vercel. Pesanan disimpan pada penyimpanan lokal resilien.');
     }
     return newOrder;
   }
@@ -1424,16 +1430,20 @@ export class FoodDatabase {
       this.log(userId, `Updated order ${id} details`, role);
     }
 
-    const probe = await testFirestoreConnection();
-    if (foodConfig.isProduction || probe.connected) {
-      const persisted = await safeFirestoreSetDoc('orders', id, this.data.orders[index]);
-      if (!persisted) {
-        this.data.orders[index] = currentOrder;
-        this.save();
-        throw new Error('Gagal memperbarui status pesanan pada cloud Firestore. Perubahan status dibatalkan demi integritas data.');
+    if (isFirestoreAdminConfigured()) {
+      const probe = await testFirestoreConnection();
+      if (probe.connected) {
+        const persisted = await safeFirestoreSetDoc('orders', id, this.data.orders[index]);
+        if (!persisted) {
+          this.data.orders[index] = currentOrder;
+          this.save();
+          throw new Error('Gagal memperbarui status pesanan pada cloud Firestore. Perubahan status dibatalkan demi integritas data.');
+        }
+      } else if (foodConfig.isProduction) {
+        console.warn(`[TumpangFood DB] Firestore offline saat updateOrder (${probe.diagnosticReason}). Perubahan disimpan pada snapshot lokal resilien.`);
       }
     } else {
-      safeFirestoreSetDoc('orders', id, this.data.orders[index]);
+      console.warn('[TumpangFood DB] Variabel FIREBASE_SERVICE_ACCOUNT_KEY belum dikonfigurasi. Perubahan status disimpan pada penyimpanan lokal.');
     }
     return this.data.orders[index];
   }
@@ -1734,9 +1744,9 @@ export class FoodDatabase {
       paidAt: updates.status === SettlementStatus.SETTLEMENT_COMPLETED ? new Date().toISOString() : this.data.settlements[index].paidAt
     };
 
-    if (foodConfig.isProduction) {
+    if (isFirestoreAdminConfigured()) {
       const persisted = await safeFirestoreSetDoc('settlements', id, nextSettlement);
-      if (!persisted) {
+      if (!persisted && foodConfig.isProduction) {
         throw new Error('[Produksi] Gagal memperbarui settlement di cloud Firestore. Perubahan dibatalkan.');
       }
     } else {
@@ -1868,9 +1878,9 @@ export class FoodDatabase {
       createdAt: new Date().toISOString()
     };
 
-    if (foodConfig.isProduction) {
+    if (isFirestoreAdminConfigured()) {
       const persisted = await safeFirestoreSetDoc('partnerRegistrations', newReg.id, newReg);
-      if (!persisted) {
+      if (!persisted && foodConfig.isProduction) {
         throw new Error('[Produksi] Gagal menyimpan pendaftaran mitra ke cloud Firestore. Transaksi dibatalkan.');
       }
     } else {
@@ -1944,9 +1954,9 @@ export class FoodDatabase {
       });
     }
 
-    if (foodConfig.isProduction) {
+    if (isFirestoreAdminConfigured()) {
       const persisted = await safeFirestoreSetDoc('partnerRegistrations', reg.id, reg);
-      if (!persisted) {
+      if (!persisted && foodConfig.isProduction) {
         reg.status = prevStatus;
         throw new Error('[Produksi] Gagal memperbarui status registrasi mitra ke cloud Firestore.');
       }
@@ -1965,9 +1975,9 @@ export class FoodDatabase {
     const prevStatus = reg.status;
     reg.status = 'REJECTED';
 
-    if (foodConfig.isProduction) {
+    if (isFirestoreAdminConfigured()) {
       const persisted = await safeFirestoreSetDoc('partnerRegistrations', reg.id, reg);
-      if (!persisted) {
+      if (!persisted && foodConfig.isProduction) {
         reg.status = prevStatus;
         throw new Error('[Produksi] Gagal menolak pendaftaran mitra pada cloud Firestore.');
       }

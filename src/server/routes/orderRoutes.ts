@@ -48,13 +48,62 @@ orderRouter.get('/customer/:phone', (req: Request, res: Response) => {
   res.json(foodDb.getOrdersByCustomerPhone(req.params.phone));
 });
 
-// Order creation - Recalculates official prices
+// Order creation - Recalculates official prices with structured stage diagnostics
 orderRouter.post('/', async (req: Request, res: Response) => {
+  const reqId = (req as any).id || (req.headers['x-request-id'] as string) || 'req_' + Math.random().toString(36).substring(2, 9);
+
   try {
+    const { merchantId, customerName, customerPhone, deliveryAddress, items } = req.body || {};
+
+    // Stage 1: Validation
+    if (!merchantId || typeof merchantId !== 'string' || merchantId.trim().length === 0) {
+      console.warn(`[Order Validation Error] [${reqId}] Merchant ID is missing`);
+      return res.status(400).json({
+        error: 'Toko / Merchant kuliner wajib dipilih.',
+        code: 'MISSING_MERCHANT_ID',
+        stage: 'ORDER_VALIDATION',
+        requestId: reqId
+      });
+    }
+
+    if (!customerName || !customerPhone || !deliveryAddress) {
+      console.warn(`[Order Validation Error] [${reqId}] Customer details missing (Name: ${Boolean(customerName)}, Phone: ${Boolean(customerPhone)}, Address: ${Boolean(deliveryAddress)})`);
+      return res.status(400).json({
+        error: 'Nama pemesan, nomor WhatsApp, dan alamat pengantaran wajib diisi lengkap.',
+        code: 'MISSING_CUSTOMER_DETAILS',
+        stage: 'ORDER_VALIDATION',
+        requestId: reqId
+      });
+    }
+
+    if (!items || !Array.isArray(items) || items.length === 0) {
+      console.warn(`[Order Validation Error] [${reqId}] Cart items empty`);
+      return res.status(400).json({
+        error: 'Keranjang belanja Anda kosong. Silakan pilih menu makanan terlebih dahulu.',
+        code: 'EMPTY_CART',
+        stage: 'ORDER_VALIDATION',
+        requestId: reqId
+      });
+    }
+
+    // Stage 2: Database Persistence
     const created = await foodDb.createOrder(req.body);
-    res.status(201).json(created);
+
+    console.log(`[Order Placed Successfully] [${reqId}] ID: ${created.id}, Total: Rp ${created.total.toLocaleString('id-ID')}, Merchant: ${created.merchantId}, UniqueCode: ${created.uniqueCode}`);
+    return res.status(201).json(created);
+
   } catch (e: any) {
-    res.status(400).json({ error: e.message || 'Gagal membuat pesanan.' });
+    const errorMsg = e.message || 'Gagal membuat pesanan.';
+    const isDbError = errorMsg.includes('Firestore') || errorMsg.includes('database') || errorMsg.includes('penyimpanan');
+
+    console.error(`[Order Creation Failed] [${reqId}] Stage: ${isDbError ? 'DATABASE_PERSISTENCE' : 'ORDER_VALIDATION'}, Error: ${errorMsg}`);
+
+    return res.status(isDbError ? 500 : 400).json({
+      error: errorMsg,
+      code: isDbError ? 'DATABASE_PERSISTENCE_ERROR' : 'ORDER_VALIDATION_ERROR',
+      stage: isDbError ? 'DATABASE_PERSISTENCE' : 'ORDER_VALIDATION',
+      requestId: reqId
+    });
   }
 });
 
