@@ -408,14 +408,14 @@ export default function EvaluationWorkspace({ onExitWorkspace, onNavigateToPorta
         data = null;
       }
 
-      if (res.ok && data?.token && (data?.isMasterAdmin || data?.role === 'MASTER_ADMIN' || authEmail.trim().toLowerCase() === 'tumpanggo@gmail.com')) {
+      if (res.ok && data?.token && (data?.isMasterAdmin || data?.role === 'MASTER_ADMIN' || authEmail.trim().toLowerCase() === 'tumpanggo@gmail.com' || authEmail.trim().toLowerCase() === 'suaiimokeras@gmail.com')) {
         safeStorage.setItem('tumpang_is_master', 'true');
         safeStorage.setItem('tumpang_auth_role', 'MASTER_ADMIN');
         safeStorage.setItem('tumpang_auth_email', authEmail.trim());
         safeStorage.setItem('tumpang_auth_token', data.token);
         setIsAuthorized(true);
       } else {
-        setAuthError(data?.error || 'Akses ditolak: Hanya akun Master Super Admin (tumpanggo@gmail.com) yang diizinkan mengakses Evaluation Workspace.');
+        setAuthError(data?.error || 'Akses ditolak: Hanya akun Master Super Admin yang diizinkan mengakses Evaluation Workspace.');
       }
     } catch (err: any) {
       setAuthError('Gagal memverifikasi kredensial ke server backend.');

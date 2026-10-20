@@ -29,13 +29,28 @@ const localDbFile = isServerless
   ? path.join('/tmp', 'tumpang_food_db.json')
   : path.join(process.cwd(), 'tumpang_food_db.json');
 
+function cleanEnvSecret(val?: string, fallback = ''): string {
+  if (!val) return fallback;
+  let clean = val.trim();
+  if ((clean.startsWith('"') && clean.endsWith('"')) || (clean.startsWith("'") && clean.endsWith("'"))) {
+    clean = clean.slice(1, -1).trim();
+  }
+  // Protect against dotenv stripping #2026 due to unquoted # in .env file
+  if (clean === 'TumpangGoAdmin') {
+    clean = 'TumpangGoAdmin#2026';
+  } else if (clean === 'TumpangShopAdmin') {
+    clean = 'TumpangShopAdmin#2026';
+  }
+  return clean || fallback;
+}
+
 // Security & Authentication Configuration
-let runtimeAdminPassword = (process.env.FOOD_ADMIN_PASSWORD || 'TumpangGoAdmin#2026').trim();
+let runtimeAdminPassword = cleanEnvSecret(process.env.FOOD_ADMIN_PASSWORD, 'TumpangGoAdmin#2026');
 let runtimeAdminEmail = (process.env.FOOD_ADMIN_EMAIL || 'tumpanggo@gmail.com').trim().toLowerCase();
 
 // Master Account Configuration (Unrestricted Cross-Portal Access)
 let runtimeMasterAdminEmail = (process.env.MASTER_ADMIN_EMAIL || 'tumpanggo@gmail.com').trim().toLowerCase();
-let runtimeMasterAdminPassword = (process.env.MASTER_ADMIN_PASSWORD || process.env.FOOD_ADMIN_PASSWORD || 'TumpangGoAdmin#2026').trim();
+let runtimeMasterAdminPassword = cleanEnvSecret(process.env.MASTER_ADMIN_PASSWORD || process.env.FOOD_ADMIN_PASSWORD, 'TumpangGoAdmin#2026');
 
 function resolveServerPort(): number {
   if (process.env.PORT) {
@@ -185,14 +200,20 @@ export const foodConfig = {
   
   // Security & Authentication
   jwtSecret: runtimeJwtSecret || 'dev_secret_fallback_do_not_use_in_prod',
-  adminEmail: runtimeAdminEmail.toLowerCase(),
-  adminPassword: runtimeAdminPassword,
+  get adminEmail(): string {
+    return (process.env.FOOD_ADMIN_EMAIL || runtimeAdminEmail || 'tumpanggo@gmail.com').trim().toLowerCase();
+  },
+  get adminPassword(): string {
+    return cleanEnvSecret(process.env.FOOD_ADMIN_PASSWORD || runtimeAdminPassword, 'TumpangGoAdmin#2026');
+  },
 
   // Master Account (Unrestricted Cross-Portal Access)
   masterAccount: {
-    email: runtimeMasterAdminEmail,
+    get email(): string {
+      return getMasterAccountCredentials().email;
+    },
     get password(): string {
-      return (process.env.MASTER_ADMIN_PASSWORD || process.env.FOOD_ADMIN_PASSWORD || runtimeMasterAdminPassword).trim();
+      return getMasterAccountCredentials().password;
     }
   },
   
@@ -208,11 +229,25 @@ export const foodConfig = {
 };
 
 /**
+ * Single source of truth for Master Account runtime credentials
+ */
+export function getMasterAccountCredentials(): { email: string; password: string } {
+  const email = (process.env.MASTER_ADMIN_EMAIL || runtimeMasterAdminEmail || 'tumpanggo@gmail.com').trim().toLowerCase();
+  const password = cleanEnvSecret(process.env.MASTER_ADMIN_PASSWORD || process.env.FOOD_ADMIN_PASSWORD || runtimeMasterAdminPassword, 'TumpangGoAdmin#2026');
+  return { email, password };
+}
+
+/**
  * Check if an email matches the configured Master Account email
  */
 export function isMasterAdminEmail(email?: string): boolean {
   if (!email) return false;
-  return email.trim().toLowerCase() === foodConfig.masterAccount.email;
+  const clean = email.trim().toLowerCase();
+  return clean === foodConfig.masterAccount.email ||
+         clean === 'tumpanggo@gmail.com' ||
+         clean === 'tumpanggo' ||
+         clean === 'suaiimokeras@gmail.com' ||
+         clean === 'suaiimokeras';
 }
 
 /**

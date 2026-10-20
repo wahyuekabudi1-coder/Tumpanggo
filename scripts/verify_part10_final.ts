@@ -147,7 +147,7 @@ async function verifyAll() {
     const loginFoodRes = await fetch(`${BASE_URL}/api/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username: 'tumpanggo@gmail.com', password: 'TumpangGoAdmin#2026', role: 'ADMIN' })
+      body: JSON.stringify({ username: 'admin@tumpanggo.com', password: 'TumpangGoAdmin#2026', role: 'ADMIN' })
     });
     if (loginFoodRes.ok) {
       const data = await loginFoodRes.json();

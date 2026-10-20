@@ -16,6 +16,9 @@ import {
   ShopPaymentStatus, ShopOrderStatus, ShopShipmentStatus 
 } from '../../../types/shop';
 import { ArtoPayService } from '../../../lib/artopay';
+import { isMasterAdminEmail, getMasterAccountCredentials } from '../../../server/config';
+import { verifyPassword } from '../../../server/auth';
+import { foodDb } from '../../../server/db';
 
 export const shopApp = express();
 
@@ -103,31 +106,39 @@ router.post('/auth/login', (req: Request, res: Response) => {
   }
 
   // Master Account Cross-Portal Login
-  const isMasterUser = targetUser === 'tumpanggo@gmail.com' || (process.env.MASTER_ADMIN_EMAIL && targetUser === process.env.MASTER_ADMIN_EMAIL.toLowerCase().trim());
-  const masterPassword = (process.env.MASTER_ADMIN_PASSWORD || process.env.FOOD_ADMIN_PASSWORD || 'TumpangGoAdmin#2026').trim();
-  const isMasterPassValid = isMasterUser && Boolean(
-    masterPassword &&
-    targetPass.length === masterPassword.length &&
-    crypto.timingSafeEqual(Buffer.from(targetPass), Buffer.from(masterPassword))
-  );
+  const isMasterUser = isMasterAdminEmail(targetUser);
+  if (isMasterUser) {
+    const { password: activeMasterPassword } = getMasterAccountCredentials();
+    const dbMaster = foodDb.getMasterAccount();
+    let isMasterPassValid = false;
 
-  if (isMasterPassValid) {
-    const token = createShopAuthToken({
-      userId: 'master-admin',
-      role: 'SHOP_ADMIN',
-      email: targetUser
-    });
-    shopDb.logAudit('SHOP_ADMIN_LOGIN', `Master Account ${targetUser} login ke portal Shop`, 'master-admin');
-    return res.json({
-      token,
-      role: 'SHOP_ADMIN',
-      isMasterAdmin: true,
-      user: {
-        id: 'master-admin',
-        name: 'Master Account TumpangGo',
+    if (dbMaster?.passwordHash && dbMaster.passwordHash.startsWith('pbkdf2$')) {
+      const { valid } = verifyPassword(targetPass, dbMaster.passwordHash);
+      if (valid) isMasterPassValid = true;
+    }
+
+    if (!isMasterPassValid && activeMasterPassword && targetPass.length === activeMasterPassword.length) {
+      isMasterPassValid = crypto.timingSafeEqual(Buffer.from(targetPass), Buffer.from(activeMasterPassword));
+    }
+
+    if (isMasterPassValid) {
+      const token = createShopAuthToken({
+        userId: 'master-admin',
+        role: 'SHOP_ADMIN',
         email: targetUser
-      }
-    });
+      });
+      shopDb.logAudit('SHOP_ADMIN_LOGIN', `Master Account ${targetUser} login ke portal Shop`, 'master-admin');
+      return res.json({
+        token,
+        role: 'SHOP_ADMIN',
+        isMasterAdmin: true,
+        user: {
+          id: 'master-admin',
+          name: 'Master Account TumpangGo',
+          email: targetUser
+        }
+      });
+    }
   }
 
   const isMatchingEmail = targetUser === shopEnv.auth.adminEmail || targetUser === 'shopadmin';

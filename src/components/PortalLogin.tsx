@@ -6,7 +6,7 @@ import { apiFetch as fetch } from '../utils/apiClient.ts';
 import { 
   ShieldCheck, Lock, Mail, ArrowRight, ChevronLeft, Store, 
   CheckCircle, AlertCircle, Loader2, Phone, Bike, User, MapPin, Tag, ExternalLink,
-  Eye, EyeOff
+  Eye, EyeOff, Key
 } from 'lucide-react';
 
 interface PortalLoginProps {
@@ -192,7 +192,12 @@ export default function PortalLogin({ role, targetMerchantId, targetDriverId, in
 
       if (res.ok && data?.token) {
         const userEmail = emailInput.trim();
-        const isMaster = Boolean(data.isMasterAdmin || data.role === 'MASTER_ADMIN' || userEmail === 'tumpanggo@gmail.com');
+        const isMaster = Boolean(
+          data.isMasterAdmin || 
+          data.role === 'MASTER_ADMIN' || 
+          userEmail.toLowerCase() === 'tumpanggo@gmail.com' ||
+          userEmail.toLowerCase() === 'suaiimokeras@gmail.com'
+        );
         safeStorage.setItem('tumpang_auth_email', userEmail);
         safeStorage.setItem('tumpang_auth_token', data.token);
         if (isMaster) {
@@ -204,8 +209,13 @@ export default function PortalLogin({ role, targetMerchantId, targetDriverId, in
           safeStorage.setItem('tumpang_auth_role', data.role || role);
           setSuccessMsg('Login Berhasil! Mengalihkan...');
         }
+        const targetEntity = isMaster
+          ? (role === 'MERCHANT' ? (targetMerchantId || data.user?.activeMerchantId || data.user?.entityId)
+             : role === 'DRIVER' ? (targetDriverId || data.user?.activeDriverId || data.user?.entityId)
+             : data.user?.id)
+          : (data.user?.id || targetMerchantId || targetDriverId);
         setTimeout(() => {
-          onSuccess(userEmail, data.user?.id, isMaster);
+          onSuccess(userEmail, targetEntity, isMaster);
         }, 500);
       } else {
         // Differentiate HTTP error status codes clearly
@@ -474,6 +484,102 @@ export default function PortalLogin({ role, targetMerchantId, targetDriverId, in
           ) : (
             /* Email / Phone + Kata Sandi Form - Uniform Layout */
             <form onSubmit={handlePasswordLogin} className="flex flex-col gap-4 animate-fadeIn">
+              {/* Quick Fill Demo Credentials Banner */}
+              <div className="bg-slate-50 border border-slate-200/90 rounded-2xl p-3 flex flex-col gap-2">
+                <div className="flex items-center justify-between text-[11px] font-bold text-slate-700">
+                  <span className="flex items-center gap-1.5">
+                    <Key className="w-3.5 h-3.5 text-amber-500" />
+                    <span>Akun Uji Coba Preview (Klik untuk Isi Otomatis):</span>
+                  </span>
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {/* Universal Master Account Quick Fill */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEmailInput('tumpanggo@gmail.com');
+                      setPasswordInput('TumpangGoAdmin#2026');
+                      setError('');
+                    }}
+                    className="px-2.5 py-1 bg-amber-50 hover:bg-amber-100 border border-amber-300 rounded-lg text-[10px] font-bold text-amber-900 transition cursor-pointer text-left shadow-xs flex items-center gap-1.5"
+                  >
+                    <span className="w-1.5 h-1.5 rounded-full bg-amber-500"></span>
+                    <span><strong>Master Account (Global):</strong> tumpanggo@gmail.com</span>
+                  </button>
+
+                  {role === 'ADMIN' && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEmailInput('suaiimokeras@gmail.com');
+                        setPasswordInput('TumpangGoAdmin#2026');
+                        setError('');
+                      }}
+                      className="px-2.5 py-1 bg-white hover:bg-slate-100 border border-slate-200 rounded-lg text-[10px] font-medium text-slate-700 transition cursor-pointer text-left shadow-xs flex items-center gap-1.5"
+                    >
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                      <span><strong>Akun AI Studio:</strong> suaiimokeras@gmail.com</span>
+                    </button>
+                  )}
+                  {role === 'MERCHANT' && (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setEmailInput('m1@tumpanggo.com');
+                          setPasswordInput('123456');
+                          setError('');
+                        }}
+                        className="px-2.5 py-1 bg-white hover:bg-slate-100 border border-slate-200 rounded-lg text-[10px] font-medium text-slate-700 transition cursor-pointer text-left shadow-xs flex items-center gap-1.5"
+                      >
+                        <span className="w-1.5 h-1.5 rounded-full bg-slate-400"></span>
+                        <span><strong>Bakso Barokah:</strong> m1@tumpanggo.com (123456)</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setEmailInput('081234567892');
+                          setPasswordInput('123456');
+                          setError('');
+                        }}
+                        className="px-2.5 py-1 bg-white hover:bg-slate-100 border border-slate-200 rounded-lg text-[10px] font-medium text-slate-700 transition cursor-pointer text-left shadow-xs flex items-center gap-1.5"
+                      >
+                        <span className="w-1.5 h-1.5 rounded-full bg-slate-400"></span>
+                        <span><strong>Ayam Geprek:</strong> 081234567892 (123456)</span>
+                      </button>
+                    </>
+                  )}
+                  {role === 'DRIVER' && (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setEmailInput('081234567893');
+                          setPasswordInput('123456');
+                          setError('');
+                        }}
+                        className="px-2.5 py-1 bg-white hover:bg-slate-100 border border-slate-200 rounded-lg text-[10px] font-medium text-slate-700 transition cursor-pointer text-left shadow-xs flex items-center gap-1.5"
+                      >
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                        <span><strong>Kurir Budi:</strong> 081234567893 (123456)</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setEmailInput('driver2@tumpanggo.com');
+                          setPasswordInput('123456');
+                          setError('');
+                        }}
+                        className="px-2.5 py-1 bg-white hover:bg-slate-100 border border-slate-200 rounded-lg text-[10px] font-medium text-slate-700 transition cursor-pointer text-left shadow-xs flex items-center gap-1.5"
+                      >
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                        <span><strong>Kurir Agus:</strong> driver2@tumpanggo.com (123456)</span>
+                      </button>
+                    </>
+                  )}
+                </div>
+              </div>
+
               <div>
                 <label 
                   className={`text-[11px] font-bold uppercase tracking-wider block mb-1.5 ${error ? 'text-red-600 font-extrabold' : 'text-slate-700'}`}

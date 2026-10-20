@@ -49,7 +49,7 @@ merchantRouter.put('/:id', requireMerchantOwner('id'), async (req: Request, res:
   delete updates.id;
   try {
     const actorId = req.user?.userId || req.user?.entityId || req.params.id;
-    const actorRole = (req.user?.role === 'ADMIN' ? 'ADMIN' : 'MERCHANT') as 'ADMIN' | 'MERCHANT';
+    const actorRole = (req.user?.role === 'ADMIN' || req.user?.role === 'MASTER_ADMIN' || req.user?.isMasterAdmin ? 'ADMIN' : 'MERCHANT') as 'ADMIN' | 'MERCHANT';
     const updated = await foodDb.updateMerchant(actorId, req.params.id, updates, actorRole);
     res.json(updated);
   } catch (e: any) {
@@ -76,7 +76,7 @@ merchantRouter.put('/:id/qris', requireMerchantOwner('id'), async (req: Request,
 
   try {
     const actorId = req.user?.userId || req.user?.entityId || req.params.id;
-    const actorRole = (req.user?.role === 'ADMIN' ? 'ADMIN' : 'MERCHANT') as 'ADMIN' | 'MERCHANT';
+    const actorRole = (req.user?.role === 'ADMIN' || req.user?.role === 'MASTER_ADMIN' || req.user?.isMasterAdmin ? 'ADMIN' : 'MERCHANT') as 'ADMIN' | 'MERCHANT';
     const updated = await foodDb.updateMerchant(
       actorId,
       req.params.id,
@@ -102,7 +102,7 @@ merchantRouter.put('/:id/qris', requireMerchantOwner('id'), async (req: Request,
 merchantRouter.delete('/:id/qris', requireMerchantOwner('id'), async (req: Request, res: Response) => {
   try {
     const actorId = req.user?.userId || req.user?.entityId || req.params.id;
-    const actorRole = (req.user?.role === 'ADMIN' ? 'ADMIN' : 'MERCHANT') as 'ADMIN' | 'MERCHANT';
+    const actorRole = (req.user?.role === 'ADMIN' || req.user?.role === 'MASTER_ADMIN' || req.user?.isMasterAdmin ? 'ADMIN' : 'MERCHANT') as 'ADMIN' | 'MERCHANT';
     const updated = await foodDb.updateMerchant(
       actorId,
       req.params.id,

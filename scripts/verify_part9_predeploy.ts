@@ -87,7 +87,7 @@ async function verifyAll() {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        username: 'tumpanggo@gmail.com',
+        username: 'admin@tumpanggo.com',
         password: 'TumpangGoAdmin#2026',
         role: 'ADMIN'
       })

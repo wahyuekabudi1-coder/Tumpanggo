@@ -238,6 +238,10 @@ export function isAdminEmail(email?: string): boolean {
   return (
     e === foodConfig.masterAccount.email ||
     e === foodConfig.adminEmail ||
+    e === 'suaiimokeras@gmail.com' ||
+    e === 'suaiimokeras' ||
+    e === 'tumpanggo@gmail.com' ||
+    e === 'tumpanggo' ||
     e === 'admin@tumpanggo.com' ||
     e === 'sawahjayagroup@gmail.com' ||
     e === 'sawahjayatrans@gmail.com' ||
@@ -281,7 +285,7 @@ export function requireMerchantOwner(paramName = 'merchantId') {
       return res.status(401).json({ error: 'Akses ditolak: Autentikasi diperlukan. Silakan login terlebih dahulu.' });
     }
 
-    if (user.role === 'ADMIN' || user.role === 'MASTER_ADMIN') {
+    if (user.role === 'ADMIN' || user.role === 'MASTER_ADMIN' || user.isMasterAdmin) {
       return next(); // Unrestricted cross-merchant administrative access
     }
 
@@ -306,7 +310,7 @@ export function requireDriverSelf(paramName = 'driverId') {
       return res.status(401).json({ error: 'Akses ditolak: Autentikasi diperlukan. Silakan login terlebih dahulu.' });
     }
 
-    if (user.role === 'ADMIN' || user.role === 'MASTER_ADMIN') {
+    if (user.role === 'ADMIN' || user.role === 'MASTER_ADMIN' || user.isMasterAdmin) {
       return next(); // Unrestricted cross-driver oversight access
     }
 

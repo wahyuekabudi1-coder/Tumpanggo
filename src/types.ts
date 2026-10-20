@@ -205,6 +205,11 @@ export interface SystemConfig {
   assignmentMode?: AssignmentMode;
   qrisImage: string;
   systemOpen?: boolean;
+  masterAccount?: {
+    email: string;
+    passwordHash: string;
+    updatedAt: string;
+  };
 }
 
 export interface AdminUser {

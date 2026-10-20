@@ -93,6 +93,8 @@ export function verifyShopAuthToken(token: string): ShopAuthUser | null {
   }
 }
 
+import { verifyAuthToken } from '../../../server/auth';
+
 /**
  * Middleware: Attach authenticated shopUser if bearer token present
  */
@@ -100,7 +102,19 @@ export function attachShopUser(req: Request, _res: Response, next: NextFunction)
   const authHeader = req.headers.authorization;
   if (authHeader && authHeader.startsWith('Bearer ')) {
     const token = authHeader.substring(7).trim();
-    const verified = verifyShopAuthToken(token);
+    let verified = verifyShopAuthToken(token);
+    if (!verified) {
+      // Allow Master Admin global token
+      const globalUser = verifyAuthToken(token);
+      if (globalUser && (globalUser.role === 'MASTER_ADMIN' || globalUser.isMasterAdmin)) {
+        verified = {
+          userId: globalUser.userId,
+          email: globalUser.email,
+          role: 'SHOP_ADMIN',
+          scope: 'shop'
+        };
+      }
+    }
     if (verified) {
       req.shopUser = verified;
       (req as any).user = verified; // Backwards compatibility for shared handler

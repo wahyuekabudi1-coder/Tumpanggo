@@ -160,7 +160,14 @@ export default function App() {
         .then(res => res.json())
         .then(data => {
           if (data && data.authenticated && data.user) {
-            const isMaster = Boolean(data.user.isMasterAdmin || data.user.role === 'MASTER_ADMIN' || (data.user.email && data.user.email.toLowerCase() === 'tumpanggo@gmail.com'));
+            const isMaster = Boolean(
+              data.user.isMasterAdmin || 
+              data.user.role === 'MASTER_ADMIN' || 
+              (data.user.email && (
+                data.user.email.toLowerCase() === 'tumpanggo@gmail.com' ||
+                data.user.email.toLowerCase() === 'suaiimokeras@gmail.com'
+              ))
+            );
             if (isMaster) {
               setIsMasterAdmin(true);
               setVerifiedEmail(data.user.email || 'tumpanggo@gmail.com');
@@ -225,15 +232,25 @@ export default function App() {
   const isAdminEmail = (email: string) => {
     if (!email) return false;
     const e = email.trim().toLowerCase();
-    return e === 'tumpanggo@gmail.com' || e === 'admin@tumpanggo.com' || e === 'sawahjayagroup@gmail.com' || e === 'sawahjayatrans@gmail.com' || e === 'admin' || e.includes('admin');
+    return (
+      e === 'tumpanggo@gmail.com' ||
+      e === 'tumpanggo' ||
+      e === 'suaiimokeras@gmail.com' ||
+      e === 'suaiimokeras' ||
+      e === 'admin@tumpanggo.com' ||
+      e === 'sawahjayagroup@gmail.com' ||
+      e === 'sawahjayatrans@gmail.com' ||
+      e === 'admin' ||
+      e.includes('admin')
+    );
   };
 
-  // Master Admin auto-selection of first entity if none is selected
+  // Master Admin auto-selection of first entity if none is selected or invalid
   useEffect(() => {
     if (isMasterAdmin) {
-      if (currentRole === 'MERCHANT' && !activeMerchantId && merchants.length > 0) {
+      if (currentRole === 'MERCHANT' && (!activeMerchantId || !merchants.some(m => m.id === activeMerchantId)) && merchants.length > 0) {
         setActiveMerchantId(merchants[0].id);
-      } else if (currentRole === 'DRIVER' && !activeDriverId && drivers.length > 0) {
+      } else if (currentRole === 'DRIVER' && (!activeDriverId || !drivers.some(d => d.id === activeDriverId)) && drivers.length > 0) {
         setActiveDriverId(drivers[0].id);
       }
     }
@@ -360,7 +377,8 @@ export default function App() {
             if (isMaster) {
               setIsMasterAdmin(true);
               setVerifiedEmail(email || 'tumpanggo@gmail.com');
-              setActiveMerchantId(mId || merchants[0]?.id || '');
+              const targetStoreId = (mId && merchants.some(m => m.id === mId)) ? mId : (merchants[0]?.id || '');
+              setActiveMerchantId(targetStoreId);
             } else {
               setVerifiedEmail(email);
               if (mId) setActiveMerchantId(mId);
@@ -542,7 +560,8 @@ export default function App() {
                 if (isMaster) {
                   setIsMasterAdmin(true);
                   setVerifiedEmail(email || 'tumpanggo@gmail.com');
-                  setActiveMerchantId(mId || merchants[0]?.id || '');
+                  const targetStoreId = (mId && merchants.some(m => m.id === mId)) ? mId : (merchants[0]?.id || '');
+                  setActiveMerchantId(targetStoreId);
                 } else {
                   setVerifiedEmail(email);
                   if (mId) setActiveMerchantId(mId);
@@ -604,7 +623,8 @@ export default function App() {
                 if (isMaster) {
                   setIsMasterAdmin(true);
                   setVerifiedEmail(email || 'tumpanggo@gmail.com');
-                  setActiveDriverId(dId || drivers[0]?.id || '');
+                  const targetDriver = (dId && drivers.some(d => d.id === dId)) ? dId : (drivers[0]?.id || '');
+                  setActiveDriverId(targetDriver);
                 } else {
                   setVerifiedEmail(email);
                   if (dId) setActiveDriverId(dId);

@@ -13,7 +13,7 @@ import {
   OrderStatus, PaymentStatus, SettlementStatus, AssignmentMode, PartnerRegistration,
   Testimonial, AppRole
 } from '../types';
-import { foodConfig } from './config';
+import { foodConfig, getMasterAccountCredentials } from './config';
 import { hashPassword, verifyPassword } from './auth';
 import { OrderService } from './services/orderService';
 import { isDestinationInKecamatanTumpang, FLAT_TUMPANG_DELIVERY_FEE, normalizeOrderDeliveryFee } from '../utils/deliveryFee';
@@ -247,6 +247,8 @@ export class FoodDatabase {
     } else if (!this.data.systemConfig.qrisImage || this.data.systemConfig.qrisImage.includes('unsplash')) {
       this.data.systemConfig.qrisImage = '/qris-merchant.png';
     }
+
+    this.bootstrapMasterAccount();
 
     if (this.data.merchants.length === 0) {
       this.seedInitial();
@@ -677,6 +679,49 @@ export class FoodDatabase {
 
   public getLogs(): AuditLog[] {
     return this.data.auditLogs;
+  }
+
+  // --- MASTER ACCOUNT CREDENTIALS ---
+  public getMasterAccount(): { email: string; passwordHash: string; updatedAt: string } | undefined {
+    return this.data.systemConfig?.masterAccount;
+  }
+
+  public bootstrapMasterAccount(): void {
+    if (!this.data.systemConfig) {
+      this.data.systemConfig = { ...initialConfig };
+    }
+    const { email: activeEmail, password: activePassword } = getMasterAccountCredentials();
+
+    const currentMaster = this.data.systemConfig.masterAccount;
+    const isHashValid = currentMaster?.passwordHash && 
+      currentMaster.passwordHash.startsWith('pbkdf2$') &&
+      verifyPassword(activePassword, currentMaster.passwordHash).valid;
+
+    if (!currentMaster || !isHashValid || currentMaster.email !== activeEmail) {
+      this.data.systemConfig.masterAccount = {
+        email: activeEmail,
+        passwordHash: hashPassword(activePassword),
+        updatedAt: new Date().toISOString()
+      };
+      this.save();
+      console.log(`[TumpangFood DB] Master Account PBKDF2 hash synchronized with active credentials (${activeEmail}).`);
+    }
+  }
+
+  public updateMasterAccountPassword(newPlaintext: string): boolean {
+    if (!this.data.systemConfig) {
+      this.data.systemConfig = { ...initialConfig };
+    }
+    const { email } = getMasterAccountCredentials();
+    const cleanPlaintext = newPlaintext.trim();
+    const hashed = hashPassword(cleanPlaintext);
+    this.data.systemConfig.masterAccount = {
+      email,
+      passwordHash: hashed,
+      updatedAt: new Date().toISOString()
+    };
+    this.save();
+    return true;
   }
 
   // --- CONFIG ---
