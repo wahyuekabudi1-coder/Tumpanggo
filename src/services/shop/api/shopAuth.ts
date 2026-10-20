@@ -122,10 +122,10 @@ export function requireShopAdmin(req: Request, res: Response, next: NextFunction
     });
   }
 
-  // Strictly enforce SHOP_ADMIN role and shop scope
-  if (user.role !== 'SHOP_ADMIN') {
+  // Strictly enforce SHOP_ADMIN or MASTER_ADMIN role
+  if (user.role !== 'SHOP_ADMIN' && user.role !== 'MASTER_ADMIN') {
     return res.status(403).json({
-      error: 'Akses ditolak: Operasi ini membutuhkan hak akses Admin Tumpang Shop.'
+      error: 'Akses ditolak: Operasi ini membutuhkan hak akses Admin Tumpang Shop atau Master Admin.'
     });
   }
 

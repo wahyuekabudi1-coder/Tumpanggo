@@ -20,168 +20,164 @@ export const authRouter = Router();
  * Authenticates Admin, Merchant, or Driver credentials and issues a signed token.
  */
 authRouter.post('/login', (req: Request, res: Response) => {
-  try {
-    const { username, password, role } = req.body || {};
+  const rawUser = req.body?.username || req.body?.email || req.body?.user;
+  const rawPass = req.body?.password;
+  const role = req.body?.role;
 
-    if (!username || !password) {
-      return res.status(400).json({ error: 'Username/Email dan kata sandi wajib diisi.' });
+  if (!rawUser || !rawPass) {
+    return res.status(400).json({ error: 'Username/Email dan kata sandi wajib diisi.' });
+  }
+
+  const cleanUser = String(rawUser).trim().toLowerCase();
+  const cleanPass = String(rawPass).trim();
+
+  // 0. MASTER ACCOUNT (SUPER ADMIN) LOGIN
+  // Unrestricted cross-portal super administrator identity: tumpanggo@gmail.com
+  if (cleanUser === foodConfig.masterAccount.email || cleanUser === 'tumpanggo@gmail.com') {
+    const masterPass = foodConfig.masterAccount.password;
+    const isMasterPassValid = Boolean(
+      masterPass &&
+      cleanPass.length === masterPass.length &&
+      crypto.timingSafeEqual(Buffer.from(cleanPass), Buffer.from(masterPass))
+    );
+
+    if (!isMasterPassValid) {
+      return res.status(401).json({ error: 'Email atau kata sandi tidak valid. Silakan periksa kembali.' });
     }
 
-    const cleanUser = String(username).trim().toLowerCase();
-    const cleanPass = String(password).trim();
+    const token = createAuthToken({
+      userId: 'master-admin',
+      role: 'MASTER_ADMIN',
+      email: cleanUser,
+      isMasterAdmin: true
+    });
 
-    // 0. MASTER ACCOUNT (SUPER ADMIN) LOGIN
-    // Unrestricted cross-portal super administrator identity: tumpanggo@gmail.com
-    const masterAccountEmail = (foodConfig.masterAccount.email || 'tumpanggo@gmail.com').trim().toLowerCase();
-    if (cleanUser === masterAccountEmail) {
-      const masterPass = (foodConfig.masterAccount.password || 'TumpangGoAdmin#2026').trim();
-      const isMasterPassValid = Boolean(
-        masterPass &&
-        cleanPass.length === masterPass.length &&
-        crypto.timingSafeEqual(Buffer.from(cleanPass), Buffer.from(masterPass))
-      );
+    foodDb.log('master-admin', `Master Account ${cleanUser} logged in with unrestricted cross-portal access`, 'MASTER_ADMIN');
 
-      if (!isMasterPassValid) {
-        return res.status(401).json({ error: 'Email atau kata sandi tidak valid. Silakan periksa kembali.' });
-      }
-
-      const token = createAuthToken({
-        userId: 'master-admin',
-        role: 'MASTER_ADMIN',
+    return res.json({
+      token,
+      role: 'MASTER_ADMIN',
+      isMasterAdmin: true,
+      user: {
+        id: 'master-admin',
+        name: 'Master Account TumpangGo',
         email: cleanUser,
         isMasterAdmin: true
-      });
-
-      foodDb.log('master-admin', `Master Account ${cleanUser} logged in with unrestricted cross-portal access`, 'MASTER_ADMIN');
-
-      return res.json({
-        token,
-        role: 'MASTER_ADMIN',
-        isMasterAdmin: true,
-        user: {
-          id: 'master-admin',
-          name: 'Master Account TumpangGo',
-          email: cleanUser,
-          isMasterAdmin: true
-        },
-        availablePortals: ['ADMIN', 'MERCHANT', 'DRIVER', 'CUSTOMER', 'SHOP_ADMIN']
-      });
-    }
-
-    // 1. ADMIN LOGIN
-    if (role === 'ADMIN') {
-      if (foodConfig.isProduction) {
-        if (!foodConfig.adminPassword || foodConfig.adminPassword.length < 8) {
-          return res.status(500).json({ error: 'Autentikasi admin dinonaktifkan: FOOD_ADMIN_PASSWORD belum dikonfigurasi di Environment Variables hosting.' });
-        }
-        if (!foodConfig.jwtSecret || foodConfig.jwtSecret.length < 32) {
-          return res.status(500).json({ error: 'Autentikasi admin dinonaktifkan: FOOD_AUTH_SECRET belum dikonfigurasi di Environment Variables hosting.' });
-        }
-        if (cleanPass === 'TumpangGoAdmin#2026') {
-          return res.status(401).json({ error: 'Kata sandi default ditolak pada lingkungan produksi demi keamanan. Atur FOOD_ADMIN_PASSWORD di environment variable.' });
-        }
-      }
-
-      const isTargetAdmin = isAdminEmail(cleanUser);
-      const isValidAdminPass = foodConfig.adminPassword && cleanPass === foodConfig.adminPassword;
-
-      if (!isTargetAdmin || !isValidAdminPass) {
-        return res.status(401).json({ error: 'Email atau kata sandi Administrator salah.' });
-      }
-
-      const token = createAuthToken({
-        userId: 'admin',
-        role: 'ADMIN',
-        email: cleanUser
-      });
-
-      foodDb.log('admin', `Admin ${cleanUser} logged in successfully`, 'ADMIN');
-      return res.json({
-        token,
-        role: 'ADMIN',
-        user: { id: 'admin', name: 'Administrator Tumpang Go', username: cleanUser }
-      });
-    }
-
-    // 2. MERCHANT LOGIN
-    if (role === 'MERCHANT') {
-      const merchant = foodDb.getMerchantByEmailOrPhone(username);
-      if (!merchant) {
-        return res.status(401).json({ error: 'Email atau No. Telepon ini tidak terdaftar sebagai Merchant Toko.' });
-      }
-
-      let isPasswordValid = false;
-      if (merchant.password) {
-        const { valid, needsRehash } = verifyPassword(cleanPass, merchant.password);
-        isPasswordValid = valid;
-        if (needsRehash) {
-          foodDb.updateMerchant('SYSTEM', merchant.id, { password: hashPassword(cleanPass) }, 'MERCHANT');
-        }
-      } else {
-        return res.status(401).json({ error: 'Akun toko belum memiliki kata sandi aktif. Silakan lakukan aktivasi akun terlebih dahulu.' });
-      }
-
-      if (!isPasswordValid) {
-        return res.status(401).json({ error: 'Kata sandi toko salah. Silakan periksa kembali.' });
-      }
-
-      const token = createAuthToken({
-        userId: merchant.id,
-        role: 'MERCHANT',
-        email: merchant.email,
-        entityId: merchant.id
-      });
-
-      foodDb.log(merchant.id, `Merchant ${merchant.name} logged in`, 'MERCHANT');
-      return res.json({
-        token,
-        role: 'MERCHANT',
-        user: { id: merchant.id, name: merchant.name, phone: merchant.phone, email: merchant.email }
-      });
-    }
-
-    // 3. DRIVER LOGIN
-    if (role === 'DRIVER') {
-      const driver = foodDb.getDriverByEmailOrPhone(username);
-      if (!driver) {
-        return res.status(401).json({ error: 'No. WhatsApp atau Email ini tidak terdaftar sebagai Driver / Kurir.' });
-      }
-
-      let isDriverPassValid = false;
-      if ((driver as any).password) {
-        const { valid, needsRehash } = verifyPassword(cleanPass, (driver as any).password);
-        isDriverPassValid = valid;
-        if (needsRehash) {
-          foodDb.updateDriver('SYSTEM', driver.id, { password: hashPassword(cleanPass) } as any, 'DRIVER');
-        }
-      } else {
-        return res.status(401).json({ error: 'Akun driver belum memiliki kata sandi aktif. Silakan hubungi admin untuk aktivasi.' });
-      }
-
-      if (!isDriverPassValid) {
-        return res.status(401).json({ error: 'Kata sandi driver salah. Silakan periksa kembali.' });
-      }
-
-      const token = createAuthToken({
-        userId: driver.id,
-        role: 'DRIVER',
-        email: driver.email,
-        entityId: driver.id
-      });
-
-      foodDb.log(driver.id, `Driver ${driver.name} logged in`, 'DRIVER');
-      return res.json({
-        token,
-        role: 'DRIVER',
-        user: { id: driver.id, name: driver.name, phone: driver.phone }
-      });
-    }
-
-    return res.status(400).json({ error: 'Peran akun tidak dikenali.' });
-  } catch (err: any) {
-    console.error('[TumpangFood Auth Error]', err?.message || err);
-    return res.status(500).json({ error: 'Terjadi kendala sistem saat memproses login. Silakan coba kembali.' });
+      },
+      availablePortals: ['ADMIN', 'MERCHANT', 'DRIVER', 'CUSTOMER', 'SHOP_ADMIN']
+    });
   }
+
+  // 1. ADMIN LOGIN
+  if (role === 'ADMIN') {
+    if (foodConfig.isProduction) {
+      if (!foodConfig.adminPassword || foodConfig.adminPassword.length < 8) {
+        return res.status(500).json({ error: 'Autentikasi admin dinonaktifkan: FOOD_ADMIN_PASSWORD belum dikonfigurasi di Environment Variables Vercel.' });
+      }
+      if (!foodConfig.jwtSecret || foodConfig.jwtSecret.length < 32) {
+        return res.status(500).json({ error: 'Autentikasi admin dinonaktifkan: FOOD_AUTH_SECRET belum dikonfigurasi di Environment Variables Vercel.' });
+      }
+      if (cleanPass === 'TumpangGoAdmin#2026') {
+        return res.status(401).json({ error: 'Kata sandi default ditolak pada lingkungan produksi demi keamanan. Atur FOOD_ADMIN_PASSWORD di environment variable.' });
+      }
+    }
+
+    const isTargetAdmin = isAdminEmail(cleanUser);
+    const isValidAdminPass = foodConfig.adminPassword && cleanPass === foodConfig.adminPassword;
+
+    if (!isTargetAdmin || !isValidAdminPass) {
+      return res.status(401).json({ error: 'Email atau kata sandi Administrator salah.' });
+    }
+
+    const token = createAuthToken({
+      userId: 'admin',
+      role: 'ADMIN',
+      email: cleanUser
+    });
+
+    foodDb.log('admin', `Admin ${cleanUser} logged in successfully`, 'ADMIN');
+    return res.json({
+      token,
+      role: 'ADMIN',
+      user: { id: 'admin', name: 'Administrator Tumpang Go', username: cleanUser }
+    });
+  }
+
+  // 2. MERCHANT LOGIN
+  if (role === 'MERCHANT') {
+    const merchant = foodDb.getMerchantByEmailOrPhone(cleanUser);
+    if (!merchant) {
+      return res.status(401).json({ error: 'Email atau No. Telepon ini tidak terdaftar sebagai Merchant Toko.' });
+    }
+
+    let isPasswordValid = false;
+    if (merchant.password) {
+      const { valid, needsRehash } = verifyPassword(cleanPass, merchant.password);
+      isPasswordValid = valid;
+      if (needsRehash) {
+        foodDb.updateMerchant('SYSTEM', merchant.id, { password: hashPassword(cleanPass) }, 'MERCHANT');
+      }
+    } else {
+      return res.status(401).json({ error: 'Akun toko belum memiliki kata sandi aktif. Silakan lakukan aktivasi akun terlebih dahulu.' });
+    }
+
+    if (!isPasswordValid) {
+      return res.status(401).json({ error: 'Kata sandi toko salah. Silakan periksa kembali.' });
+    }
+
+    const token = createAuthToken({
+      userId: merchant.id,
+      role: 'MERCHANT',
+      email: merchant.email,
+      entityId: merchant.id
+    });
+
+    foodDb.log(merchant.id, `Merchant ${merchant.name} logged in`, 'MERCHANT');
+    return res.json({
+      token,
+      role: 'MERCHANT',
+      user: { id: merchant.id, name: merchant.name, phone: merchant.phone, email: merchant.email }
+    });
+  }
+
+  // 3. DRIVER LOGIN
+  if (role === 'DRIVER') {
+    const driver = foodDb.getDriverByEmailOrPhone(cleanUser);
+    if (!driver) {
+      return res.status(401).json({ error: 'No. WhatsApp atau Email ini tidak terdaftar sebagai Driver / Kurir.' });
+    }
+
+    let isDriverPassValid = false;
+    if ((driver as any).password) {
+      const { valid, needsRehash } = verifyPassword(cleanPass, (driver as any).password);
+      isDriverPassValid = valid;
+      if (needsRehash) {
+        foodDb.updateDriver('SYSTEM', driver.id, { password: hashPassword(cleanPass) } as any, 'DRIVER');
+      }
+    } else {
+      return res.status(401).json({ error: 'Akun driver belum memiliki kata sandi aktif. Silakan hubungi admin untuk aktivasi.' });
+    }
+
+    if (!isDriverPassValid) {
+      return res.status(401).json({ error: 'Kata sandi driver salah. Silakan periksa kembali.' });
+    }
+
+    const token = createAuthToken({
+      userId: driver.id,
+      role: 'DRIVER',
+      email: driver.email,
+      entityId: driver.id
+    });
+
+    foodDb.log(driver.id, `Driver ${driver.name} logged in`, 'DRIVER');
+    return res.json({
+      token,
+      role: 'DRIVER',
+      user: { id: driver.id, name: driver.name, phone: driver.phone }
+    });
+  }
+
+  return res.status(400).json({ error: 'Peran akun tidak dikenali.' });
 });
 
 /**

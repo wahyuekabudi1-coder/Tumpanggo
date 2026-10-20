@@ -9,6 +9,18 @@
 
 import { safeStorage } from './safeStorage';
 
+export function getApiBaseUrl(): string {
+  const metaEnv = typeof import.meta !== 'undefined' && (import.meta as any).env ? (import.meta as any).env : {};
+  const envUrl = metaEnv.VITE_API_BASE_URL || metaEnv.VITE_API_URL || metaEnv.VITE_BACKEND_URL || '';
+  if (envUrl && typeof envUrl === 'string' && envUrl.trim().length > 0 && !envUrl.startsWith('%')) {
+    return envUrl.trim().replace(/\/+$/, '');
+  }
+  if (typeof window !== 'undefined' && (window as any).__TUMPANG_API_URL__) {
+    return String((window as any).__TUMPANG_API_URL__).trim().replace(/\/+$/, '');
+  }
+  return '';
+}
+
 export async function apiFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
   const token = safeStorage.getItem('tumpang_auth_token') || safeStorage.getItem('tumpang_shop_token');
   const email = safeStorage.getItem('tumpang_auth_email');
@@ -23,8 +35,21 @@ export async function apiFetch(input: RequestInfo | URL, init?: RequestInit): Pr
   }
 
   const isApiRequest = urlString.startsWith('/api') || urlString.includes('/api/');
+  const baseUrl = getApiBaseUrl();
+  let targetInput: RequestInfo | URL = input;
 
-  const headers = new Headers(init?.headers || (input instanceof Request ? input.headers : undefined) || {});
+  if (baseUrl && isApiRequest && urlString.startsWith('/api')) {
+    const fullUrl = `${baseUrl}${urlString}`;
+    if (typeof input === 'string') {
+      targetInput = fullUrl;
+    } else if (input instanceof URL) {
+      targetInput = new URL(fullUrl);
+    } else if (typeof Request !== 'undefined' && input instanceof Request) {
+      targetInput = new Request(fullUrl, input);
+    }
+  }
+
+  const headers = new Headers(init?.headers || (typeof Request !== 'undefined' && input instanceof Request ? input.headers : undefined) || {});
 
   if (isApiRequest && (token || email)) {
     if (token && !headers.has('Authorization')) {
@@ -42,7 +67,7 @@ export async function apiFetch(input: RequestInfo | URL, init?: RequestInit): Pr
     ? window.fetch.bind(window)
     : (typeof globalThis !== 'undefined' && typeof globalThis.fetch === 'function' ? globalThis.fetch.bind(globalThis) : fetch);
 
-  const response = await nativeFetch(input, { ...init, headers });
+  const response = await nativeFetch(targetInput, { ...init, headers });
 
   if (isApiRequest && response.status === 401) {
     console.warn(`[apiClient] 401 Unauthorized for endpoint: ${urlString}`);

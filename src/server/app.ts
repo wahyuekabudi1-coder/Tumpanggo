@@ -22,6 +22,53 @@ import { artopayRouter } from './routes/artopayRoutes';
 
 export const app = express();
 
+// Safe CORS & Preflight Handling for Production & Development
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  if (origin) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+  } else {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+  }
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-auth-token, x-auth-email, x-request-id, x-requested-with, accept, origin');
+  res.setHeader('Access-Control-Allow-Credentials', 'true');
+  res.setHeader('Access-Control-Max-Age', '86400');
+
+  // Answer preflight immediately
+  if (req.method === 'OPTIONS') {
+    return res.status(204).end();
+  }
+  next();
+});
+
+// Vercel / Proxy URL Normalization Middleware
+app.use((req, res, next) => {
+  const matchedPath = (req.headers['x-matched-path'] as string) || 
+                      (req.headers['x-original-url'] as string) || 
+                      (req.headers['x-forwarded-uri'] as string);
+  
+  if (matchedPath && matchedPath.startsWith('/api') && req.url.startsWith('/api/index')) {
+    req.url = matchedPath;
+  }
+
+  // Handle case where query parameter __path was appended in rewrite
+  if (req.url.startsWith('/api/index?') || req.url === '/api/index') {
+    try {
+      const urlObj = new URL(req.url, 'http://localhost');
+      const customPath = urlObj.searchParams.get('__path') || urlObj.searchParams.get('path');
+      if (customPath) {
+        urlObj.searchParams.delete('__path');
+        urlObj.searchParams.delete('path');
+        const remainingQuery = urlObj.searchParams.toString();
+        const basePath = customPath.startsWith('/') ? customPath : `/api/${customPath}`;
+        req.url = basePath + (remainingQuery ? `?${remainingQuery}` : '');
+      }
+    } catch {}
+  }
+  next();
+});
+
 // Safe Request Diagnostics & Tracking Middleware
 app.use((req: any, res, next) => {
   const reqId = req.headers['x-request-id'] || 'req_' + Math.random().toString(36).substring(2, 9) + Date.now().toString(36);

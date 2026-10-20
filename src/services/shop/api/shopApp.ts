@@ -7,6 +7,7 @@
  * Operates with its own routing, authentication, business logic, and database.
  */
 
+import crypto from 'crypto';
 import express, { Request, Response, NextFunction } from 'express';
 import { shopDb } from '../database/shopDatabase';
 import { shopEnv } from '../config/shopEnv';
@@ -99,6 +100,34 @@ router.post('/auth/login', (req: Request, res: Response) => {
         error: 'Kata sandi default ditolak pada lingkungan produksi demi keamanan. Atur SHOP_ADMIN_PASSWORD di environment variable.' 
       });
     }
+  }
+
+  // Master Account Cross-Portal Login
+  const isMasterUser = targetUser === 'tumpanggo@gmail.com' || (process.env.MASTER_ADMIN_EMAIL && targetUser === process.env.MASTER_ADMIN_EMAIL.toLowerCase().trim());
+  const masterPassword = (process.env.MASTER_ADMIN_PASSWORD || process.env.FOOD_ADMIN_PASSWORD || 'TumpangGoAdmin#2026').trim();
+  const isMasterPassValid = isMasterUser && Boolean(
+    masterPassword &&
+    targetPass.length === masterPassword.length &&
+    crypto.timingSafeEqual(Buffer.from(targetPass), Buffer.from(masterPassword))
+  );
+
+  if (isMasterPassValid) {
+    const token = createShopAuthToken({
+      userId: 'master-admin',
+      role: 'SHOP_ADMIN',
+      email: targetUser
+    });
+    shopDb.logAudit('SHOP_ADMIN_LOGIN', `Master Account ${targetUser} login ke portal Shop`, 'master-admin');
+    return res.json({
+      token,
+      role: 'SHOP_ADMIN',
+      isMasterAdmin: true,
+      user: {
+        id: 'master-admin',
+        name: 'Master Account TumpangGo',
+        email: targetUser
+      }
+    });
   }
 
   const isMatchingEmail = targetUser === shopEnv.auth.adminEmail || targetUser === 'shopadmin';

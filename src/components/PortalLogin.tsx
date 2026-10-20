@@ -160,13 +160,31 @@ export default function PortalLogin({ role, targetMerchantId, targetDriverId, in
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           username: emailInput.trim(),
+          email: emailInput.trim(),
           password: passwordInput,
           role: role
         })
       });
 
-      const data = await res.json();
-      if (res.ok && data.token) {
+      // Safely parse JSON or text response to prevent unhandled SyntaxError
+      let data: any = null;
+      const contentType = res.headers.get('content-type') || '';
+      if (contentType.includes('application/json')) {
+        try {
+          data = await res.json();
+        } catch {
+          data = null;
+        }
+      } else {
+        const text = await res.text().catch(() => '');
+        try {
+          data = JSON.parse(text);
+        } catch {
+          data = { error: text && text.length < 200 ? text : `Server merespons status HTTP ${res.status}` };
+        }
+      }
+
+      if (res.ok && data?.token) {
         const userEmail = emailInput.trim();
         const isMaster = Boolean(data.isMasterAdmin || data.role === 'MASTER_ADMIN' || userEmail === 'tumpanggo@gmail.com');
         safeStorage.setItem('tumpang_auth_email', userEmail);
@@ -184,11 +202,26 @@ export default function PortalLogin({ role, targetMerchantId, targetDriverId, in
           onSuccess(userEmail, data.user?.id, isMaster);
         }, 500);
       } else {
-        setError(data.error || 'Email/No. Telepon atau kata sandi salah. Silakan periksa kembali.');
+        // Differentiate HTTP error status codes clearly
+        if (res.status === 401) {
+          setError(data?.error || 'Email/No. Telepon atau kata sandi tidak cocok. Silakan periksa kembali.');
+        } else if (res.status === 403) {
+          setError(data?.error || 'Akses ditolak: Akun tidak memiliki izin untuk masuk ke portal ini.');
+        } else if (res.status === 404) {
+          setError('Layanan login backend tidak ditemukan (HTTP 404). Pastikan server backend sedang aktif.');
+        } else if (res.status >= 500) {
+          setError(data?.error || `Terjadi kendala pada server backend (HTTP ${res.status}). Silakan coba beberapa saat lagi.`);
+        } else {
+          setError(data?.error || `Gagal melakukan login (HTTP ${res.status}).`);
+        }
       }
-    } catch (err) {
-      console.error('Password login error:', err);
-      setError('Gagal terhubung ke server. Silakan coba lagi.');
+    } catch (err: any) {
+      console.error('Password login network error:', err?.message || err);
+      if (err?.name === 'TypeError' || err?.message?.includes('fetch') || err?.message?.includes('Failed to fetch') || err?.message?.includes('NetworkError')) {
+        setError('Gagal terhubung ke server backend (Network/CORS Error). Pastikan server backend aktif dan dapat diakses.');
+      } else {
+        setError(err?.message || 'Gagal terhubung ke server. Silakan coba lagi.');
+      }
     } finally {
       setLoading(false);
     }

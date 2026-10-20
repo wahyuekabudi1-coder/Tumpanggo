@@ -272,9 +272,15 @@ export default function App() {
         <PortalLogin 
           role="MERCHANT" 
           initialTab={merchantPortalTab}
-          onSuccess={(email, mId) => {
-            setVerifiedEmail(email);
-            if (mId) setActiveMerchantId(mId);
+          onSuccess={(email, mId, isMaster) => {
+            if (isMaster) {
+              setIsMasterAdmin(true);
+              setVerifiedEmail(email || 'tumpanggo@gmail.com');
+              setActiveMerchantId(mId || merchants[0]?.id || '');
+            } else {
+              setVerifiedEmail(email);
+              if (mId) setActiveMerchantId(mId);
+            }
           }} 
           onCancel={() => {
             setCurrentRole('CUSTOMER');

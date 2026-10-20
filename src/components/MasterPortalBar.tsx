@@ -80,18 +80,29 @@ export const MasterPortalBar: React.FC<MasterPortalBarProps> = ({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ currentPassword, newPassword })
       });
-      const data = await res.json();
-      if (res.ok && data.success) {
+      let data: any = null;
+      try {
+        data = await res.json();
+      } catch {
+        data = null;
+      }
+      if (res.ok && data?.success) {
         setRotateSuccess('Kata sandi Master Account berhasil dirotasi secara aman.');
         setCurrentPassword('');
         setNewPassword('');
         setConfirmPassword('');
         setTimeout(() => setShowRotateModal(false), 2000);
       } else {
-        setRotateError(data.error || 'Gagal merotasi kata sandi.');
+        if (res.status === 401) {
+          setRotateError(data?.error || 'Kata sandi lama salah.');
+        } else if (res.status === 403) {
+          setRotateError('Akses ditolak: Hanya Master Account yang dapat merotasi kata sandi.');
+        } else {
+          setRotateError(data?.error || `Gagal merotasi kata sandi (HTTP ${res.status}).`);
+        }
       }
-    } catch {
-      setRotateError('Gagal terhubung ke server.');
+    } catch (err: any) {
+      setRotateError(err?.message?.includes('fetch') ? 'Gagal terhubung ke server jaringan.' : 'Gagal menghubungi server.');
     } finally {
       setRotateLoading(false);
     }

@@ -17,18 +17,8 @@ if (fs.existsSync(localEnvPath)) {
   dotenv.config({ path: localEnvPath, override: true });
 }
 
-// Safely sanitize and unquote environment variable strings
-export function cleanEnvString(val?: string): string {
-  if (!val) return '';
-  let str = val.trim();
-  if ((str.startsWith('"') && str.endsWith('"')) || (str.startsWith("'") && str.endsWith("'"))) {
-    str = str.slice(1, -1).trim();
-  }
-  return str;
-}
-
 // Determine runtime JWT Secret
-let runtimeJwtSecret = cleanEnvString(process.env.FOOD_AUTH_SECRET);
+let runtimeJwtSecret = (process.env.FOOD_AUTH_SECRET || '').trim();
 if (!runtimeJwtSecret || runtimeJwtSecret.length < 32) {
   runtimeJwtSecret = 'dev_secret_fallback_do_not_use_in_prod_min_32_characters_long';
 }
@@ -40,22 +30,20 @@ const localDbFile = isServerless
   : path.join(process.cwd(), 'tumpang_food_db.json');
 
 // Security & Authentication Configuration
-let runtimeAdminPassword = cleanEnvString(process.env.FOOD_ADMIN_PASSWORD) || 'TumpangGoAdmin#2026';
-let runtimeAdminEmail = (cleanEnvString(process.env.FOOD_ADMIN_EMAIL) || 'tumpanggo@gmail.com').toLowerCase();
+let runtimeAdminPassword = (process.env.FOOD_ADMIN_PASSWORD || 'TumpangGoAdmin#2026').trim();
+let runtimeAdminEmail = (process.env.FOOD_ADMIN_EMAIL || 'tumpanggo@gmail.com').trim().toLowerCase();
 
 // Master Account Configuration (Unrestricted Cross-Portal Access)
-let runtimeMasterAdminEmail = (cleanEnvString(process.env.MASTER_ADMIN_EMAIL) || 'tumpanggo@gmail.com').toLowerCase();
-let runtimeMasterAdminPassword = cleanEnvString(process.env.MASTER_ADMIN_PASSWORD) || cleanEnvString(process.env.FOOD_ADMIN_PASSWORD) || 'TumpangGoAdmin#2026';
+let runtimeMasterAdminEmail = (process.env.MASTER_ADMIN_EMAIL || 'tumpanggo@gmail.com').trim().toLowerCase();
+let runtimeMasterAdminPassword = (process.env.MASTER_ADMIN_PASSWORD || process.env.FOOD_ADMIN_PASSWORD || 'TumpangGoAdmin#2026').trim();
 
 function resolveServerPort(): number {
-  if (process.env.FOOD_PORT) {
-    const parsed = parseInt(process.env.FOOD_PORT, 10);
+  if (process.env.PORT) {
+    const parsed = parseInt(process.env.PORT, 10);
     if (!isNaN(parsed) && parsed > 0) return parsed;
   }
-  // In AI Studio / container environments, port 3000 is required for web access.
-  // Port 8080 is reserved by the internal container proxy/supervisor.
-  if (process.env.PORT && process.env.PORT !== '8080') {
-    const parsed = parseInt(process.env.PORT, 10);
+  if (process.env.FOOD_PORT) {
+    const parsed = parseInt(process.env.FOOD_PORT, 10);
     if (!isNaN(parsed) && parsed > 0) return parsed;
   }
   return 3000;
@@ -204,7 +192,7 @@ export const foodConfig = {
   masterAccount: {
     email: runtimeMasterAdminEmail,
     get password(): string {
-      return cleanEnvString(process.env.MASTER_ADMIN_PASSWORD) || cleanEnvString(process.env.FOOD_ADMIN_PASSWORD) || runtimeMasterAdminPassword;
+      return (process.env.MASTER_ADMIN_PASSWORD || process.env.FOOD_ADMIN_PASSWORD || runtimeMasterAdminPassword).trim();
     }
   },
   

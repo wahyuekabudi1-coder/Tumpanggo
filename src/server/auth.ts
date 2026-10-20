@@ -65,9 +65,10 @@ export function verifyPassword(password: string, storedHash?: string): { valid: 
  * Create HMAC-SHA256 signed JWT token.
  */
 export function createAuthToken(user: AuthUser, expiresInHours = 72): string {
-  const secret = (foodConfig.jwtSecret && foodConfig.jwtSecret.length >= 32)
-    ? foodConfig.jwtSecret
-    : 'dev_secret_fallback_tumpanggo_min_32_characters_long_2026';
+  const secret = foodConfig.jwtSecret;
+  if (!secret || secret.length < 32) {
+    throw new Error('Konfigurasi FOOD_AUTH_SECRET belum disetel atau kurang dari 32 karakter.');
+  }
 
   const header = Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).toString('base64url');
   const payload = Buffer.from(

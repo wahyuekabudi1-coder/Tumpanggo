@@ -5,17 +5,17 @@
   "cleanUrls": true,
   "functions": {
     "api/index.ts": {
-      "includeFiles": "{api/_app.cjs*,firebase-applet-config.json,tumpang_food_db.json,tumpang_shop_db.json,src/server/**}"
+      "includeFiles": "{api/_app.cjs*,firebase-applet-config.json,tumpang_food_db.json,tumpang_shop_db.json,src/**}"
     }
   },
   "rewrites": [
     {
       "source": "/api",
-      "destination": "/api/index"
+      "destination": "/api/index?__path=/api"
     },
     {
       "source": "/api/(.*)",
-      "destination": "/api/index"
+      "destination": "/api/index?__path=/api/$1"
     },
     {
       "source": "/((?!api/|assets/|.*\\.(?:js|css|json|png|jpg|jpeg|gif|ico|svg|webp)).*)",
