@@ -3851,10 +3851,10 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
         {/* 5. PAYMENT / BILLING TAB - MERCHANT STATIC QRIS */}
         {activeTab === 'payment' && activeOrder && (() => {
           const currentOrderMerchant = merchants.find(m => m.id === activeOrder.merchantId) || (activeOrder.merchantId === selectedMerchant?.id ? selectedMerchant : null);
-          const rawQris = currentOrderMerchant?.qrisImage || activeOrder.merchantQrisImage || systemConfig?.qrisImage;
+          const rawQris = currentOrderMerchant?.qrisImage || activeOrder.merchantQrisImage;
           const qrisImageUrl = (rawQris && typeof rawQris === 'string' && !rawQris.includes('unsplash') && rawQris.trim().length > 3)
             ? rawQris.trim()
-            : '/qris-merchant.png';
+            : null;
           const isPaid = activeOrder.status === OrderStatus.PAYMENT_VERIFIED || activeOrder.paymentStatus === PaymentStatus.PAID;
           const isWaitingVerification = activeOrder.status === OrderStatus.WAITING_PAYMENT_VERIFICATION || activeOrder.paymentStatus === PaymentStatus.WAITING_VERIFICATION;
           const isRejected = activeOrder.status === OrderStatus.PAYMENT_REJECTED || activeOrder.paymentStatus === PaymentStatus.REJECTED;

@@ -129,7 +129,7 @@ export class OrderService {
       paymentMethod: 'MERCHANT_QRIS',
       merchantId: merchant.id,
       merchantName: merchant.name,
-      merchantQrisImage: merchant.qrisImage || systemConfig?.qrisImage || '/qris-merchant.png',
+      merchantQrisImage: merchant.qrisImage || '',
       customerName: input.customerName.trim(),
       customerPhone: input.customerPhone.trim(),
       deliveryAddress: input.deliveryAddress.trim(),
