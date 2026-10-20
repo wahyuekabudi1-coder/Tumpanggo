@@ -109,23 +109,31 @@ export class FoodDatabase {
         }
       }
 
-      // Serverless cold-start bootstrap: copy/load bundled seed file to /tmp
-      const bundledSeedFile = path.join(process.cwd(), 'tumpang_food_db.json');
-      if (FOOD_DB_FILE !== bundledSeedFile && fs.existsSync(bundledSeedFile)) {
-        try {
-          const seedContent = fs.readFileSync(bundledSeedFile, 'utf-8');
-          if (seedContent && seedContent.trim().length > 10) {
-            this.data = JSON.parse(seedContent);
-            this.ensureStructure();
-            this.migratePasswords();
-            this.migrateOrdersDeliveryFee();
-            this.save();
-            this.createBackup();
-            console.log('[TumpangFood DB] Successfully bootstrapped serverless database from bundled tumpang_food_db.json');
-            return;
+      // Serverless cold-start bootstrap: search candidate paths for bundled seed file
+      const candidateSeedPaths = [
+        path.join(process.cwd(), 'tumpang_food_db.json'),
+        path.join(__dirname, '..', 'tumpang_food_db.json'),
+        path.join(__dirname, '..', '..', 'tumpang_food_db.json'),
+        path.join('/var/task', 'tumpang_food_db.json')
+      ];
+
+      for (const candidate of candidateSeedPaths) {
+        if (FOOD_DB_FILE !== candidate && fs.existsSync(candidate)) {
+          try {
+            const seedContent = fs.readFileSync(candidate, 'utf-8');
+            if (seedContent && seedContent.trim().length > 10) {
+              this.data = JSON.parse(seedContent);
+              this.ensureStructure();
+              this.migratePasswords();
+              this.migrateOrdersDeliveryFee();
+              this.save();
+              this.createBackup();
+              console.log(`[TumpangFood DB] Successfully bootstrapped serverless database from ${candidate}`);
+              return;
+            }
+          } catch (e: any) {
+            console.warn(`[TumpangFood DB] Failed reading seed database at ${candidate}:`, e.message);
           }
-        } catch (e: any) {
-          console.warn('[TumpangFood DB] Failed reading bundled seed database:', e.message);
         }
       }
 
@@ -720,13 +728,29 @@ export class FoodDatabase {
   }
 
   public getMerchantByEmailOrPhone(identifier: string): Merchant | undefined {
+    if (!identifier || !this.data || !Array.isArray(this.data.merchants)) return undefined;
     const clean = identifier.trim().toLowerCase();
+    const rawClean = identifier.trim();
     const cleanNumbers = identifier.replace(/[^0-9]/g, '');
+    const altPhone = cleanNumbers.startsWith('62') 
+      ? '0' + cleanNumbers.slice(2) 
+      : (cleanNumbers.startsWith('0') ? '62' + cleanNumbers.slice(1) : '');
+
     return this.data.merchants.find(m => {
-      const matchId = m.id.toLowerCase() === clean;
-      const matchEmail = m.email && m.email.trim().toLowerCase() === clean;
-      const matchPhone = m.phone === identifier;
-      const matchCleanPhone = cleanNumbers.length >= 8 && m.phone.replace(/[^0-9]/g, '') === cleanNumbers;
+      if (!m) return false;
+      const mId = typeof m.id === 'string' ? m.id.toLowerCase() : '';
+      const mEmail = typeof m.email === 'string' ? m.email.trim().toLowerCase() : '';
+      const mPhone = typeof m.phone === 'string' ? m.phone.trim() : '';
+      const mPhoneNumbers = mPhone.replace(/[^0-9]/g, '');
+
+      const matchId = Boolean(mId && mId === clean);
+      const matchEmail = Boolean(mEmail && mEmail === clean);
+      const matchPhone = Boolean(mPhone && (mPhone === rawClean || mPhone.toLowerCase() === clean));
+      const matchCleanPhone = Boolean(cleanNumbers.length >= 8 && mPhoneNumbers && (
+        mPhoneNumbers === cleanNumbers || 
+        (altPhone && mPhoneNumbers === altPhone)
+      ));
+
       return matchId || matchEmail || matchPhone || matchCleanPhone;
     });
   }
@@ -1018,14 +1042,30 @@ export class FoodDatabase {
   }
 
   public getDriverByEmailOrPhone(identifier: string): Driver | undefined {
+    if (!identifier || !this.data || !Array.isArray(this.data.drivers)) return undefined;
     const clean = identifier.trim().toLowerCase();
+    const rawClean = identifier.trim();
     const cleanPhone = identifier.replace(/[^0-9]/g, '');
+    const altPhone = cleanPhone.startsWith('62') 
+      ? '0' + cleanPhone.slice(2) 
+      : (cleanPhone.startsWith('0') ? '62' + cleanPhone.slice(1) : '');
+
     return this.data.drivers.find(d => {
-      const matchId = d.id.toLowerCase() === clean;
-      const matchEmail = d.email && d.email.trim().toLowerCase() === clean;
-      const matchPhone = d.phone === identifier;
-      const matchCleanPhone = cleanPhone.length >= 8 && d.phone.replace(/[^0-9]/g, '') === cleanPhone;
-      return matchId || matchEmail || matchPhone || matchCleanPhone;
+      if (!d) return false;
+      const dId = typeof d.id === 'string' ? d.id.toLowerCase() : '';
+      const dEmail = typeof d.email === 'string' ? d.email.trim().toLowerCase() : '';
+      const dPhone = typeof d.phone === 'string' ? d.phone.trim() : '';
+      const dPhoneNumbers = dPhone.replace(/[^0-9]/g, '');
+
+      const matchId = Boolean(dId && dId === clean);
+      const matchEmail = Boolean(dEmail && dEmail === clean);
+      const matchPhoneExact = Boolean(dPhone && (dPhone === rawClean || dPhone.toLowerCase() === clean));
+      const matchCleanPhone = Boolean(cleanPhone.length >= 8 && dPhoneNumbers && (
+        dPhoneNumbers === cleanPhone || 
+        (altPhone && dPhoneNumbers === altPhone)
+      ));
+
+      return matchId || matchEmail || matchPhoneExact || matchCleanPhone;
     });
   }
 

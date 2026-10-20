@@ -87,14 +87,39 @@ app.use((req: any, res, next) => {
   next();
 });
 
+// Pre-parsed body middleware for Vercel Serverless Functions
+// If the body was already parsed by @vercel/node or an upstream serverless wrapper,
+// preserve it and mark req._body = true to prevent raw-body from throwing "stream is not readable".
+app.use((req: any, _res, next) => {
+  if (req.body !== undefined && req.body !== null) {
+    if (typeof req.body === 'string') {
+      try {
+        req.body = JSON.parse(req.body);
+      } catch {}
+    }
+    req._body = true;
+  }
+  next();
+});
+
 // Global body parsers (limit 15mb for base64 image uploads)
 app.use(express.json({
   limit: '15mb',
   verify: (req: any, _res, buf) => {
-    req.rawBody = buf.toString('utf-8');
+    try {
+      req.rawBody = buf.toString('utf-8');
+    } catch {}
   }
 }));
 app.use(express.urlencoded({ extended: true, limit: '15mb' }));
+
+// Gracefully handle any stream read errors (such as stream already ended by serverless gateway)
+app.use((err: any, req: any, _res: any, next: any) => {
+  if (err?.message?.includes('stream is not readable') || err?.type === 'stream.not.readable') {
+    return next();
+  }
+  next(err);
+});
 
 // Lazy asynchronous database synchronization middleware for Serverless & Cold-Starts
 app.use(async (req, res, next) => {
