@@ -5,7 +5,7 @@
   "cleanUrls": true,
   "functions": {
     "api/index.ts": {
-      "includeFiles": "{api/_app.cjs*,firebase-applet-config.json,tumpang_food_db.json,tumpang_shop_db.json,src/**}"
+      "includeFiles": "{api/_app.cjs*,firebase-applet-config.json}"
     }
   },
   "rewrites": [

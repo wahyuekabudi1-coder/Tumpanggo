@@ -200,7 +200,7 @@ app.use('/api/shop', shopApp);
 app.use('/api/artopay', artopayRouter);
 
 // 404 handler for unhandled API routes
-app.all('/api/*', (req, res) => {
+app.all(['/api', '/api/*'], (req, res) => {
   res.status(404).json({ error: `API endpoint ${req.method} ${req.path} tidak ditemukan.` });
 });
 

@@ -111,10 +111,8 @@ export class FoodDatabase {
       }
 
       // Serverless cold-start bootstrap: search candidate paths for bundled seed file
-      const candidateSeedPaths = [
+      const candidateSeedPaths: string[] = [
         path.join(process.cwd(), 'tumpang_food_db.json'),
-        path.join(__dirname, '..', 'tumpang_food_db.json'),
-        path.join(__dirname, '..', '..', 'tumpang_food_db.json'),
         path.join('/var/task', 'tumpang_food_db.json')
       ];
 
