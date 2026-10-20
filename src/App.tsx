@@ -14,6 +14,7 @@ import MerchantRegisterPage from './components/MerchantRegisterPage.tsx';
 import ShopAdminView from './components/ShopAdminView.tsx';
 import ErrorBoundary from './components/ErrorBoundary.tsx';
 import MasterPortalBar from './components/MasterPortalBar.tsx';
+import EvaluationWorkspace from './components/EvaluationWorkspace.tsx';
 import { SystemConfig } from './types.ts';
 import { safeStorage } from './utils/safeStorage.ts';
 import { apiFetch as fetch, extractArrayResponse } from './utils/apiClient.ts';
@@ -60,10 +61,21 @@ export default function App() {
     return page === 'merchant-register' || page === 'partner-register' || page === 'register-merchant';
   });
 
+  const [isEvaluationWorkspace, setIsEvaluationWorkspace] = useState<boolean>(() => {
+    const params = new URLSearchParams(window.location.search);
+    const page = params.get('page');
+    const ws = params.get('workspace') || params.get('eval') || params.get('evaluation');
+    return page === 'workspace' || page === 'evaluation' || ws === 'true' || ws === '1';
+  });
+
   // Check URL parameters on mount
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const page = params.get('page');
+    const ws = params.get('workspace') || params.get('eval') || params.get('evaluation');
+    if (page === 'workspace' || page === 'evaluation' || ws === 'true' || ws === '1') {
+      setIsEvaluationWorkspace(true);
+    }
     if (page === 'merchant-register' || page === 'partner-register' || page === 'register-merchant') {
       setIsRegisterPage(true);
     }
@@ -168,6 +180,47 @@ export default function App() {
     }
   }, []);
 
+  // Safe runtime error reporting to parent Evaluation Workspace if running in an iframe
+  useEffect(() => {
+    const handleError = (event: ErrorEvent) => {
+      try {
+        if (window.parent && window.parent !== window) {
+          window.parent.postMessage({
+            type: 'TUMPANG_RUNTIME_ERROR',
+            portalId: currentRole.toLowerCase(),
+            role: currentRole,
+            message: event.message || 'Uncaught JavaScript Error',
+            source: event.filename ? `${event.filename}:${event.lineno}` : undefined,
+            timestamp: new Date().toLocaleTimeString('id-ID')
+          }, '*');
+        }
+      } catch {}
+    };
+
+    const handleRejection = (event: PromiseRejectionEvent) => {
+      try {
+        if (window.parent && window.parent !== window) {
+          const reason = event.reason;
+          const msg = reason?.message || (typeof reason === 'string' ? reason : 'Unhandled Promise Rejection');
+          window.parent.postMessage({
+            type: 'TUMPANG_RUNTIME_ERROR',
+            portalId: currentRole.toLowerCase(),
+            role: currentRole,
+            message: msg,
+            timestamp: new Date().toLocaleTimeString('id-ID')
+          }, '*');
+        }
+      } catch {}
+    };
+
+    window.addEventListener('error', handleError);
+    window.addEventListener('unhandledrejection', handleRejection);
+    return () => {
+      window.removeEventListener('error', handleError);
+      window.removeEventListener('unhandledrejection', handleRejection);
+    };
+  }, [currentRole]);
+
   // Helper for admin email check
   const isAdminEmail = (email: string) => {
     if (!email) return false;
@@ -260,6 +313,37 @@ export default function App() {
           setCurrentRole('MERCHANT');
           setMerchantPortalTab('login');
           window.history.replaceState({}, '', window.location.pathname + '?role=merchant');
+        }}
+      />
+    );
+  }
+
+  // Dedicated TumpangGo Evaluation Workspace (Inspection Console for Project Owner)
+  if (isEvaluationWorkspace) {
+    return (
+      <EvaluationWorkspace
+        onExitWorkspace={() => {
+          setIsEvaluationWorkspace(false);
+          const url = new URL(window.location.href);
+          url.searchParams.delete('workspace');
+          url.searchParams.delete('eval');
+          url.searchParams.delete('evaluation');
+          if (url.searchParams.get('page') === 'workspace' || url.searchParams.get('page') === 'evaluation') {
+            url.searchParams.delete('page');
+          }
+          window.history.replaceState({}, '', url.pathname + (url.search ? url.search : ''));
+        }}
+        onNavigateToPortal={(role) => {
+          setIsEvaluationWorkspace(false);
+          const url = new URL(window.location.href);
+          url.searchParams.delete('workspace');
+          url.searchParams.delete('eval');
+          url.searchParams.delete('evaluation');
+          if (url.searchParams.get('page') === 'workspace' || url.searchParams.get('page') === 'evaluation') {
+            url.searchParams.delete('page');
+          }
+          window.history.replaceState({}, '', url.pathname + (url.search ? url.search : ''));
+          handleRoleSelection(role);
         }}
       />
     );
@@ -402,6 +486,7 @@ export default function App() {
             if (currentRole !== 'DRIVER') setCurrentRole('DRIVER');
           }}
           onLogout={handleMasterLogout}
+          onOpenWorkspace={() => setIsEvaluationWorkspace(true)}
         />
       )}
 

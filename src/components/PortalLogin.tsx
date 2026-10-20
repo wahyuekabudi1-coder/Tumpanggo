@@ -5,7 +5,8 @@ import { safeStorage } from '../utils/safeStorage.ts';
 import { apiFetch as fetch } from '../utils/apiClient.ts';
 import { 
   ShieldCheck, Lock, Mail, ArrowRight, ChevronLeft, Store, 
-  CheckCircle, AlertCircle, Loader2, Phone, Bike, User, MapPin, Tag, ExternalLink
+  CheckCircle, AlertCircle, Loader2, Phone, Bike, User, MapPin, Tag, ExternalLink,
+  Eye, EyeOff
 } from 'lucide-react';
 
 interface PortalLoginProps {
@@ -50,6 +51,11 @@ export default function PortalLogin({ role, targetMerchantId, targetDriverId, in
 
   // Password login input state
   const [passwordInput, setPasswordInput] = useState('');
+
+  // Show/Hide password toggles
+  const [showPassword, setShowPassword] = useState(false);
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -403,14 +409,24 @@ export default function PortalLogin({ role, targetMerchantId, targetDriverId, in
                 <div className="relative">
                   <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                   <input
-                    type="password"
+                    type={showNewPassword ? "text" : "password"}
                     required
                     disabled={loading}
                     placeholder="Minimal 6 karakter"
                     value={newPassword}
                     onChange={(e) => setNewPassword(e.target.value)}
-                    className="w-full bg-slate-50/80 border border-slate-200 hover:border-slate-300 focus:border-rose-500 focus:bg-white rounded-xl pl-10 pr-4 py-3 text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-rose-500/20 transition-all font-medium"
+                    className="w-full bg-slate-50/80 border border-slate-200 hover:border-slate-300 focus:border-rose-500 focus:bg-white rounded-xl pl-10 pr-11 py-3 text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-rose-500/20 transition-all font-medium"
                   />
+                  <button
+                    type="button"
+                    onClick={() => setShowNewPassword(!showNewPassword)}
+                    tabIndex={-1}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-slate-600 focus:outline-none transition-colors cursor-pointer"
+                    title={showNewPassword ? "Sembunyikan kata sandi" : "Lihat kata sandi"}
+                    aria-label={showNewPassword ? "Sembunyikan kata sandi" : "Lihat kata sandi"}
+                  >
+                    {showNewPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
                 </div>
               </div>
 
@@ -419,14 +435,24 @@ export default function PortalLogin({ role, targetMerchantId, targetDriverId, in
                 <div className="relative">
                   <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                   <input
-                    type="password"
+                    type={showConfirmPassword ? "text" : "password"}
                     required
                     disabled={loading}
                     placeholder="Ulangi kata sandi"
                     value={confirmPassword}
                     onChange={(e) => setConfirmPassword(e.target.value)}
-                    className="w-full bg-slate-50/80 border border-slate-200 hover:border-slate-300 focus:border-rose-500 focus:bg-white rounded-xl pl-10 pr-4 py-3 text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-rose-500/20 transition-all font-medium"
+                    className="w-full bg-slate-50/80 border border-slate-200 hover:border-slate-300 focus:border-rose-500 focus:bg-white rounded-xl pl-10 pr-11 py-3 text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-rose-500/20 transition-all font-medium"
                   />
+                  <button
+                    type="button"
+                    onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                    tabIndex={-1}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-slate-600 focus:outline-none transition-colors cursor-pointer"
+                    title={showConfirmPassword ? "Sembunyikan kata sandi" : "Lihat kata sandi"}
+                    aria-label={showConfirmPassword ? "Sembunyikan kata sandi" : "Lihat kata sandi"}
+                  >
+                    {showConfirmPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
                 </div>
               </div>
 
@@ -509,7 +535,7 @@ export default function PortalLogin({ role, targetMerchantId, targetDriverId, in
                 <div className="relative">
                   <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4" style={{ color: error ? '#dc2626' : '#94a3b8' }} />
                   <input
-                    type="password"
+                    type={showPassword ? "text" : "password"}
                     required
                     disabled={loading}
                     placeholder="Masukkan kata sandi"
@@ -518,13 +544,23 @@ export default function PortalLogin({ role, targetMerchantId, targetDriverId, in
                       setPasswordInput(e.target.value);
                       if (error) setError('');
                     }}
-                    className={`w-full rounded-xl pl-10 pr-4 py-3 text-xs font-semibold transition-all disabled:opacity-55 focus:outline-none ${
+                    className={`w-full rounded-xl pl-10 pr-11 py-3 text-xs font-semibold transition-all disabled:opacity-55 focus:outline-none ${
                       error 
                         ? 'bg-red-50 border-2 border-red-500 text-red-900 focus:ring-2 focus:ring-red-500/30' 
                         : 'bg-slate-50/80 border border-slate-200 hover:border-slate-300 focus:border-rose-500 focus:bg-white text-slate-900 focus:ring-2 focus:ring-rose-500/20'
                     }`}
                     style={error ? { backgroundColor: '#fef2f2', borderColor: '#ef4444', color: '#7f1d1d' } : undefined}
                   />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    tabIndex={-1}
+                    className="absolute right-3.5 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-slate-600 focus:outline-none transition-colors cursor-pointer"
+                    title={showPassword ? "Sembunyikan kata sandi" : "Lihat kata sandi"}
+                    aria-label={showPassword ? "Sembunyikan kata sandi" : "Lihat kata sandi"}
+                  >
+                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
                 </div>
               </div>
 

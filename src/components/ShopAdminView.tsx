@@ -22,7 +22,7 @@ import {
 import { 
   Store, ShoppingBag, Package, Truck, DollarSign, Calendar, TrendingUp, 
   AlertTriangle, CheckCircle2, XCircle, Clock, Search, Filter, Edit3, 
-  Trash2, Plus, RefreshCw, Eye, ArrowLeft, LogOut, ShieldCheck, 
+  Trash2, Plus, RefreshCw, Eye, EyeOff, ArrowLeft, LogOut, ShieldCheck, 
   Download, Printer, Upload, Image as ImageIcon, MapPin, Phone, 
   User, Globe, Check, AlertCircle, ChevronRight, X, Copy, ExternalLink,
   Lock, Tag, Layers, QrCode, Info
@@ -50,6 +50,7 @@ export default function ShopAdminView({ onBackToCustomer }: ShopAdminViewProps) 
   // Login form states
   const [loginEmail, setLoginEmail] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
+  const [showLoginPassword, setShowLoginPassword] = useState(false);
   const [loginError, setLoginError] = useState<string | null>(null);
   const [isLoggingIn, setIsLoggingIn] = useState(false);
 
@@ -683,14 +684,26 @@ export default function ShopAdminView({ onBackToCustomer }: ShopAdminViewProps) 
               <label className="block text-xs font-bold text-slate-300 mb-1">
                 Kata Sandi (Password)
               </label>
-              <input
-                type="password"
-                required
-                value={loginPassword}
-                onChange={(e) => setLoginPassword(e.target.value)}
-                placeholder="••••••••"
-                className="w-full px-3.5 py-2.5 text-xs rounded-xl bg-slate-900 border border-slate-700 focus:outline-none focus:border-blue-500 text-white"
-              />
+              <div className="relative">
+                <input
+                  type={showLoginPassword ? "text" : "password"}
+                  required
+                  value={loginPassword}
+                  onChange={(e) => setLoginPassword(e.target.value)}
+                  placeholder="••••••••"
+                  className="w-full pl-3.5 pr-10 py-2.5 text-xs rounded-xl bg-slate-900 border border-slate-700 focus:outline-none focus:border-blue-500 text-white font-medium"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowLoginPassword(!showLoginPassword)}
+                  tabIndex={-1}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-200 transition-colors cursor-pointer p-0.5"
+                  title={showLoginPassword ? "Sembunyikan kata sandi" : "Lihat kata sandi"}
+                  aria-label={showLoginPassword ? "Sembunyikan kata sandi" : "Lihat kata sandi"}
+                >
+                  {showLoginPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
+              </div>
             </div>
 
             <button

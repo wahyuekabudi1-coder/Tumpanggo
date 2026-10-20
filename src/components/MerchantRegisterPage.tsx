@@ -6,7 +6,8 @@ import { useSEO } from '../hooks/useSEO.ts';
 
 import { 
   Store, User, Phone, Mail, MapPin, Tag, Lock, ArrowRight, CheckCircle2, 
-  AlertCircle, Loader2, ArrowLeft, Clock, FileText, Camera, ShieldCheck, ExternalLink
+  AlertCircle, Loader2, ArrowLeft, Clock, FileText, Camera, ShieldCheck, ExternalLink,
+  Eye, EyeOff
 } from 'lucide-react';
 
 interface MerchantRegisterPageProps {
@@ -33,6 +34,8 @@ export default function MerchantRegisterPage({ onBackToHome, onGoToLogin }: Merc
   const [closeTime, setCloseTime] = useState('21:00');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [agreeTerms, setAgreeTerms] = useState(true);
 
   // Photos (Base64 or previews)
@@ -432,30 +435,54 @@ export default function MerchantRegisterPage({ onBackToHome, onGoToLogin }: Merc
                   <label className="text-[11px] font-bold text-slate-700 uppercase tracking-wider block mb-1">
                     Buat Kata Sandi Login <span className="text-rose-500">*</span>
                   </label>
-                  <input
-                    type="password"
-                    required
-                    disabled={loading}
-                    placeholder="Minimal 6 karakter"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    className="w-full bg-slate-50 border border-slate-200 focus:bg-white focus:border-rose-500 rounded-xl px-4 py-3 text-xs text-slate-900 font-medium focus:outline-none focus:ring-2 focus:ring-rose-500/20 transition-all"
-                  />
+                  <div className="relative">
+                    <input
+                      type={showPassword ? "text" : "password"}
+                      required
+                      disabled={loading}
+                      placeholder="Minimal 6 karakter"
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      className="w-full bg-slate-50 border border-slate-200 focus:bg-white focus:border-rose-500 rounded-xl pl-4 pr-10 py-3 text-xs text-slate-900 font-medium focus:outline-none focus:ring-2 focus:ring-rose-500/20 transition-all"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword(!showPassword)}
+                      tabIndex={-1}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors cursor-pointer p-0.5"
+                      title={showPassword ? "Sembunyikan kata sandi" : "Lihat kata sandi"}
+                      aria-label={showPassword ? "Sembunyikan kata sandi" : "Lihat kata sandi"}
+                    >
+                      {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                  </div>
                 </div>
 
                 <div>
                   <label className="text-[11px] font-bold text-slate-700 uppercase tracking-wider block mb-1">
                     Ulangi Kata Sandi <span className="text-rose-500">*</span>
                   </label>
-                  <input
-                    type="password"
-                    required
-                    disabled={loading}
-                    placeholder="Ulangi kata sandi"
-                    value={confirmPassword}
-                    onChange={(e) => setConfirmPassword(e.target.value)}
-                    className="w-full bg-slate-50 border border-slate-200 focus:bg-white focus:border-rose-500 rounded-xl px-4 py-3 text-xs text-slate-900 font-medium focus:outline-none focus:ring-2 focus:ring-rose-500/20 transition-all"
-                  />
+                  <div className="relative">
+                    <input
+                      type={showConfirmPassword ? "text" : "password"}
+                      required
+                      disabled={loading}
+                      placeholder="Ulangi kata sandi"
+                      value={confirmPassword}
+                      onChange={(e) => setConfirmPassword(e.target.value)}
+                      className="w-full bg-slate-50 border border-slate-200 focus:bg-white focus:border-rose-500 rounded-xl pl-4 pr-10 py-3 text-xs text-slate-900 font-medium focus:outline-none focus:ring-2 focus:ring-rose-500/20 transition-all"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                      tabIndex={-1}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors cursor-pointer p-0.5"
+                      title={showConfirmPassword ? "Sembunyikan kata sandi" : "Lihat kata sandi"}
+                      aria-label={showConfirmPassword ? "Sembunyikan kata sandi" : "Lihat kata sandi"}
+                    >
+                      {showConfirmPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>

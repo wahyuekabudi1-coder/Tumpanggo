@@ -11,7 +11,7 @@ import React, { useState } from 'react';
 import { 
   ShieldCheck, Store, Bike, UtensilsCrossed, ShoppingBag, 
   LogOut, ChevronDown, KeyRound, CheckCircle2, AlertCircle, 
-  ExternalLink, Eye, ChevronUp, RefreshCw, Sparkles, X, ShieldAlert
+  ExternalLink, Eye, EyeOff, ChevronUp, RefreshCw, Sparkles, X, ShieldAlert, Layers
 } from 'lucide-react';
 import { apiFetch as fetch } from '../utils/apiClient';
 
@@ -25,6 +25,7 @@ interface MasterPortalBarProps {
   onSelectMerchant: (merchantId: string) => void;
   onSelectDriver: (driverId: string) => void;
   onLogout: () => void;
+  onOpenWorkspace?: () => void;
 }
 
 export const MasterPortalBar: React.FC<MasterPortalBarProps> = ({
@@ -36,13 +37,17 @@ export const MasterPortalBar: React.FC<MasterPortalBarProps> = ({
   onSelectRole,
   onSelectMerchant,
   onSelectDriver,
-  onLogout
+  onLogout,
+  onOpenWorkspace
 }) => {
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [showRotateModal, setShowRotateModal] = useState(false);
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [showCurrentPassword, setShowCurrentPassword] = useState(false);
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [rotateLoading, setRotateLoading] = useState(false);
   const [rotateError, setRotateError] = useState('');
   const [rotateSuccess, setRotateSuccess] = useState('');
@@ -268,6 +273,24 @@ export const MasterPortalBar: React.FC<MasterPortalBarProps> = ({
                 <UtensilsCrossed className="w-3.5 h-3.5" />
                 <span>Pratinjau Pelanggan</span>
               </button>
+
+              {/* 6. Evaluation Workspace */}
+              <button
+                onClick={() => {
+                  if (onOpenWorkspace) {
+                    onOpenWorkspace();
+                  } else {
+                    const url = new URL(window.location.href);
+                    url.searchParams.set('page', 'workspace');
+                    window.location.href = url.toString();
+                  }
+                }}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-extrabold bg-[#315B4F] hover:bg-[#26483E] text-white border border-[#315B4F]/40 shadow-xs cursor-pointer flex-shrink-0 transition-all"
+                title="Buka TumpangGo Evaluation Workspace (4-Portal Matrix)"
+              >
+                <Layers className="w-3.5 h-3.5" />
+                <span>Evaluation Workspace</span>
+              </button>
             </div>
 
             {/* Context Selector for Merchant or Driver */}
@@ -376,42 +399,78 @@ export const MasterPortalBar: React.FC<MasterPortalBarProps> = ({
                 <label className="block text-slate-700 font-bold mb-1">
                   Kata Sandi Saat Ini
                 </label>
-                <input
-                  type="password"
-                  value={currentPassword}
-                  onChange={(e) => setCurrentPassword(e.target.value)}
-                  placeholder="Masukkan kata sandi saat ini"
-                  className="w-full px-3 py-2 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-amber-500"
-                  required
-                />
+                <div className="relative">
+                  <input
+                    type={showCurrentPassword ? "text" : "password"}
+                    value={currentPassword}
+                    onChange={(e) => setCurrentPassword(e.target.value)}
+                    placeholder="Masukkan kata sandi saat ini"
+                    className="w-full pl-3 pr-9 py-2 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-amber-500 font-medium"
+                    required
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowCurrentPassword(!showCurrentPassword)}
+                    tabIndex={-1}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors cursor-pointer p-0.5"
+                    title={showCurrentPassword ? "Sembunyikan kata sandi" : "Lihat kata sandi"}
+                    aria-label={showCurrentPassword ? "Sembunyikan kata sandi" : "Lihat kata sandi"}
+                  >
+                    {showCurrentPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
               </div>
 
               <div>
                 <label className="block text-slate-700 font-bold mb-1">
                   Kata Sandi Baru (Min. 8 Karakter)
                 </label>
-                <input
-                  type="password"
-                  value={newPassword}
-                  onChange={(e) => setNewPassword(e.target.value)}
-                  placeholder="Masukkan kata sandi baru"
-                  className="w-full px-3 py-2 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-amber-500"
-                  required
-                />
+                <div className="relative">
+                  <input
+                    type={showNewPassword ? "text" : "password"}
+                    value={newPassword}
+                    onChange={(e) => setNewPassword(e.target.value)}
+                    placeholder="Masukkan kata sandi baru"
+                    className="w-full pl-3 pr-9 py-2 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-amber-500 font-medium"
+                    required
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowNewPassword(!showNewPassword)}
+                    tabIndex={-1}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors cursor-pointer p-0.5"
+                    title={showNewPassword ? "Sembunyikan kata sandi" : "Lihat kata sandi"}
+                    aria-label={showNewPassword ? "Sembunyikan kata sandi" : "Lihat kata sandi"}
+                  >
+                    {showNewPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
               </div>
 
               <div>
                 <label className="block text-slate-700 font-bold mb-1">
                   Konfirmasi Kata Sandi Baru
                 </label>
-                <input
-                  type="password"
-                  value={confirmPassword}
-                  onChange={(e) => setConfirmPassword(e.target.value)}
-                  placeholder="Ulangi kata sandi baru"
-                  className="w-full px-3 py-2 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-amber-500"
-                  required
-                />
+                <div className="relative">
+                  <input
+                    type={showConfirmPassword ? "text" : "password"}
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    placeholder="Ulangi kata sandi baru"
+                    className="w-full pl-3 pr-9 py-2 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-amber-500 font-medium"
+                    required
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                    tabIndex={-1}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors cursor-pointer p-0.5"
+                    title={showConfirmPassword ? "Sembunyikan kata sandi" : "Lihat kata sandi"}
+                    aria-label={showConfirmPassword ? "Sembunyikan kata sandi" : "Lihat kata sandi"}
+                  >
+                    {showConfirmPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
               </div>
 
               <div className="pt-2 flex justify-end gap-2">
