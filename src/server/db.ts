@@ -247,6 +247,12 @@ export class FoodDatabase {
       this.data.systemConfig.qrisImage = '/qris-merchant.png';
     }
 
+    this.data.merchants.forEach(m => {
+      if (!m.qrisImage || m.qrisImage.includes('unsplash')) {
+        m.qrisImage = '/qris-merchant.png';
+      }
+    });
+
     this.bootstrapMasterAccount();
 
     if (this.data.merchants.length === 0) {
@@ -279,6 +285,7 @@ export class FoodDatabase {
         description: 'Bakso urat sapi asli, mie ayam ceker spesial khas Tumpang.',
         category: 'Makanan Berat',
         email: 'm1@tumpanggo.com',
+        qrisImage: '/qris-merchant.png',
         createdAt: now,
         updatedAt: now,
         isActivated: true,
@@ -304,6 +311,7 @@ export class FoodDatabase {
         description: 'Ayam goreng renyah krispi dengan kepedasan sambal korek khas Tumpang.',
         category: 'Aneka Ayam',
         email: 'm2@tumpanggo.com',
+        qrisImage: '/qris-merchant.png',
         createdAt: now,
         updatedAt: now,
         isActivated: true,
