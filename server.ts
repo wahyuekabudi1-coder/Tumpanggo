@@ -21,8 +21,14 @@ const distServer = path.resolve(_dirname, 'dist', 'server.cjs');
 
 let app: any;
 
-// If pre-bundled dist/server.cjs exists and we are explicitly running in production, run bundled server directly
-if (process.env.NODE_ENV === 'production' && fs.existsSync(distServer)) {
+// Detect if running under tsx (development) or plain Node.js (production / npm start)
+const isTsx = Boolean(
+  process.env.TSX ||
+  process.env.TSX_WATCH ||
+  process.execArgv.some(arg => arg.includes('tsx'))
+);
+
+if (fs.existsSync(distServer) && (process.env.NODE_ENV === 'production' || !isTsx)) {
   const prodMod = _require(distServer);
   app = prodMod.app || prodMod;
 } else {
