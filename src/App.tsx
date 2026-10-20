@@ -23,7 +23,21 @@ import { ShieldAlert, Key, HelpCircle, Store, Navigation, ChevronRight } from 'l
 import { useSEO } from './hooks/useSEO.ts';
 
 export default function App() {
-  const [currentRole, setCurrentRole] = useState<'CUSTOMER' | 'MERCHANT' | 'DRIVER' | 'ADMIN' | 'SHOP_ADMIN'>('CUSTOMER');
+  const [currentRole, setCurrentRole] = useState<'CUSTOMER' | 'MERCHANT' | 'DRIVER' | 'ADMIN' | 'SHOP_ADMIN'>(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      const roleParam = params.get('role')?.toUpperCase();
+      if (roleParam && ['CUSTOMER', 'MERCHANT', 'DRIVER', 'ADMIN', 'SHOP_ADMIN'].includes(roleParam)) {
+        return roleParam as any;
+      }
+      const isMaster = safeStorage.getItem('tumpang_is_master') === 'true' || safeStorage.getItem('tumpang_auth_role') === 'MASTER_ADMIN';
+      const savedPortal = safeStorage.getItem('tumpang_current_portal');
+      if (isMaster && savedPortal && ['CUSTOMER', 'MERCHANT', 'DRIVER', 'ADMIN', 'SHOP_ADMIN'].includes(savedPortal)) {
+        return savedPortal as any;
+      }
+    }
+    return 'CUSTOMER';
+  });
   const [isMasterAdmin, setIsMasterAdmin] = useState<boolean>(() => {
     return safeStorage.getItem('tumpang_is_master') === 'true' || safeStorage.getItem('tumpang_auth_role') === 'MASTER_ADMIN';
   });
@@ -156,7 +170,12 @@ export default function App() {
   useEffect(() => {
     const token = safeStorage.getItem('tumpang_auth_token');
     if (token) {
-      fetch('/api/auth/me')
+      fetch('/api/auth/me', {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'x-auth-token': token
+        }
+      })
         .then(res => res.json())
         .then(data => {
           if (data && data.authenticated && data.user) {
@@ -288,6 +307,7 @@ export default function App() {
 
   const handleRoleSelection = (role: 'CUSTOMER' | 'MERCHANT' | 'DRIVER' | 'ADMIN' | 'SHOP_ADMIN', id?: string, initialTab?: 'login' | 'register') => {
     setCurrentRole(role);
+    safeStorage.setItem('tumpang_current_portal', role);
     if (!isMasterAdmin) {
       setVerifiedEmail('');
       safeStorage.removeItem('tumpang_auth_email');
@@ -308,6 +328,7 @@ export default function App() {
     safeStorage.removeItem('tumpang_auth_token');
     safeStorage.removeItem('tumpang_auth_role');
     safeStorage.removeItem('tumpang_is_master');
+    safeStorage.removeItem('tumpang_current_portal');
     setActiveMerchantId('');
     setActiveDriverId('');
     setCurrentRole('CUSTOMER');
@@ -579,6 +600,7 @@ export default function App() {
               role="MERCHANT" 
               targetMerchantId={activeMerchantId} 
               onSuccess={(email, _mId, isMaster) => {
+                safeStorage.setItem('tumpang_current_portal', 'MERCHANT');
                 if (isMaster) {
                   setIsMasterAdmin(true);
                   setVerifiedEmail(email || 'tumpanggo@gmail.com');
@@ -620,6 +642,7 @@ export default function App() {
             <PortalLogin 
               role="DRIVER" 
               onSuccess={(email, dId, isMaster) => {
+                safeStorage.setItem('tumpang_current_portal', 'DRIVER');
                 if (isMaster) {
                   setIsMasterAdmin(true);
                   setVerifiedEmail(email || 'tumpanggo@gmail.com');
@@ -688,6 +711,7 @@ export default function App() {
             <PortalLogin 
               role="ADMIN" 
               onSuccess={(email, _id, isMaster) => {
+                safeStorage.setItem('tumpang_current_portal', 'ADMIN');
                 if (isMaster) {
                   setIsMasterAdmin(true);
                   setVerifiedEmail(email || 'tumpanggo@gmail.com');

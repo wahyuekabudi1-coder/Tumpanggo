@@ -11,11 +11,34 @@ import fs from 'fs';
 import path from 'path';
 import dotenv from 'dotenv';
 
+// Safely read explicit .env files to preserve special characters
+function loadEnvExplicit(filePath: string) {
+  if (!fs.existsSync(filePath)) return;
+  try {
+    const raw = fs.readFileSync(filePath, 'utf-8');
+    const lines = raw.split(/\r?\n/);
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith('#')) continue;
+      const eqIdx = trimmed.indexOf('=');
+      if (eqIdx <= 0) continue;
+      const key = trimmed.slice(0, eqIdx).trim();
+      let val = trimmed.slice(eqIdx + 1).trim();
+      if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
+        val = val.slice(1, -1);
+      }
+      process.env[key] = val;
+    }
+  } catch {}
+}
+
 // Load root environment files
 dotenv.config();
+loadEnvExplicit(path.resolve(process.cwd(), '.env'));
 const localEnvPath = path.resolve(process.cwd(), '.env.local');
 if (fs.existsSync(localEnvPath)) {
   dotenv.config({ path: localEnvPath, override: true });
+  loadEnvExplicit(localEnvPath);
 }
 
 // Serverless / Vercel filesystem adaptation

@@ -12,6 +12,7 @@
     "start:shop": "node dist/shop-server.cjs",
     "clean": "rm -rf dist server.cjs api/_app.cjs api/_app.cjs.map",
     "postinstall": "node scripts/patch-artopay-sdk.cjs",
+    "master:recover": "tsx scripts/recover_master_password.ts",
     "lint": "tsc --noEmit"
   },
   "dependencies": {

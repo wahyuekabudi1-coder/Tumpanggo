@@ -63,6 +63,7 @@ const initialConfig: SystemConfig = {
 export class FoodDatabase {
   private data: DatabaseSchema;
   private isInitialized = false;
+  private lastFileMtime = 0;
 
   constructor() {
     this.data = {
@@ -408,6 +409,9 @@ export class FoodDatabase {
         fs.mkdirSync(dir, { recursive: true });
       }
       fs.writeFileSync(FOOD_DB_FILE, JSON.stringify(this.data, null, 2), 'utf-8');
+      try {
+        this.lastFileMtime = fs.statSync(FOOD_DB_FILE).mtimeMs;
+      } catch {}
     } catch (e: any) {
       if (e.code === 'EROFS') {
         console.warn('[TumpangFood DB] Read-only filesystem detected. Disk write skipped; persisting in-memory and Firestore.');
@@ -506,6 +510,7 @@ export class FoodDatabase {
         const remoteConfig = await safeAdminGetDoc('systemConfig', 'config_1');
         if (remoteConfig) {
           this.data.systemConfig = { ...initialConfig, ...remoteConfig } as SystemConfig;
+          this.bootstrapMasterAccount();
         } else {
           await safeAdminSetDoc('systemConfig', 'config_1', this.data.systemConfig);
         }
@@ -683,6 +688,22 @@ export class FoodDatabase {
 
   // --- MASTER ACCOUNT CREDENTIALS ---
   public getMasterAccount(): { email: string; passwordHash: string; updatedAt: string } | undefined {
+    try {
+      if (fs.existsSync(FOOD_DB_FILE)) {
+        const stats = fs.statSync(FOOD_DB_FILE);
+        if (stats.mtimeMs > this.lastFileMtime) {
+          const content = fs.readFileSync(FOOD_DB_FILE, 'utf-8');
+          const parsed = JSON.parse(content);
+          if (parsed?.systemConfig?.masterAccount) {
+            if (!this.data.systemConfig) {
+              this.data.systemConfig = { ...initialConfig };
+            }
+            this.data.systemConfig.masterAccount = parsed.systemConfig.masterAccount;
+            this.lastFileMtime = stats.mtimeMs;
+          }
+        }
+      }
+    } catch {}
     return this.data.systemConfig?.masterAccount;
   }
 
@@ -690,21 +711,33 @@ export class FoodDatabase {
     if (!this.data.systemConfig) {
       this.data.systemConfig = { ...initialConfig };
     }
-    const { email: activeEmail, password: activePassword } = getMasterAccountCredentials();
-
+    const creds = getMasterAccountCredentials();
     const currentMaster = this.data.systemConfig.masterAccount;
-    const isHashValid = currentMaster?.passwordHash && 
-      currentMaster.passwordHash.startsWith('pbkdf2$') &&
-      verifyPassword(activePassword, currentMaster.passwordHash).valid;
 
-    if (!currentMaster || !isHashValid || currentMaster.email !== activeEmail) {
+    // 1. If masterAccount already exists with a valid PBKDF2 hash, preserve it.
+    if (currentMaster?.passwordHash && currentMaster.passwordHash.startsWith('pbkdf2$')) {
+      // Only update if the owner explicitly configured a non-empty environment variable that differs
+      if (creds.hasExplicitEnv && creds.password && !verifyPassword(creds.password, currentMaster.passwordHash).valid) {
+        this.data.systemConfig.masterAccount = {
+          email: creds.email,
+          passwordHash: hashPassword(creds.password),
+          updatedAt: new Date().toISOString()
+        };
+        this.save();
+        console.log(`[TumpangFood DB] Master Account PBKDF2 hash synchronized from explicit environment variable (${creds.email}).`);
+      }
+      return;
+    }
+
+    // 2. Only if no masterAccount exists at all and an explicit environment password is set:
+    if (!currentMaster && creds.hasExplicitEnv && creds.password) {
       this.data.systemConfig.masterAccount = {
-        email: activeEmail,
-        passwordHash: hashPassword(activePassword),
+        email: creds.email,
+        passwordHash: hashPassword(creds.password),
         updatedAt: new Date().toISOString()
       };
       this.save();
-      console.log(`[TumpangFood DB] Master Account PBKDF2 hash synchronized with active credentials (${activeEmail}).`);
+      console.log(`[TumpangFood DB] Master Account PBKDF2 hash initialized for ${creds.email}.`);
     }
   }
 
@@ -721,6 +754,31 @@ export class FoodDatabase {
       updatedAt: new Date().toISOString()
     };
     this.save();
+
+    // Persist to Cloud Firestore if configured and active
+    try {
+      safeFirestoreSetDoc('systemConfig', 'config_1', this.data.systemConfig).catch(() => {});
+    } catch {}
+
+    return true;
+  }
+
+  public updateMasterAccountWithHash(email: string, passwordHash: string): boolean {
+    if (!this.data.systemConfig) {
+      this.data.systemConfig = { ...initialConfig };
+    }
+    this.data.systemConfig.masterAccount = {
+      email: email.trim().toLowerCase(),
+      passwordHash,
+      updatedAt: new Date().toISOString()
+    };
+    this.save();
+
+    // Persist to Cloud Firestore if configured and active
+    try {
+      safeFirestoreSetDoc('systemConfig', 'config_1', this.data.systemConfig).catch(() => {});
+    } catch {}
+
     return true;
   }
 

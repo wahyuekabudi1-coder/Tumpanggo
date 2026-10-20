@@ -6,7 +6,7 @@ import { apiFetch as fetch } from '../utils/apiClient.ts';
 import { 
   ShieldCheck, Lock, Mail, ArrowRight, ChevronLeft, Store, 
   CheckCircle, AlertCircle, Loader2, Phone, Bike, User, MapPin, Tag, ExternalLink,
-  Eye, EyeOff, Key
+  Eye, EyeOff, Key, X
 } from 'lucide-react';
 
 interface PortalLoginProps {
@@ -56,6 +56,16 @@ export default function PortalLogin({ role, targetMerchantId, targetDriverId, in
   const [showPassword, setShowPassword] = useState(false);
   const [showNewPassword, setShowNewPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  
+  // Administrative Master Account recovery state
+  const [showRecoveryModal, setShowRecoveryModal] = useState(false);
+  const [recoveryKey, setRecoveryKey] = useState('');
+  const [recoveryNewPassword, setRecoveryNewPassword] = useState('');
+  const [recoveryConfirmPassword, setRecoveryConfirmPassword] = useState('');
+  const [recoveryShowPass, setRecoveryShowPass] = useState(false);
+  const [recoveryLoading, setRecoveryLoading] = useState(false);
+  const [recoveryError, setRecoveryError] = useState('');
+  const [recoverySuccess, setRecoverySuccess] = useState('');
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -148,6 +158,70 @@ export default function PortalLogin({ role, targetMerchantId, targetDriverId, in
     }
   };
 
+  const handleRecoverySubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setRecoveryError('');
+    setRecoverySuccess('');
+
+    if (!recoveryKey.trim()) {
+      setRecoveryError('Kunci otorisasi administratif wajib diisi.');
+      return;
+    }
+    if (!recoveryNewPassword || recoveryNewPassword.trim().length < 8) {
+      setRecoveryError('Kata sandi baru minimal harus 8 karakter.');
+      return;
+    }
+    if (recoveryNewPassword !== recoveryConfirmPassword) {
+      setRecoveryError('Konfirmasi kata sandi tidak cocok.');
+      return;
+    }
+
+    setRecoveryLoading(true);
+    try {
+      const res = await fetch('/api/auth/master/emergency-reset', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Master-Recovery-Key': recoveryKey.trim()
+        },
+        body: JSON.stringify({
+          newPassword: recoveryNewPassword.trim()
+        })
+      });
+
+      let data: any = {};
+      const contentType = res.headers.get('content-type') || '';
+      if (contentType.includes('application/json')) {
+        try {
+          data = await res.json();
+        } catch {
+          data = {};
+        }
+      } else {
+        const text = await res.text().catch(() => '');
+        data = { error: text && text.length < 200 ? text : `Server merespons status HTTP ${res.status}` };
+      }
+
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || 'Kunci pemulihan tidak valid atau telah kedaluwarsa.');
+      }
+
+      setRecoverySuccess('Kredensial Master Account berhasil dipulihkan! Silakan login.');
+      setPasswordInput(recoveryNewPassword.trim());
+      setEmailInput('tumpanggo@gmail.com');
+      setTimeout(() => {
+        setShowRecoveryModal(false);
+        setRecoveryKey('');
+        setRecoveryNewPassword('');
+        setRecoveryConfirmPassword('');
+      }, 1500);
+    } catch (err: any) {
+      setRecoveryError(err.message || 'Terjadi kesalahan saat memulihkan kata sandi.');
+    } finally {
+      setRecoveryLoading(false);
+    }
+  };
+
   const handlePasswordLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
@@ -218,17 +292,18 @@ export default function PortalLogin({ role, targetMerchantId, targetDriverId, in
           onSuccess(userEmail, targetEntity, isMaster);
         }, 500);
       } else {
+        const diagSuffix = data?.diagnostic?.code ? ` (${data.diagnostic.code})` : '';
         // Differentiate HTTP error status codes clearly
         if (res.status === 401) {
-          setError(data?.error || 'Email/No. Telepon atau kata sandi tidak cocok. Silakan periksa kembali.');
+          setError((data?.error || 'Email/No. Telepon atau kata sandi tidak cocok. Silakan periksa kembali.') + diagSuffix);
         } else if (res.status === 403) {
-          setError(data?.error || 'Akses ditolak: Akun tidak memiliki izin untuk masuk ke portal ini.');
+          setError((data?.error || 'Akses ditolak: Akun tidak memiliki izin untuk masuk ke portal ini.') + diagSuffix);
         } else if (res.status === 404) {
           setError('Layanan login backend tidak ditemukan (HTTP 404). Pastikan server backend sedang aktif.');
         } else if (res.status >= 500) {
-          setError(data?.error || `Terjadi kendala pada server backend (HTTP ${res.status}). Silakan coba beberapa saat lagi.`);
+          setError((data?.error || `Terjadi kendala pada server backend (HTTP ${res.status}). Silakan coba beberapa saat lagi.`) + diagSuffix);
         } else {
-          setError(data?.error || `Gagal melakukan login (HTTP ${res.status}).`);
+          setError((data?.error || `Gagal melakukan login (HTTP ${res.status}).`) + diagSuffix);
         }
       }
     } catch (err: any) {
@@ -484,101 +559,6 @@ export default function PortalLogin({ role, targetMerchantId, targetDriverId, in
           ) : (
             /* Email / Phone + Kata Sandi Form - Uniform Layout */
             <form onSubmit={handlePasswordLogin} className="flex flex-col gap-4 animate-fadeIn">
-              {/* Quick Fill Demo Credentials Banner */}
-              <div className="bg-slate-50 border border-slate-200/90 rounded-2xl p-3 flex flex-col gap-2">
-                <div className="flex items-center justify-between text-[11px] font-bold text-slate-700">
-                  <span className="flex items-center gap-1.5">
-                    <Key className="w-3.5 h-3.5 text-amber-500" />
-                    <span>Akun Uji Coba Preview (Klik untuk Isi Otomatis):</span>
-                  </span>
-                </div>
-                <div className="flex flex-wrap gap-1.5">
-                  {/* Universal Master Account Quick Fill */}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setEmailInput('tumpanggo@gmail.com');
-                      setPasswordInput('TumpangGoAdmin#2026');
-                      setError('');
-                    }}
-                    className="px-2.5 py-1 bg-amber-50 hover:bg-amber-100 border border-amber-300 rounded-lg text-[10px] font-bold text-amber-900 transition cursor-pointer text-left shadow-xs flex items-center gap-1.5"
-                  >
-                    <span className="w-1.5 h-1.5 rounded-full bg-amber-500"></span>
-                    <span><strong>Master Account (Global):</strong> tumpanggo@gmail.com</span>
-                  </button>
-
-                  {role === 'ADMIN' && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setEmailInput('suaiimokeras@gmail.com');
-                        setPasswordInput('TumpangGoAdmin#2026');
-                        setError('');
-                      }}
-                      className="px-2.5 py-1 bg-white hover:bg-slate-100 border border-slate-200 rounded-lg text-[10px] font-medium text-slate-700 transition cursor-pointer text-left shadow-xs flex items-center gap-1.5"
-                    >
-                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
-                      <span><strong>Akun AI Studio:</strong> suaiimokeras@gmail.com</span>
-                    </button>
-                  )}
-                  {role === 'MERCHANT' && (
-                    <>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setEmailInput('m1@tumpanggo.com');
-                          setPasswordInput('123456');
-                          setError('');
-                        }}
-                        className="px-2.5 py-1 bg-white hover:bg-slate-100 border border-slate-200 rounded-lg text-[10px] font-medium text-slate-700 transition cursor-pointer text-left shadow-xs flex items-center gap-1.5"
-                      >
-                        <span className="w-1.5 h-1.5 rounded-full bg-slate-400"></span>
-                        <span><strong>Bakso Barokah:</strong> m1@tumpanggo.com (123456)</span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setEmailInput('081234567892');
-                          setPasswordInput('123456');
-                          setError('');
-                        }}
-                        className="px-2.5 py-1 bg-white hover:bg-slate-100 border border-slate-200 rounded-lg text-[10px] font-medium text-slate-700 transition cursor-pointer text-left shadow-xs flex items-center gap-1.5"
-                      >
-                        <span className="w-1.5 h-1.5 rounded-full bg-slate-400"></span>
-                        <span><strong>Ayam Geprek:</strong> 081234567892 (123456)</span>
-                      </button>
-                    </>
-                  )}
-                  {role === 'DRIVER' && (
-                    <>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setEmailInput('081234567893');
-                          setPasswordInput('123456');
-                          setError('');
-                        }}
-                        className="px-2.5 py-1 bg-white hover:bg-slate-100 border border-slate-200 rounded-lg text-[10px] font-medium text-slate-700 transition cursor-pointer text-left shadow-xs flex items-center gap-1.5"
-                      >
-                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
-                        <span><strong>Kurir Budi:</strong> 081234567893 (123456)</span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setEmailInput('driver2@tumpanggo.com');
-                          setPasswordInput('123456');
-                          setError('');
-                        }}
-                        className="px-2.5 py-1 bg-white hover:bg-slate-100 border border-slate-200 rounded-lg text-[10px] font-medium text-slate-700 transition cursor-pointer text-left shadow-xs flex items-center gap-1.5"
-                      >
-                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
-                        <span><strong>Kurir Agus:</strong> driver2@tumpanggo.com (123456)</span>
-                      </button>
-                    </>
-                  )}
-                </div>
-              </div>
 
               <div>
                 <label 
@@ -687,6 +667,23 @@ export default function PortalLogin({ role, targetMerchantId, targetDriverId, in
                 )}
               </button>
 
+              {role === 'ADMIN' && (
+                <div className="text-center pt-2 border-t border-slate-100 mt-2 flex flex-col items-center">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setRecoveryError('');
+                      setRecoverySuccess('');
+                      setShowRecoveryModal(true);
+                    }}
+                    className="text-xs text-slate-500 hover:text-slate-800 font-semibold inline-flex items-center gap-1.5 transition-colors cursor-pointer"
+                  >
+                    <Key className="w-3.5 h-3.5 text-amber-500" />
+                    <span>Pemulihan Administratif Master Account</span>
+                  </button>
+                </div>
+              )}
+
               {role === 'MERCHANT' && (
                 <div className="text-center pt-2 border-t border-slate-100 mt-1 flex flex-col items-center gap-1.5">
                   <p className="text-xs text-slate-500 font-medium">
@@ -710,6 +707,135 @@ export default function PortalLogin({ role, targetMerchantId, targetDriverId, in
 
         </div>
       </div>
+
+      {/* Modal Pemulihan Administratif Master Account */}
+      {showRecoveryModal && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 animate-fadeIn">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 border border-slate-200 relative animate-scaleUp">
+            <button
+              type="button"
+              onClick={() => setShowRecoveryModal(false)}
+              className="absolute right-4 top-4 text-slate-400 hover:text-slate-600 p-1.5 rounded-lg hover:bg-slate-100 transition-colors cursor-pointer"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-10 h-10 rounded-xl bg-amber-50 border border-amber-200 flex items-center justify-center text-amber-600">
+                <Key className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-slate-900">Pemulihan Kredensial Master Account</h3>
+                <p className="text-[11px] text-slate-500">Proses administratif resmi dengan otorisasi khusus</p>
+              </div>
+            </div>
+
+            {recoveryError && (
+              <div className="p-3 mb-4 rounded-xl bg-red-50 border border-red-200 text-xs text-red-700 font-medium flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 text-red-600 flex-shrink-0 mt-0.5" />
+                <span>{recoveryError}</span>
+              </div>
+            )}
+
+            {recoverySuccess && (
+              <div className="p-3 mb-4 rounded-xl bg-emerald-50 border border-emerald-200 text-xs text-emerald-800 font-medium flex items-start gap-2">
+                <CheckCircle className="w-4 h-4 text-emerald-600 flex-shrink-0 mt-0.5" />
+                <span>{recoverySuccess}</span>
+              </div>
+            )}
+
+            <form onSubmit={handleRecoverySubmit} className="space-y-3.5">
+              <div>
+                <label className="text-[11px] font-bold uppercase tracking-wider text-slate-700 block mb-1">
+                  Target Akun
+                </label>
+                <input
+                  type="text"
+                  disabled
+                  value="tumpanggo@gmail.com"
+                  className="w-full bg-slate-100 border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs text-slate-600 font-semibold cursor-not-allowed"
+                />
+              </div>
+
+              <div>
+                <label className="text-[11px] font-bold uppercase tracking-wider text-slate-700 block mb-1">
+                  Kunci Otorisasi Administratif
+                </label>
+                <input
+                  type="password"
+                  required
+                  disabled={recoveryLoading}
+                  placeholder="Masukkan Kunci / Token Otorisasi Pemulihan"
+                  value={recoveryKey}
+                  onChange={(e) => setRecoveryKey(e.target.value)}
+                  className="w-full bg-slate-50 border border-slate-200 focus:border-amber-500 focus:bg-white rounded-xl px-3.5 py-2.5 text-xs font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-amber-500/20"
+                />
+              </div>
+
+              <div>
+                <label className="text-[11px] font-bold uppercase tracking-wider text-slate-700 block mb-1">
+                  Kata Sandi Baru (Min. 8 Karakter)
+                </label>
+                <div className="relative">
+                  <input
+                    type={recoveryShowPass ? "text" : "password"}
+                    required
+                    disabled={recoveryLoading}
+                    placeholder="Masukkan kata sandi baru"
+                    value={recoveryNewPassword}
+                    onChange={(e) => setRecoveryNewPassword(e.target.value)}
+                    className="w-full bg-slate-50 border border-slate-200 focus:border-amber-500 focus:bg-white rounded-xl pl-3.5 pr-10 py-2.5 text-xs font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-amber-500/20"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setRecoveryShowPass(!recoveryShowPass)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                  >
+                    {recoveryShowPass ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+              </div>
+
+              <div>
+                <label className="text-[11px] font-bold uppercase tracking-wider text-slate-700 block mb-1">
+                  Konfirmasi Kata Sandi Baru
+                </label>
+                <input
+                  type={recoveryShowPass ? "text" : "password"}
+                  required
+                  disabled={recoveryLoading}
+                  placeholder="Ulangi kata sandi baru"
+                  value={recoveryConfirmPassword}
+                  onChange={(e) => setRecoveryConfirmPassword(e.target.value)}
+                  className="w-full bg-slate-50 border border-slate-200 focus:border-amber-500 focus:bg-white rounded-xl px-3.5 py-2.5 text-xs font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-amber-500/20"
+                />
+              </div>
+
+              <div className="pt-2 flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowRecoveryModal(false)}
+                  disabled={recoveryLoading}
+                  className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-xs transition-colors cursor-pointer"
+                >
+                  Batal
+                </button>
+                <button
+                  type="submit"
+                  disabled={recoveryLoading}
+                  className="flex-1 py-2.5 bg-amber-600 hover:bg-amber-700 active:bg-amber-800 text-white font-extrabold rounded-xl text-xs transition-colors flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+                >
+                  {recoveryLoading ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <span>Terapkan Pemulihan</span>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

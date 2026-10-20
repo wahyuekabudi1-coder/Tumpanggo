@@ -11,10 +11,34 @@ import path from 'path';
 import crypto from 'crypto';
 import dotenv from 'dotenv';
 
+// Safely read explicit .env files to preserve special characters (such as # or quotes)
+// without truncation or automatic guessing
+function loadEnvExplicit(filePath: string) {
+  if (!fs.existsSync(filePath)) return;
+  try {
+    const raw = fs.readFileSync(filePath, 'utf-8');
+    const lines = raw.split(/\r?\n/);
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith('#')) continue;
+      const eqIdx = trimmed.indexOf('=');
+      if (eqIdx <= 0) continue;
+      const key = trimmed.slice(0, eqIdx).trim();
+      let val = trimmed.slice(eqIdx + 1).trim();
+      if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
+        val = val.slice(1, -1);
+      }
+      process.env[key] = val;
+    }
+  } catch {}
+}
+
 dotenv.config();
+loadEnvExplicit(path.resolve(process.cwd(), '.env'));
 const localEnvPath = path.resolve(process.cwd(), '.env.local');
 if (fs.existsSync(localEnvPath)) {
   dotenv.config({ path: localEnvPath, override: true });
+  loadEnvExplicit(localEnvPath);
 }
 
 // Determine runtime JWT Secret
@@ -35,22 +59,16 @@ function cleanEnvSecret(val?: string, fallback = ''): string {
   if ((clean.startsWith('"') && clean.endsWith('"')) || (clean.startsWith("'") && clean.endsWith("'"))) {
     clean = clean.slice(1, -1).trim();
   }
-  // Protect against dotenv stripping #2026 due to unquoted # in .env file
-  if (clean === 'TumpangGoAdmin') {
-    clean = 'TumpangGoAdmin#2026';
-  } else if (clean === 'TumpangShopAdmin') {
-    clean = 'TumpangShopAdmin#2026';
-  }
   return clean || fallback;
 }
 
 // Security & Authentication Configuration
-let runtimeAdminPassword = cleanEnvSecret(process.env.FOOD_ADMIN_PASSWORD, 'TumpangGoAdmin#2026');
+let runtimeAdminPassword = cleanEnvSecret(process.env.FOOD_ADMIN_PASSWORD, '');
 let runtimeAdminEmail = (process.env.FOOD_ADMIN_EMAIL || 'tumpanggo@gmail.com').trim().toLowerCase();
 
 // Master Account Configuration (Unrestricted Cross-Portal Access)
 let runtimeMasterAdminEmail = (process.env.MASTER_ADMIN_EMAIL || 'tumpanggo@gmail.com').trim().toLowerCase();
-let runtimeMasterAdminPassword = cleanEnvSecret(process.env.MASTER_ADMIN_PASSWORD || process.env.FOOD_ADMIN_PASSWORD, 'TumpangGoAdmin#2026');
+let runtimeMasterAdminPassword = cleanEnvSecret(process.env.MASTER_ADMIN_PASSWORD || process.env.FOOD_ADMIN_PASSWORD, '');
 
 function resolveServerPort(): number {
   if (process.env.PORT) {
@@ -204,7 +222,7 @@ export const foodConfig = {
     return (process.env.FOOD_ADMIN_EMAIL || runtimeAdminEmail || 'tumpanggo@gmail.com').trim().toLowerCase();
   },
   get adminPassword(): string {
-    return cleanEnvSecret(process.env.FOOD_ADMIN_PASSWORD || runtimeAdminPassword, 'TumpangGoAdmin#2026');
+    return cleanEnvSecret(process.env.FOOD_ADMIN_PASSWORD || runtimeAdminPassword, '');
   },
 
   // Master Account (Unrestricted Cross-Portal Access)
@@ -231,10 +249,27 @@ export const foodConfig = {
 /**
  * Single source of truth for Master Account runtime credentials
  */
-export function getMasterAccountCredentials(): { email: string; password: string } {
+export function getMasterAccountCredentials(): { 
+  email: string; 
+  password: string; 
+  hasExplicitEnv: boolean; 
+  byteLength: number; 
+  source: string; 
+} {
   const email = (process.env.MASTER_ADMIN_EMAIL || runtimeMasterAdminEmail || 'tumpanggo@gmail.com').trim().toLowerCase();
-  const password = cleanEnvSecret(process.env.MASTER_ADMIN_PASSWORD || process.env.FOOD_ADMIN_PASSWORD || runtimeMasterAdminPassword, 'TumpangGoAdmin#2026');
-  return { email, password };
+  const envPass = process.env.MASTER_ADMIN_PASSWORD || process.env.FOOD_ADMIN_PASSWORD;
+  const hasExplicitEnv = Boolean(envPass && envPass.length > 0);
+  const password = cleanEnvSecret(envPass || runtimeMasterAdminPassword, '');
+  const source = hasExplicitEnv 
+    ? (process.env.MASTER_ADMIN_PASSWORD ? 'PROCESS_ENV_MASTER_ADMIN_PASSWORD' : 'PROCESS_ENV_FOOD_ADMIN_PASSWORD')
+    : (runtimeMasterAdminPassword ? 'RUNTIME_ROTATED_SECRET' : 'DATABASE_PERSISTED_HASH');
+  return { 
+    email, 
+    password, 
+    hasExplicitEnv, 
+    byteLength: Buffer.byteLength(password, 'utf-8'),
+    source 
+  };
 }
 
 /**
@@ -264,9 +299,11 @@ export { shopConfig } from '../services/shop/config/shopEnv';
 
 export function reloadEnv() {
   dotenv.config();
+  loadEnvExplicit(path.resolve(process.cwd(), '.env'));
   const localEnvPath = path.resolve(process.cwd(), '.env.local');
   if (fs.existsSync(localEnvPath)) {
     dotenv.config({ path: localEnvPath, override: true });
+    loadEnvExplicit(localEnvPath);
   }
 }
 

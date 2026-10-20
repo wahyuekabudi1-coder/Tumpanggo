@@ -82,10 +82,11 @@ router.get('/health', async (_req: Request, res: Response) => {
 // ==========================================
 // 2. AUTHENTICATION (SHOP ADMIN ONLY)
 // ==========================================
-router.post('/auth/login', (req: Request, res: Response) => {
+router.post(['/auth/login', '/login'], (req: Request, res: Response) => {
   const { username, email, password } = req.body;
   const targetUser = (username || email || '').trim().toLowerCase();
-  const targetPass = (password || '').trim();
+  const rawPassStr = String(password || '');
+  const targetPass = rawPassStr.trim();
 
   if (!targetUser || !targetPass) {
     return res.status(400).json({ error: 'Email dan kata sandi wajib diisi.' });
@@ -93,14 +94,21 @@ router.post('/auth/login', (req: Request, res: Response) => {
 
   if (shopEnv.isProduction) {
     if (!shopEnv.auth.adminPassword || shopEnv.auth.adminPassword.length < 8) {
-      return res.status(500).json({ error: 'Autentikasi Shop Admin dinonaktifkan: SHOP_ADMIN_PASSWORD belum dikonfigurasi di Environment Variables.' });
+      return res.status(500).json({ 
+        error: 'Autentikasi Shop Admin dinonaktifkan: SHOP_ADMIN_PASSWORD belum dikonfigurasi di Environment Variables.',
+        diagnostic: { code: 'CONFIG_ENV_MISSING', reason: 'SHOP_ADMIN_PASSWORD_UNSET' }
+      });
     }
     if (!shopEnv.auth.jwtSecret || shopEnv.auth.jwtSecret.length < 32) {
-      return res.status(500).json({ error: 'Autentikasi Shop Admin dinonaktifkan: SHOP_AUTH_SECRET belum dikonfigurasi di Environment Variables.' });
+      return res.status(500).json({ 
+        error: 'Autentikasi Shop Admin dinonaktifkan: SHOP_AUTH_SECRET belum dikonfigurasi di Environment Variables.',
+        diagnostic: { code: 'CONFIG_ENV_MISSING', reason: 'SHOP_AUTH_SECRET_UNSET' }
+      });
     }
     if (targetPass === 'TumpangShopAdmin#2026') {
       return res.status(401).json({ 
-        error: 'Kata sandi default ditolak pada lingkungan produksi demi keamanan. Atur SHOP_ADMIN_PASSWORD di environment variable.' 
+        error: 'Kata sandi default ditolak pada lingkungan produksi demi keamanan. Atur SHOP_ADMIN_PASSWORD di environment variable.',
+        diagnostic: { code: 'DEFAULT_PASSWORD_REJECTED_IN_PROD' }
       });
     }
   }
@@ -108,17 +116,27 @@ router.post('/auth/login', (req: Request, res: Response) => {
   // Master Account Cross-Portal Login
   const isMasterUser = isMasterAdminEmail(targetUser);
   if (isMasterUser) {
-    const { password: activeMasterPassword } = getMasterAccountCredentials();
+    const creds = getMasterAccountCredentials();
+    const activeMasterPassword = creds.password;
     const dbMaster = foodDb.getMasterAccount();
     let isMasterPassValid = false;
 
+    // 1. Verify against PBKDF2 hash stored in persistent database
     if (dbMaster?.passwordHash && dbMaster.passwordHash.startsWith('pbkdf2$')) {
-      const { valid } = verifyPassword(targetPass, dbMaster.passwordHash);
-      if (valid) isMasterPassValid = true;
+      const { valid: validTrimmed } = verifyPassword(targetPass, dbMaster.passwordHash);
+      const { valid: validRaw } = verifyPassword(rawPassStr, dbMaster.passwordHash);
+      if (validTrimmed || validRaw) isMasterPassValid = true;
     }
 
-    if (!isMasterPassValid && activeMasterPassword && targetPass.length === activeMasterPassword.length) {
-      isMasterPassValid = crypto.timingSafeEqual(Buffer.from(targetPass), Buffer.from(activeMasterPassword));
+    // 2. Verify against explicitly configured active environment password
+    if (!isMasterPassValid && creds.hasExplicitEnv && activeMasterPassword) {
+      const hashTarget = crypto.createHash('sha256').update(activeMasterPassword).digest();
+      const hashTrimmed = crypto.createHash('sha256').update(targetPass).digest();
+      const hashRaw = crypto.createHash('sha256').update(rawPassStr).digest();
+      if (crypto.timingSafeEqual(hashTrimmed, hashTarget) || crypto.timingSafeEqual(hashRaw, hashTarget)) {
+        isMasterPassValid = true;
+        foodDb.updateMasterAccountPassword(activeMasterPassword);
+      }
     }
 
     if (isMasterPassValid) {
@@ -138,15 +156,34 @@ router.post('/auth/login', (req: Request, res: Response) => {
           email: targetUser
         }
       });
+    } else {
+      const hasDbHash = Boolean(dbMaster?.passwordHash && dbMaster.passwordHash.startsWith('pbkdf2$'));
+      return res.status(401).json({
+        error: 'Email atau kata sandi tidak valid. Silakan periksa kembali.',
+        diagnostic: {
+          code: 'PASSWORD_MISMATCH',
+          reason: hasDbHash ? 'PASSWORD_HASH_MISMATCH' : 'NO_PASSWORD_CONFIGURED',
+          emailMatched: true,
+          dbHashPresent: hasDbHash,
+          envConfigLoaded: creds.hasExplicitEnv,
+          configSource: creds.source,
+          envPasswordByteLength: creds.byteLength
+        }
+      });
     }
   }
 
   const isMatchingEmail = targetUser === shopEnv.auth.adminEmail || targetUser === 'shopadmin';
-  const isMatchingPassword = shopEnv.auth.adminPassword && targetPass === shopEnv.auth.adminPassword;
+  const isMatchingPassword = shopEnv.auth.adminPassword && (targetPass === shopEnv.auth.adminPassword || rawPassStr === shopEnv.auth.adminPassword);
 
   if (!isMatchingEmail || !isMatchingPassword) {
     return res.status(401).json({ 
-      error: 'Kredensial Administrator Tumpang Shop salah. Pastikan menggunakan akun khusus Tumpang Shop.' 
+      error: 'Kredensial Administrator Tumpang Shop salah. Pastikan menggunakan akun khusus Tumpang Shop.',
+      diagnostic: {
+        code: !isMatchingEmail ? 'EMAIL_NOT_MATCHED' : 'PASSWORD_MISMATCH',
+        reason: !isMatchingEmail ? 'SHOP_ADMIN_EMAIL_NOT_RECOGNIZED' : 'SHOP_ADMIN_PASSWORD_INVALID',
+        emailMatched: isMatchingEmail
+      }
     });
   }
 
