@@ -8,6 +8,34 @@
       "includeFiles": "{api/_app.cjs*,firebase-applet-config.json,tumpang_food_db.json*,tumpang_shop_db.json*,public/**}"
     }
   },
+  "headers": [
+    {
+      "source": "/sitemap.xml",
+      "headers": [
+        {
+          "key": "Content-Type",
+          "value": "application/xml; charset=utf-8"
+        },
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=3600, s-maxage=86400"
+        }
+      ]
+    },
+    {
+      "source": "/robots.txt",
+      "headers": [
+        {
+          "key": "Content-Type",
+          "value": "text/plain; charset=utf-8"
+        },
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=3600, s-maxage=86400"
+        }
+      ]
+    }
+  ],
   "rewrites": [
     {
       "source": "/api",
@@ -18,7 +46,7 @@
       "destination": "/api/index?__path=/api/$1"
     },
     {
-      "source": "/((?!api/|assets/|.*\\.(?:js|css|json|png|jpg|jpeg|gif|ico|svg|webp)).*)",
+      "source": "/((?!api/|assets/|.*\\.(?:js|css|json|png|jpg|jpeg|gif|ico|svg|webp|xml|txt|webmanifest)).*)",
       "destination": "/index.html"
     }
   ]

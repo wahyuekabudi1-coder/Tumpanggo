@@ -22,7 +22,7 @@ export interface SEOProps {
 const DEFAULT_TITLE = 'TumpangGo – Saatnya Usaha Lokal Naik Kelas | Kuliner & Layanan Digital Tumpang Malang';
 const DEFAULT_DESC = 'TumpangGo hadir mendukung usaha lokal naik kelas di era digital. Pesan kuliner lokal Tumpang Malang dengan ongkir hemat flat Rp 5.000 dan pembayaran QRIS praktis.';
 const DEFAULT_KEYWORDS = 'TumpangGo, TumpangGo Malang, saatnya usaha lokal naik kelas, kuliner Tumpang Malang, pesan makanan Tumpang, UMKM Tumpang, digitalisasi UMKM';
-const BASE_URL = 'https://tumpanggo.com';
+const BASE_URL = 'https://tumpanggo.vercel.app';
 
 export function useSEO({
   title,

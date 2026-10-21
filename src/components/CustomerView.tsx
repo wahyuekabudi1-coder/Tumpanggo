@@ -405,13 +405,25 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
         setActiveTab('edukasi');
       } else if (pageParam === 'merchant-register' || pageParam === 'partner-register') {
         setActiveTab('partner-register');
+      } else if (pageParam === 'bantuan' || pageParam === 'faq' || pageParam === 'help') {
+        setActiveTab('home');
+        setOpenFaqIndex(0);
+        setTimeout(() => {
+          const el = document.getElementById('section-faq-title') || document.querySelector('[aria-labelledby="section-faq-title"]');
+          if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }, 150);
       }
     } catch {}
   }, []);
 
+  // Check if current URL is directly targeting bantuan page
+  const isBantuanPage = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('page') === 'bantuan';
+
   // Dynamic SEO Synchronization
   useSEO({
-    title: activeTab === 'edukasi'
+    title: isBantuanPage
+      ? 'Pusat Bantuan & Tanya Jawab Layanan | TumpangGo'
+      : activeTab === 'edukasi'
       ? 'Panduan & Edukasi Digitalisasi UMKM Lokal | TumpangGo'
       : activeTab === 'partner-register'
         ? 'Pendaftaran Kemitraan UMKM | Bawa Usaha Lokal Naik Kelas – TumpangGo'
@@ -420,7 +432,9 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
           : homeSubView === 'food'
             ? 'Pesan Kuliner Lokal Tumpang Online | Menu Favorit UMKM – TumpangGo'
             : 'TumpangGo – Saatnya Usaha Lokal Naik Kelas | Kuliner & Layanan Digital Tumpang Malang',
-    description: activeTab === 'edukasi'
+    description: isBantuanPage
+      ? 'Pusat informasi dan tanya jawab layanan TumpangGo: ongkir flat hemat Rp 5.000 se-Kecamatan Tumpang, pembayaran QRIS, serta kemitraan UMKM.'
+      : activeTab === 'edukasi'
       ? 'Pelajari strategi digital marketing, konsistensi rasa kuliner, dan panduan adopsi teknologi bagi UMKM lokal dan pengusaha milenial di Tumpang.'
       : activeTab === 'partner-register'
         ? 'Daftarkan usaha kuliner Anda di TumpangGo. Buka peluang pasar baru dan jangkau lebih banyak pelanggan di Kecamatan Tumpang.'
@@ -429,7 +443,9 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
           : homeSubView === 'food'
             ? 'Temukan kuliner khas Kecamatan Tumpang Malang dari resto dan warung UMKM terdekat. Pesan mudah dengan ongkir hemat flat Rp 5.000.'
             : 'TumpangGo hadir mendukung usaha lokal naik kelas di era digital. Pesan kuliner lokal Tumpang Malang dengan ongkir hemat flat Rp 5.000 dan pembayaran QRIS praktis.',
-    canonicalPath: activeTab === 'edukasi'
+    canonicalPath: isBantuanPage
+      ? '/?page=bantuan'
+      : activeTab === 'edukasi'
       ? '/?page=edukasi'
       : activeTab === 'partner-register'
         ? '/?page=merchant-register'

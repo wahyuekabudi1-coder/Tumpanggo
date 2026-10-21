@@ -107,7 +107,7 @@ export default function EReceiptModal({ order, onClose }: EReceiptModalProps) {
       doc.setFontSize(7.5);
       doc.setTextColor(100, 116, 139);
       doc.text('Platform Digital Kuliner & Niaga Lokal Kecamatan Tumpang, Malang', textStartX, y + 4.5);
-      doc.text('Website Resmi: https://tumpanggo.com', textStartX, y + 8.5);
+      doc.text('Website Resmi: https://tumpanggo.vercel.app', textStartX, y + 8.5);
 
       // Receipt Title & Badge on Right
       doc.setFont('helvetica', 'bold');

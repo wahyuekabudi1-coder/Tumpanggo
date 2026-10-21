@@ -335,11 +335,11 @@ export default function UmkmEducationModule({
       "name": "TumpangGo",
       "logo": {
         "@type": "ImageObject",
-        "url": "https://tumpanggo.com/logo44.png"
+        "url": "https://tumpanggo.vercel.app/logo44.png"
       }
     },
     "datePublished": "2026-10-18",
-    "mainEntityOfPage": `https://tumpanggo.com/?page=edukasi&slug=${selectedArticle.slug}`
+    "mainEntityOfPage": `https://tumpanggo.vercel.app/?page=edukasi&slug=${selectedArticle.slug}`
   } : null;
 
   return (

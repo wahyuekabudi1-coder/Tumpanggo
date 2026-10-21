@@ -1,4 +1,4 @@
-# robots.txt for TumpangGo (https://tumpanggo.com)
+# robots.txt for TumpangGo (https://tumpanggo.vercel.app)
 User-agent: *
 Allow: /
 Allow: /sitemap.xml
@@ -6,6 +6,10 @@ Allow: /manifest.json
 Allow: /favicon.svg
 Allow: /favicon.png
 Allow: /logo44.png
+Allow: /?service=food
+Allow: /?page=merchant-register
+Allow: /?page=edukasi
+Allow: /?page=bantuan
 
 # Disallow indexing of private backend APIs and internal portal role query parameters
 Disallow: /api/
@@ -16,6 +20,7 @@ Disallow: /*?role=driver*
 Disallow: /*?role=SHOP_ADMIN*
 Disallow: /*?role=shop_admin*
 Disallow: /*?demo=true*
+Disallow: /*?workspace=*
 
 # Reference canonical sitemap
-Sitemap: https://tumpanggo.com/sitemap.xml
+Sitemap: https://tumpanggo.vercel.app/sitemap.xml
