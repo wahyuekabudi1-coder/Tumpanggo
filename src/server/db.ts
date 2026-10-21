@@ -1292,6 +1292,7 @@ export class FoodDatabase {
 
   // --- ORDERS ---
   public getOrders(): Order[] {
+    this.reloadFromDiskIfNeeded();
     return this.data.orders.map(o => normalizeOrderDeliveryFee(o));
   }
 
@@ -1332,14 +1333,83 @@ export class FoodDatabase {
   }
 
   public getOrdersByMerchant(merchantId: string): Order[] {
-    return this.data.orders.filter(o => o.merchantId === merchantId).map(o => normalizeOrderDeliveryFee(o));
+    this.reloadFromDiskIfNeeded();
+    if (!merchantId) return [];
+    const cleanTarget = String(merchantId).trim().toLowerCase();
+    const stripPrefix = (str: string) => str.replace(/^merchant_/, '');
+    const cleanTargetBase = stripPrefix(cleanTarget);
+
+    return this.data.orders
+      .filter(o => {
+        if (!o) return false;
+        const oMerchantId = String(o.merchantId || '').trim().toLowerCase();
+        if (oMerchantId && (oMerchantId === cleanTarget || stripPrefix(oMerchantId) === cleanTargetBase)) {
+          return true;
+        }
+        // Fallback: Check if items in order match the merchant
+        if (Array.isArray(o.items) && o.items.length > 0) {
+          const itemMatched = o.items.some(item => {
+            const mi = this.data.menuItems.find(m => m.id === item.menuItemId);
+            if (mi && mi.merchantId) {
+              const miMerchantId = String(mi.merchantId).trim().toLowerCase();
+              return miMerchantId === cleanTarget || stripPrefix(miMerchantId) === cleanTargetBase;
+            }
+            return false;
+          });
+          if (itemMatched) return true;
+        }
+        return false;
+      })
+      .map(o => normalizeOrderDeliveryFee(o));
+  }
+
+  public async findOrdersByMerchant(merchantId: string): Promise<Order[]> {
+    if (!merchantId) return [];
+    let orders = this.getOrdersByMerchant(merchantId);
+
+    // Sync from Firestore Admin if configured
+    if (isFirestoreAdminConfigured()) {
+      try {
+        const remoteOrders = await safeAdminGetDocs('orders');
+        if (Array.isArray(remoteOrders) && remoteOrders.length > 0) {
+          let updatedAny = false;
+          for (const ro of remoteOrders) {
+            if (!ro || !ro.id) continue;
+            const existingIdx = this.data.orders.findIndex(o => o.id === ro.id);
+            if (existingIdx === -1) {
+              this.data.orders.unshift(ro as Order);
+              updatedAny = true;
+            } else {
+              const localOrder = this.data.orders[existingIdx];
+              if (ro.updatedAt && (!localOrder.updatedAt || new Date(ro.updatedAt).getTime() > new Date(localOrder.updatedAt).getTime())) {
+                this.data.orders[existingIdx] = ro as Order;
+                updatedAny = true;
+              } else if (ro.status === OrderStatus.PAYMENT_VERIFIED && localOrder.status !== OrderStatus.PAYMENT_VERIFIED) {
+                this.data.orders[existingIdx] = ro as Order;
+                updatedAny = true;
+              }
+            }
+          }
+          if (updatedAny) {
+            this.save();
+            orders = this.getOrdersByMerchant(merchantId);
+          }
+        }
+      } catch (err) {
+        console.warn('[TumpangFood DB] Error during remote Firestore orders sync for merchant:', err);
+      }
+    }
+
+    return orders;
   }
 
   public getOrdersByDriver(driverId: string): Order[] {
+    this.reloadFromDiskIfNeeded();
     return this.data.orders.filter(o => o.driverId === driverId).map(o => normalizeOrderDeliveryFee(o));
   }
 
   public getOrdersByCustomerPhone(phone: string): Order[] {
+    this.reloadFromDiskIfNeeded();
     return this.data.orders.filter(o => o.customerPhone === phone).map(o => normalizeOrderDeliveryFee(o));
   }
 

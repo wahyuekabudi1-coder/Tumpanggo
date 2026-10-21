@@ -18,22 +18,31 @@ import { requireRole } from '../auth';
 export const orderRouter = Router();
 
 // Order list - Protected by RBAC
-orderRouter.get('/', (req: Request, res: Response) => {
+orderRouter.get('/', async (req: Request, res: Response) => {
   const user = req.user;
   if (!user) {
     return res.status(401).json({ error: 'Autentikasi diperlukan untuk melihat daftar pesanan.' });
   }
 
   if (user.role === 'ADMIN' || user.role === 'MASTER_ADMIN') {
+    foodDb.reloadFromDiskIfNeeded();
     return res.json(foodDb.getOrders());
   }
 
-  if (user.role === 'MERCHANT' && user.entityId) {
-    return res.json(foodDb.getOrdersByMerchant(user.entityId));
+  if (user.role === 'MERCHANT') {
+    const merchantId = user.entityId || user.userId;
+    if (merchantId) {
+      const orders = await foodDb.findOrdersByMerchant(merchantId);
+      return res.json(orders);
+    }
   }
 
-  if (user.role === 'DRIVER' && user.entityId) {
-    return res.json(foodDb.getOrdersByDriver(user.entityId));
+  if (user.role === 'DRIVER') {
+    const driverId = user.entityId || user.userId;
+    if (driverId) {
+      foodDb.reloadFromDiskIfNeeded();
+      return res.json(foodDb.getOrdersByDriver(driverId));
+    }
   }
 
   return res.status(403).json({ error: 'Akses ditolak.' });

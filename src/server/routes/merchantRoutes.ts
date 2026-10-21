@@ -289,8 +289,16 @@ merchantRouter.delete('/:merchantId/menu/:id', requireMerchantOwner('merchantId'
 });
 
 // --- ORDERS & SETTLEMENTS ---
-merchantRouter.get('/:merchantId/orders', requireMerchantOwner('merchantId'), (req: Request, res: Response) => {
-  res.json(foodDb.getOrdersByMerchant(req.params.merchantId));
+merchantRouter.get('/:merchantId/orders', requireMerchantOwner('merchantId'), async (req: Request, res: Response) => {
+  try {
+    const rawTarget = req.params.merchantId;
+    const targetId = rawTarget === 'me' ? (req.user?.entityId || req.user?.userId || '') : rawTarget;
+    const orders = await foodDb.findOrdersByMerchant(targetId);
+    res.json(orders);
+  } catch (err: any) {
+    console.error(`[Merchant Orders Error] Gagal memuat pesanan untuk merchant "${req.params.merchantId}":`, err?.message);
+    res.status(500).json({ error: err?.message || 'Gagal memuat daftar pesanan merchant.' });
+  }
 });
 
 merchantRouter.get('/:merchantId/settlements', requireMerchantOwner('merchantId'), (req: Request, res: Response) => {

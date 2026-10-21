@@ -289,8 +289,20 @@ export function requireMerchantOwner(paramName = 'merchantId') {
       return next(); // Unrestricted cross-merchant administrative access
     }
 
-    if (user.role === 'MERCHANT' && (user.entityId === targetMerchantId || user.userId === targetMerchantId)) {
-      return next();
+    if (user.role === 'MERCHANT') {
+      const cleanTarget = String(targetMerchantId || '').trim().toLowerCase();
+      const userEntity = String(user.entityId || '').trim().toLowerCase();
+      const userId = String(user.userId || '').trim().toLowerCase();
+
+      // Support 'me' alias, direct match, or strip 'merchant_' prefix
+      if (cleanTarget === 'me' || cleanTarget === userEntity || cleanTarget === userId) {
+        return next();
+      }
+
+      const stripPrefix = (str: string) => str.replace(/^merchant_/, '');
+      if (stripPrefix(cleanTarget) === stripPrefix(userEntity) || stripPrefix(cleanTarget) === stripPrefix(userId)) {
+        return next();
+      }
     }
 
     return res.status(403).json({ error: 'Akses ditolak: Anda tidak memiliki izin untuk mengakses atau memodifikasi data toko ini.' });
