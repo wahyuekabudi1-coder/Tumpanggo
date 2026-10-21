@@ -130,6 +130,9 @@ export interface Order {
   driverId?: string;
   driverName?: string;
   cookingTimeMinutes?: number; // 15, 30, 45, 60
+  cookingDurationMinutes?: number; // 15, 30, 45, 60
+  cookingStartedAt?: string; // ISO UTC timestamp
+  cookingEndsAt?: string; // ISO UTC timestamp
   cancelReason?: string;
   createdAt: string;
   updatedAt: string;

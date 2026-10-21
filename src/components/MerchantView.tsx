@@ -27,6 +27,152 @@ import { useHiddenTrigger } from '../hooks/useHiddenTrigger.ts';
 import HiddenPortalBar from './HiddenPortalBar.tsx';
 import EReceiptModal from './EReceiptModal.tsx';
 import { useSEO } from '../hooks/useSEO.ts';
+import { 
+  calculateRemainingCooking, 
+  ALLOWED_COOKING_DURATIONS,
+  CookingDurationMinutes
+} from '../utils/cookingTimer.ts';
+import { useCookingTicker } from '../hooks/useCookingCountdown.ts';
+
+function MerchantCookingCard({
+  order,
+  nowTimestamp,
+  isCompleting,
+  onSetReady
+}: {
+  order: Order;
+  nowTimestamp: number;
+  isCompleting: boolean;
+  onSetReady: (orderId: string) => void;
+}) {
+  const timer = calculateRemainingCooking(order, nowTimestamp);
+
+  return (
+    <div className={`bg-white rounded-2xl border-2 shadow-sm overflow-hidden flex flex-col justify-between transition-all ${
+      timer.isExpired ? 'border-amber-400 ring-2 ring-amber-100' : 'border-blue-200 hover:shadow-md'
+    }`}>
+      <div>
+        {/* Header with Cooking Timer */}
+        <div className={`p-4 border-b flex items-center justify-between ${
+          timer.isExpired ? 'bg-amber-50/90 border-amber-200' : 'bg-blue-50/70 border-blue-100'
+        }`}>
+          <div>
+            <span className="font-mono text-xs font-extrabold text-slate-900">
+              #{order.orderNumber || order.id}
+            </span>
+            <span className="block text-[10px] text-slate-500">
+              Masuk: {new Date(order.createdAt).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })} WIB
+            </span>
+          </div>
+          <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-slate-900 text-white text-[10px] font-bold shadow-xs">
+            <Clock className="w-3 h-3 text-amber-400" />
+            <span>{timer.durationMinutes} Menit Masak</span>
+          </div>
+        </div>
+
+        {/* Live Countdown Display */}
+        <div className={`p-4 border-b ${
+          timer.isExpired ? 'bg-amber-100/50 border-amber-200' : 'bg-gradient-to-br from-blue-500/5 to-indigo-500/5 border-slate-100'
+        }`}>
+          <div className="flex items-center justify-between mb-1.5">
+            <span className={`text-[11px] font-extrabold uppercase tracking-wider flex items-center gap-1.5 ${
+              timer.isExpired ? 'text-amber-800' : 'text-blue-700'
+            }`}>
+              <span className={`w-2 h-2 rounded-full ${
+                timer.isExpired ? 'bg-amber-500 animate-ping' : 'bg-blue-600 animate-pulse'
+              }`} />
+              {timer.isExpired ? 'Estimasi Selesai (Perlu Konfirmasi)' : 'Sedang Dimasak di Dapur'}
+            </span>
+            <span className="text-[10px] font-bold text-slate-500">
+              Target: {timer.estimatedEndTime}
+            </span>
+          </div>
+
+          <div className="flex items-baseline justify-between">
+            <div className={`font-mono text-3xl font-black tracking-tight ${
+              timer.isExpired ? 'text-amber-700' : 'text-slate-900'
+            }`}>
+              {timer.formattedRemaining}
+            </div>
+            <span className="text-[11px] text-slate-500 font-medium">
+              {timer.isExpired ? 'Waktu estimasi habis' : 'sisa estimasi'}
+            </span>
+          </div>
+
+          {/* Progress Bar */}
+          <div className="w-full bg-slate-200/80 rounded-full h-1.5 mt-2.5 overflow-hidden">
+            <div
+              className={`h-full transition-all duration-1000 ${
+                timer.isExpired ? 'bg-amber-500' : 'bg-blue-600'
+              }`}
+              style={{ width: `${timer.percentElapsed}%` }}
+            />
+          </div>
+
+          {timer.isExpired && (
+            <div className="mt-2 text-[11px] text-amber-800 font-medium bg-amber-50 rounded-lg p-2 border border-amber-200/70 flex items-start gap-1.5">
+              <AlertTriangle className="w-3.5 h-3.5 text-amber-600 shrink-0 mt-0.5" />
+              <span>Waktu estimasi telah tercapai. Jika pesanan sudah siap dan dikemas, klik tombol di bawah untuk memanggil kurir penjemput.</span>
+            </div>
+          )}
+        </div>
+
+        {/* Items */}
+        <div className="p-4 space-y-3.5">
+          <div className="bg-slate-50 rounded-xl p-3 space-y-2 border border-slate-100">
+            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+              Item yang Sedang Dimasak:
+            </span>
+            {order.items.map((it, idx) => (
+              <div key={idx} className="flex justify-between text-xs text-slate-800">
+                <span className="font-medium">
+                  <strong className="text-blue-700 font-bold mr-1">{it.quantity}x</strong> 
+                  {it.name}
+                </span>
+                <span className="font-mono font-semibold text-slate-600">
+                  Rp {(it.price * it.quantity).toLocaleString('id-ID')}
+                </span>
+              </div>
+            ))}
+          </div>
+
+          {/* Customer & Delivery Destination */}
+          <div className="text-xs space-y-1 pt-1">
+            <div className="flex items-center justify-between text-slate-700">
+              <span className="font-semibold text-slate-900">{order.customerName}</span>
+              <span className="font-mono text-[11px] text-slate-500">{order.customerPhone}</span>
+            </div>
+            <p className="text-[11px] text-slate-500 line-clamp-1">{order.deliveryAddress}</p>
+          </div>
+
+          {/* Subtotal */}
+          <div className="flex justify-between items-center pt-2 border-t border-slate-100 text-xs">
+            <span className="text-slate-500 font-medium">Subtotal Makanan:</span>
+            <span className="font-mono font-extrabold text-sm text-emerald-800">
+              Rp {order.subtotal.toLocaleString('id-ID')}
+            </span>
+          </div>
+        </div>
+      </div>
+
+      {/* Primary Action Button: Selesai Masak & Siap Diambil */}
+      <div className="p-4 bg-slate-50 border-t border-slate-100">
+        <button
+          onClick={() => onSetReady(order.id)}
+          disabled={isCompleting}
+          className={`w-full py-3 rounded-xl font-bold text-xs flex items-center justify-center gap-2 shadow-xs cursor-pointer transition-all ${
+            timer.isExpired 
+              ? 'bg-amber-600 hover:bg-amber-700 text-white' 
+              : 'bg-emerald-600 hover:bg-emerald-700 text-white'
+          } disabled:opacity-50`}
+        >
+          <PackageCheck className="w-4 h-4" />
+          <span>{isCompleting ? 'Memperbarui...' : 'Pesanan Siap Diambil Kurir'}</span>
+        </button>
+      </div>
+    </div>
+  );
+}
 
 interface MerchantViewProps {
   merchantId: string;
@@ -79,6 +225,8 @@ export default function MerchantView({ merchantId: rawMerchantId, onLogout, onSe
   const [lastRefreshedAt, setLastRefreshedAt] = useState<Date>(new Date());
   const [cookEstimateInput, setCookEstimateInput] = useState<Record<string, number>>({});
   const [rejectModal, setRejectModal] = useState<{ orderId: string; visible: boolean; reason: string } | null>(null);
+  const [actionLoadingOrderId, setActionLoadingOrderId] = useState<string | null>(null);
+  const cookingNow = useCookingTicker();
 
   // Menu editor states
   const [selectedMenuCategory, setSelectedMenuCategory] = useState<string>('ALL');
@@ -212,12 +360,15 @@ export default function MerchantView({ merchantId: rawMerchantId, onLogout, onSe
   // --- ORDER ACTIONS ---
   const acceptOrder = async (orderId: string) => {
     const cookTime = cookEstimateInput[orderId] || 15;
+    if (actionLoadingOrderId) return;
+    setActionLoadingOrderId(orderId);
     try {
       const res = await fetch(`/api/orders/${encodeURIComponent(orderId)}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
           status: OrderStatus.COOKING, 
+          cookingDurationMinutes: cookTime,
           cookingTimeMinutes: cookTime,
           role: 'MERCHANT',
           userId: effectiveMerchantId
@@ -228,14 +379,18 @@ export default function MerchantView({ merchantId: rawMerchantId, onLogout, onSe
         setActiveTab('cooking');
       } else {
         const err = await res.json().catch(() => ({}));
-        alert(err.error || 'Gagal menerima pesanan.');
+        alert(err.error || 'Gagal memulai proses memasak pesanan.');
       }
     } catch (err: any) {
       alert(err.message || 'Terjadi kendala jaringan saat menerima pesanan.');
+    } finally {
+      setActionLoadingOrderId(null);
     }
   };
 
   const setOrderReady = async (orderId: string) => {
+    if (actionLoadingOrderId) return;
+    setActionLoadingOrderId(orderId);
     try {
       const res = await fetch(`/api/orders/${encodeURIComponent(orderId)}`, {
         method: 'PUT',
@@ -256,6 +411,8 @@ export default function MerchantView({ merchantId: rawMerchantId, onLogout, onSe
       }
     } catch (err: any) {
       alert(err.message || 'Terjadi kendala jaringan saat memperbarui pesanan.');
+    } finally {
+      setActionLoadingOrderId(null);
     }
   };
 
@@ -800,34 +957,36 @@ export default function MerchantView({ merchantId: rawMerchantId, onLogout, onSe
                       </div>
                     </div>
 
-                    {/* Actions: Terima & Mulai Masak + Tolak */}
+                    {/* Actions: Konfirmasi & Mulai Memasak + Tolak */}
                     <div className="p-4 bg-slate-50 border-t border-slate-100 space-y-2.5">
                       <div className="flex items-center gap-2">
                         <label className="text-[11px] text-slate-500 font-semibold shrink-0">Estimasi Masak:</label>
                         <select
                           value={cookEstimateInput[order.id] || 15}
                           onChange={(e) => setCookEstimateInput({ ...cookEstimateInput, [order.id]: Number(e.target.value) })}
-                          className="flex-1 py-1 px-2 bg-white border border-slate-200 rounded-lg text-xs font-bold text-slate-800 focus:outline-none focus:border-emerald-500 cursor-pointer"
+                          disabled={actionLoadingOrderId === order.id}
+                          className="flex-1 py-1 px-2 bg-white border border-slate-200 rounded-lg text-xs font-bold text-slate-800 focus:outline-none focus:border-emerald-500 cursor-pointer disabled:opacity-50"
                         >
-                          <option value={10}>10 Menit</option>
                           <option value={15}>15 Menit</option>
-                          <option value={20}>20 Menit</option>
                           <option value={30}>30 Menit</option>
                           <option value={45}>45 Menit</option>
+                          <option value={60}>60 Menit</option>
                         </select>
                       </div>
 
                       <div className="flex gap-2">
                         <button
                           onClick={() => acceptOrder(order.id)}
-                          className="flex-1 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs flex items-center justify-center gap-1.5 shadow-xs cursor-pointer transition-colors"
+                          disabled={actionLoadingOrderId === order.id}
+                          className="flex-1 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs flex items-center justify-center gap-1.5 shadow-xs cursor-pointer transition-colors disabled:opacity-50"
                         >
-                          <ChefHat className="w-4 h-4" />
-                          <span>Terima & Mulai Masak</span>
+                          <ChefHat className={`w-4 h-4 ${actionLoadingOrderId === order.id ? 'animate-spin' : ''}`} />
+                          <span>{actionLoadingOrderId === order.id ? 'Menyimpan...' : 'Konfirmasi & Mulai Memasak'}</span>
                         </button>
                         <button
                           onClick={() => setRejectModal({ orderId: order.id, visible: true, reason: '' })}
-                          className="py-2.5 px-3 rounded-xl border border-rose-200 bg-white text-rose-600 font-bold text-xs hover:bg-rose-50 cursor-pointer transition-colors"
+                          disabled={actionLoadingOrderId === order.id}
+                          className="py-2.5 px-3 rounded-xl border border-rose-200 bg-white text-rose-600 font-bold text-xs hover:bg-rose-50 cursor-pointer transition-colors disabled:opacity-50"
                           title="Tolak Pesanan jika bahan habis"
                         >
                           Tolak
@@ -920,73 +1079,13 @@ export default function MerchantView({ merchantId: rawMerchantId, onLogout, onSe
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
                 {cookingOrders.map(order => (
-                  <div key={order.id} className="bg-white rounded-2xl border-2 border-blue-200 shadow-sm overflow-hidden flex flex-col justify-between hover:shadow-md transition-all">
-                    <div>
-                      {/* Header with Cooking Timer */}
-                      <div className="p-4 bg-blue-50/70 border-b border-blue-100 flex items-center justify-between">
-                        <div>
-                          <span className="font-mono text-xs font-extrabold text-slate-900">
-                            #{order.orderNumber || order.id}
-                          </span>
-                          <span className="block text-[10px] text-slate-500">
-                            Masuk: {new Date(order.createdAt).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })} WIB
-                          </span>
-                        </div>
-                        <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-blue-600 text-white text-[10px] font-bold shadow-xs">
-                          <Clock className="w-3 h-3 animate-spin" />
-                          <span>{order.cookingTimeMinutes || 15} Menit Masak</span>
-                        </div>
-                      </div>
-
-                      {/* Items */}
-                      <div className="p-4 space-y-3.5">
-                        <div className="bg-slate-50 rounded-xl p-3 space-y-2 border border-slate-100">
-                          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
-                            Item yang Sedang Dimasak:
-                          </span>
-                          {order.items.map((it, idx) => (
-                            <div key={idx} className="flex justify-between text-xs text-slate-800">
-                              <span className="font-medium">
-                                <strong className="text-blue-700 font-bold mr-1">{it.quantity}x</strong> 
-                                {it.name}
-                              </span>
-                              <span className="font-mono font-semibold text-slate-600">
-                                Rp {(it.price * it.quantity).toLocaleString('id-ID')}
-                              </span>
-                            </div>
-                          ))}
-                        </div>
-
-                        {/* Customer & Delivery Destination */}
-                        <div className="text-xs space-y-1 pt-1">
-                          <div className="flex items-center justify-between text-slate-700">
-                            <span className="font-semibold text-slate-900">{order.customerName}</span>
-                            <span className="font-mono text-[11px] text-slate-500">{order.customerPhone}</span>
-                          </div>
-                          <p className="text-[11px] text-slate-500 line-clamp-1">{order.deliveryAddress}</p>
-                        </div>
-
-                        {/* Subtotal */}
-                        <div className="flex justify-between items-center pt-2 border-t border-slate-100 text-xs">
-                          <span className="text-slate-500 font-medium">Subtotal Makanan:</span>
-                          <span className="font-mono font-extrabold text-sm text-emerald-800">
-                            Rp {order.subtotal.toLocaleString('id-ID')}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Primary Action Button: Selesai Masak & Siap Diambil */}
-                    <div className="p-4 bg-slate-50 border-t border-slate-100">
-                      <button
-                        onClick={() => setOrderReady(order.id)}
-                        className="w-full py-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-xs cursor-pointer transition-colors"
-                      >
-                        <PackageCheck className="w-4 h-4" />
-                        <span>Pesanan Siap Diambil Kurir</span>
-                      </button>
-                    </div>
-                  </div>
+                  <MerchantCookingCard
+                    key={order.id}
+                    order={order}
+                    nowTimestamp={cookingNow}
+                    isCompleting={actionLoadingOrderId === order.id}
+                    onSetReady={setOrderReady}
+                  />
                 ))}
               </div>
             )}
