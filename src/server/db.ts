@@ -1408,6 +1408,63 @@ export class FoodDatabase {
     return this.data.orders.filter(o => o.driverId === driverId).map(o => normalizeOrderDeliveryFee(o));
   }
 
+  public getAvailableOrdersForDrivers(): Order[] {
+    this.reloadFromDiskIfNeeded();
+    return this.data.orders.filter(o =>
+      !o.driverId &&
+      (o.status === OrderStatus.READY_FOR_PICKUP || o.status === OrderStatus.COOKING || o.status === OrderStatus.PAYMENT_VERIFIED) &&
+      (o.paymentStatus === PaymentStatus.PAID || [OrderStatus.READY_FOR_PICKUP, OrderStatus.COOKING, OrderStatus.ORDER_PICKED_UP, OrderStatus.DELIVERED, OrderStatus.COMPLETED].includes(o.status))
+    ).map(o => normalizeOrderDeliveryFee(o));
+  }
+
+  public async acceptDriverTask(driverId: string, orderId: string): Promise<Order> {
+    this.reloadFromDiskIfNeeded();
+    const cleanOrderId = String(orderId || '').trim();
+    const cleanDriverId = String(driverId || '').trim();
+
+    const driver = this.getDriverById(cleanDriverId);
+    if (!driver) {
+      throw new Error('Identitas kurir tidak ditemukan di sistem.');
+    }
+    if (!driver.online) {
+      throw new Error('Status Anda sedang Offline. Aktifkan status Online terlebih dahulu untuk menerima tugas.');
+    }
+    if (!driver.active) {
+      throw new Error('Akun kurir Anda dinonaktifkan oleh administrator.');
+    }
+
+    const orderIndex = this.data.orders.findIndex(o => o.id === cleanOrderId);
+    if (orderIndex === -1) {
+      throw new Error('Pesanan tidak ditemukan.');
+    }
+
+    const currentOrder = this.data.orders[orderIndex];
+
+    // ATOMIC PRE-EMPTION GUARD: Prevent race condition between two drivers
+    if (currentOrder.driverId && currentOrder.driverId !== cleanDriverId) {
+      throw new Error(`Pesanan ini telah diambil oleh kurir lain (${currentOrder.driverName || 'Kurir Lain'}).`);
+    }
+
+    // Must be in acceptable operational state
+    const validStatuses: OrderStatus[] = [
+      OrderStatus.READY_FOR_PICKUP,
+      OrderStatus.COOKING,
+      OrderStatus.PAYMENT_VERIFIED
+    ];
+
+    if (!validStatuses.includes(currentOrder.status)) {
+      throw new Error(`Pesanan dengan status ${currentOrder.status} tidak dapat diterima.`);
+    }
+
+    const updated = await this.updateOrder(cleanDriverId, cleanOrderId, {
+      driverId: driver.id,
+      driverName: driver.name
+    }, 'DRIVER');
+
+    this.log(cleanDriverId, `Kurir ${driver.name} (#${driver.id}) menerima tugas pengantaran #${cleanOrderId}`, 'DRIVER');
+    return updated;
+  }
+
   public getOrdersByCustomerPhone(phone: string): Order[] {
     this.reloadFromDiskIfNeeded();
     return this.data.orders.filter(o => o.customerPhone === phone).map(o => normalizeOrderDeliveryFee(o));
@@ -1651,9 +1708,10 @@ export class FoodDatabase {
     if (updates.status && updates.status !== prevStatus) {
       this.log(userId, `Updated order ${currentOrder.id} status from ${prevStatus} to ${updates.status}`, role);
 
-      // Auto-assign driver when payment is verified if configured
+      // Auto-assign driver when payment is verified or ready for pickup if unassigned and configured
       if (
-        updates.status === OrderStatus.PAYMENT_VERIFIED &&
+        (updates.status === OrderStatus.PAYMENT_VERIFIED || updates.status === OrderStatus.READY_FOR_PICKUP) &&
+        !this.data.orders[index].driverId &&
         this.data.systemConfig.assignmentMode === AssignmentMode.AUTOMATIC
       ) {
         await this.autoAssignDriver(currentOrder.id);

@@ -1,24 +1,37 @@
-const CACHE_NAME = 'tumpang-food-v8';
-const ASSETS = [
+/**
+ * @license
+ * SPDX-License-Identifier: Apache-2.0
+ * 
+ * TumpangGo Service Worker
+ * Secure static asset caching & offline shell for Driver & Customer PWA.
+ * Strictly bypasses API requests, authentication, and QRIS endpoints to prevent stale data.
+ */
+
+const CACHE_NAME = 'tumpanggo-pwa-v10';
+const STATIC_ASSETS = [
   '/',
   '/index.html',
   '/manifest.json',
-  '/apple-touch-icon.png'
+  '/pwa-192x192.png',
+  '/pwa-512x512.png',
+  '/pwa-maskable-512x512.png',
+  '/apple-touch-icon.png',
+  '/favicon.svg'
 ];
 
-// Install Event
+// Install Event - Precache static app shell
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
-      return cache.addAll(ASSETS).catch((err) => {
-        console.warn('[SW] Cache addAll skipped:', err);
+      return cache.addAll(STATIC_ASSETS).catch((err) => {
+        console.warn('[SW] Static cache pre-population warning:', err);
       });
     })
   );
   self.skipWaiting();
 });
 
-// Activate Event
+// Activate Event - Clean up old cache versions immediately
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys().then((keys) => {
@@ -34,7 +47,7 @@ self.addEventListener('activate', (event) => {
   self.clients.claim();
 });
 
-// Fetch Event (Network First, with strict bypass for dev modules and APIs)
+// Fetch Event - Network First with offline app-shell fallback
 self.addEventListener('fetch', (event) => {
   const url = event.request.url;
 
@@ -43,17 +56,19 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Bypass any cross-origin requests
+  // Bypass cross-origin requests
   if (!url.startsWith(self.location.origin)) {
     return;
   }
 
-  // Bypass QRIS assets, QRIS streaming endpoints, API endpoints, WebSocket, and dev server internals
+  // CRITICAL SECURITY & CONSISTENCY:
+  // Never cache API endpoints, authentication, QRIS assets, payment proofs, or dev-server files
   if (
-    url.includes('qris-merchant') ||
-    url.includes('qris-image') ||
-    url.includes('/qris') ||
     url.includes('/api/') ||
+    url.includes('/auth') ||
+    url.includes('qris') ||
+    url.includes('payment') ||
+    url.includes('delivery-proof') ||
     url.includes('/@vite') ||
     url.includes('/@fs') ||
     url.includes('/__vite') ||
@@ -71,7 +86,7 @@ self.addEventListener('fetch', (event) => {
   event.respondWith(
     fetch(event.request)
       .then((networkResponse) => {
-        if (networkResponse.status === 200 && networkResponse.type === 'basic') {
+        if (networkResponse && networkResponse.status === 200 && networkResponse.type === 'basic') {
           const responseClone = networkResponse.clone();
           caches.open(CACHE_NAME).then((cache) => {
             cache.put(event.request, responseClone);
@@ -85,7 +100,7 @@ self.addEventListener('fetch', (event) => {
             return cachedResponse;
           }
           if (event.request.headers.get('accept')?.includes('text/html')) {
-            return caches.match('/');
+            return caches.match('/') || caches.match('/index.html');
           }
         });
       })

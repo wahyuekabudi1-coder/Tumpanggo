@@ -71,3 +71,19 @@ driverRouter.delete('/:id', requireRole(['ADMIN']), async (req: Request, res: Re
 driverRouter.get('/:driverId/orders', requireDriverSelf('driverId'), (req: Request, res: Response) => {
   res.json(foodDb.getOrdersByDriver(req.params.driverId));
 });
+
+// Broadcast / Available unassigned orders ready for delivery
+driverRouter.get('/:driverId/available-orders', requireDriverSelf('driverId'), (_req: Request, res: Response) => {
+  res.json(foodDb.getAvailableOrdersForDrivers());
+});
+
+// Driver accepts an unassigned delivery task atomically
+driverRouter.post('/:driverId/accept-order/:orderId', requireDriverSelf('driverId'), async (req: Request, res: Response) => {
+  try {
+    const updated = await foodDb.acceptDriverTask(req.params.driverId, req.params.orderId);
+    res.json({ success: true, order: updated });
+  } catch (err: any) {
+    res.status(400).json({ error: err.message || 'Gagal menerima tugas pesanan.' });
+  }
+});
+

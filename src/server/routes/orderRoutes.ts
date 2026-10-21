@@ -434,7 +434,8 @@ orderRouter.put('/:id', async (req: Request, res: Response) => {
   if (user.role === 'DRIVER') {
     const isAssigned = currentOrder.driverId === user.entityId || currentOrder.driverId === user.userId;
     const canAcceptTask =
-      !currentOrder.driverId && currentOrder.status === OrderStatus.READY_FOR_PICKUP;
+      !currentOrder.driverId &&
+      [OrderStatus.READY_FOR_PICKUP, OrderStatus.COOKING, OrderStatus.PAYMENT_VERIFIED].includes(currentOrder.status);
 
     if (!isAssigned && !canAcceptTask) {
       return res.status(403).json({
@@ -442,15 +443,34 @@ orderRouter.put('/:id', async (req: Request, res: Response) => {
       });
     }
 
+    // If driver is accepting an unassigned task
+    if (!currentOrder.driverId && canAcceptTask) {
+      const driver = foodDb.getDriverById(user.entityId || user.userId);
+      if (driver) {
+        updates.driverId = driver.id;
+        updates.driverName = driver.name;
+      }
+    }
+
     if (updates.status) {
       const allowedDriverStatuses: OrderStatus[] = [
         OrderStatus.ORDER_PICKED_UP,
+        OrderStatus.DELIVERED,
         OrderStatus.COMPLETED
       ];
       if (!allowedDriverStatuses.includes(updates.status)) {
         return res.status(403).json({
           error: `Driver tidak diizinkan mengubah status pesanan ke ${updates.status}.`
         });
+      }
+
+      // Pickup guard: food must be marked ready for pickup by merchant
+      if (updates.status === OrderStatus.ORDER_PICKED_UP) {
+        if (currentOrder.status === OrderStatus.COOKING || currentOrder.status === OrderStatus.PAYMENT_VERIFIED) {
+          return res.status(400).json({
+            error: 'Pesanan masih dalam proses memasak oleh merchant. Silakan tunggu hingga merchant menandai status pesanan "Siap Diambil".'
+          });
+        }
       }
     }
   }
@@ -507,6 +527,20 @@ orderRouter.post('/:id/assign-driver', requireRole(['ADMIN']), async (req: Reque
     res.json(updated);
   } catch (e: any) {
     res.status(400).json({ error: e.message });
+  }
+});
+
+// Driver accepts an unassigned order task atomically
+orderRouter.post('/:id/accept-task', requireRole(['DRIVER', 'ADMIN', 'MASTER_ADMIN']), async (req: Request, res: Response) => {
+  const driverId = req.user?.entityId || req.user?.userId || req.body?.driverId;
+  if (!driverId) {
+    return res.status(400).json({ error: 'Identitas driver tidak valid atau belum terautentikasi.' });
+  }
+  try {
+    const updated = await foodDb.acceptDriverTask(driverId, req.params.id);
+    res.json({ success: true, order: updated });
+  } catch (err: any) {
+    res.status(400).json({ error: err.message || 'Gagal menerima tugas pesanan.' });
   }
 });
 

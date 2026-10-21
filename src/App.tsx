@@ -54,7 +54,7 @@ export default function App() {
           : undefined
   });
   const [activeMerchantId, setActiveMerchantId] = useState<string>(() => safeStorage.getItem('tumpang_active_merchant_id') || '');
-  const [activeDriverId, setActiveDriverId] = useState<string>('');
+  const [activeDriverId, setActiveDriverId] = useState<string>(() => safeStorage.getItem('tumpang_active_driver_id') || '');
   const [merchantPortalTab, setMerchantPortalTab] = useState<'login' | 'register'>('login');
   const [verifiedEmail, setVerifiedEmail] = useState<string>(() => safeStorage.getItem('tumpang_auth_email') || '');
   const [showAuthModal, setShowAuthModal] = useState(false);
@@ -664,9 +664,13 @@ export default function App() {
                   setVerifiedEmail(email || 'tumpanggo@gmail.com');
                   const targetDriver = (dId && drivers.some(d => d.id === dId)) ? dId : (drivers[0]?.id || '');
                   setActiveDriverId(targetDriver);
+                  safeStorage.setItem('tumpang_active_driver_id', targetDriver);
                 } else {
                   setVerifiedEmail(email);
-                  if (dId) setActiveDriverId(dId);
+                  if (dId) {
+                    setActiveDriverId(dId);
+                    safeStorage.setItem('tumpang_active_driver_id', dId);
+                  }
                 }
               }} 
               onCancel={() => {
@@ -675,31 +679,46 @@ export default function App() {
             />
           ) : (activeDriverId && drivers.length > 0 && !isDemoMode && 
                !(isAdminEmail(verifiedEmail) || 
-                 (drivers.find(d => d.id === activeDriverId)?.email?.trim().toLowerCase() === verifiedEmail.trim().toLowerCase()))
+                 (() => {
+                   const d = drivers.find(drv => drv.id === activeDriverId);
+                   if (!d) return false;
+                   const normVerified = verifiedEmail.trim().toLowerCase();
+                   const normPhone = (d.phone || '').replace(/\D/g, '');
+                   const normInputPhone = normVerified.replace(/\D/g, '');
+                   return (
+                     (d.email && d.email.trim().toLowerCase() === normVerified) ||
+                     (normPhone && normInputPhone && (normPhone === normInputPhone || normPhone.endsWith(normInputPhone))) ||
+                     d.id.toLowerCase() === normVerified
+                   );
+                 })())
           ) ? (
             <PortalLogin 
               role="DRIVER" 
               targetDriverId={activeDriverId} 
-              onSuccess={(email, _dId, isMaster) => {
+              onSuccess={(email, dId, isMaster) => {
                 if (isMaster) {
                   setIsMasterAdmin(true);
                   setVerifiedEmail(email || 'tumpanggo@gmail.com');
+                  safeStorage.setItem('tumpang_active_driver_id', dId || activeDriverId || drivers[0]?.id || '');
                 } else {
                   setVerifiedEmail(email);
+                  if (dId) safeStorage.setItem('tumpang_active_driver_id', dId);
                 }
               }} 
               onCancel={() => {
                 setActiveDriverId('');
+                safeStorage.removeItem('tumpang_active_driver_id');
                 setCurrentRole('CUSTOMER');
               }} 
             />
           ) : (
             <ErrorBoundary fallbackTitle="Kendala Memuat Portal Kurir">
               <DriverView 
-                driverId={activeDriverId} 
+                driverId={activeDriverId || safeStorage.getItem('tumpang_active_driver_id') || drivers[0]?.id || ''} 
                 onLogout={() => {
                   setVerifiedEmail('');
                   safeStorage.removeItem('tumpang_auth_email');
+                  safeStorage.removeItem('tumpang_active_driver_id');
                   setActiveDriverId('');
                   setCurrentRole('CUSTOMER');
                 }}
