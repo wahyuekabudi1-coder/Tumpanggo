@@ -2140,10 +2140,7 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
                   </div>
                 </section>
 
-                {/* 1. Section Cerita Pengguna TumpangGo */}
-                <UserTestimonialsSection />
-
-                {/* 2. Section Menjadi Mitra UMKM */}
+                {/* 1. Section Menjadi Mitra UMKM */}
                 <div 
                   onClick={() => onSelectRole('MERCHANT', undefined, 'login')}
                   className="bg-[#185338] text-white rounded-[24px] sm:rounded-3xl p-5 sm:p-6 shadow-md relative overflow-hidden cursor-pointer hover:bg-[#154a32] transition-colors group my-2"
@@ -2176,6 +2173,9 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
                     Klik di sini
                   </button>
                 </div>
+
+                {/* 2. Section Cerita Pengguna TumpangGo */}
+                <UserTestimonialsSection />
 
                 {/* 3. Footer Section */}
                 {renderFooter()}

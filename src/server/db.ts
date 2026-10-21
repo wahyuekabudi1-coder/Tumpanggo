@@ -1998,11 +1998,18 @@ export class FoodDatabase {
     return true;
   }
 
-  // --- TESTIMONIALS (CERITA PENGGUNA) ---
-  public getPublishedTestimonials(): Testimonial[] {
+  // --- REVIEW PENGGUNA TUMPANGGO / TESTIMONIALS ---
+  public getPublishedTestimonials(categoryFilter?: string): Testimonial[] {
     if (!Array.isArray(this.data.testimonials)) return [];
     return this.data.testimonials
-      .filter(t => t.status === 'published' && t.consentApproved === true)
+      .filter(t => {
+        const isPublished = (t.status === 'published') && (t.consentApproved === true);
+        if (!isPublished) return false;
+        if (!categoryFilter || categoryFilter === 'all') return true;
+        const normItemCat = (t.category === 'merchant' || t.category === 'umkm') ? 'merchant' : 'pelanggan';
+        const normFilter = (categoryFilter === 'merchant' || categoryFilter === 'umkm') ? 'merchant' : categoryFilter;
+        return normItemCat === normFilter;
+      })
       .sort((a, b) => {
         if (a.displayOrder !== b.displayOrder) {
           return (a.displayOrder || 0) - (b.displayOrder || 0);
@@ -2011,9 +2018,24 @@ export class FoodDatabase {
       });
   }
 
-  public getAllTestimonials(): Testimonial[] {
+  public getAllTestimonials(filter?: { category?: string; status?: string }): Testimonial[] {
     if (!Array.isArray(this.data.testimonials)) return [];
-    return [...this.data.testimonials].sort((a, b) => {
+    let list = [...this.data.testimonials];
+
+    if (filter) {
+      if (filter.category && filter.category !== 'all') {
+        const normFilter = (filter.category === 'merchant' || filter.category === 'umkm') ? 'merchant' : filter.category;
+        list = list.filter(t => {
+          const normItemCat = (t.category === 'merchant' || t.category === 'umkm') ? 'merchant' : 'pelanggan';
+          return normItemCat === normFilter;
+        });
+      }
+      if (filter.status && filter.status !== 'all') {
+        list = list.filter(t => t.status === filter.status);
+      }
+    }
+
+    return list.sort((a, b) => {
       if (a.displayOrder !== b.displayOrder) {
         return (a.displayOrder || 0) - (b.displayOrder || 0);
       }
@@ -2024,23 +2046,46 @@ export class FoodDatabase {
   public async createTestimonial(testimonialData: Omit<Testimonial, 'id' | 'createdAt'>): Promise<Testimonial> {
     if (!Array.isArray(this.data.testimonials)) this.data.testimonials = [];
     const now = new Date().toISOString();
+    const rawCat = String(testimonialData.category || '').toLowerCase();
+    const normalizedCategory: 'merchant' | 'pelanggan' = (rawCat === 'merchant' || rawCat === 'umkm') ? 'merchant' : 'pelanggan';
+    const rawStatus = String(testimonialData.status || '').toLowerCase();
+    const validStatus: 'draft' | 'pending' | 'published' | 'rejected' =
+      ['published', 'pending', 'rejected', 'draft'].includes(rawStatus)
+        ? (rawStatus as any)
+        : 'pending';
+
+    const parsedRating = testimonialData.rating !== undefined && testimonialData.rating !== null
+      ? Math.min(5, Math.max(1, Math.round(Number(testimonialData.rating))))
+      : undefined;
+
     const newTesti: Testimonial = {
-      id: 'testi_' + Date.now().toString(36) + '_' + Math.random().toString(36).substring(2, 6),
+      id: 'rev_' + Date.now().toString(36) + '_' + Math.random().toString(36).substring(2, 6),
       userName: (testimonialData.userName || '').trim(),
-      category: testimonialData.category === 'umkm' ? 'umkm' : 'pelanggan',
+      merchantName: testimonialData.merchantName?.trim() || undefined,
+      category: normalizedCategory,
+      title: testimonialData.title?.trim() || undefined,
       content: (testimonialData.content || '').trim(),
       avatarUrl: testimonialData.avatarUrl?.trim() || undefined,
       roleDetail: testimonialData.roleDetail?.trim() || undefined,
+      rating: parsedRating,
       consentApproved: Boolean(testimonialData.consentApproved),
-      status: testimonialData.status === 'published' ? 'published' : 'draft',
+      status: validStatus,
       displayOrder: Number(testimonialData.displayOrder) || 1,
       createdAt: now,
       updatedAt: now
     };
 
+    if (isFirestoreAdminConfigured()) {
+      const persisted = await safeFirestoreSetDoc('testimonials', newTesti.id, newTesti);
+      if (!persisted && foodConfig.isProduction) {
+        throw new Error('[Produksi] Gagal menyimpan review ke cloud Firestore. Pengiriman ulasan dibatalkan demi menjaga integritas data.');
+      }
+    } else {
+      await safeFirestoreSetDoc('testimonials', newTesti.id, newTesti);
+    }
+
     this.data.testimonials.push(newTesti);
     this.save();
-    safeFirestoreSetDoc('testimonials', newTesti.id, newTesti);
     return newTesti;
   }
 
@@ -2050,17 +2095,47 @@ export class FoodDatabase {
     if (index === -1) return null;
 
     const prev = this.data.testimonials[index];
+    let category = prev.category;
+    if (updates.category) {
+      category = (updates.category === 'merchant' || updates.category === 'umkm') ? 'merchant' : 'pelanggan';
+    }
+
+    let rating = prev.rating;
+    if (updates.rating !== undefined) {
+      rating = updates.rating !== null && !isNaN(Number(updates.rating))
+        ? Math.min(5, Math.max(1, Math.round(Number(updates.rating))))
+        : undefined;
+    }
+
+    let status = prev.status;
+    if (updates.status && ['published', 'pending', 'rejected', 'draft'].includes(updates.status)) {
+      status = updates.status;
+    }
+
     const updated: Testimonial = {
       ...prev,
       ...updates,
+      merchantName: updates.merchantName !== undefined ? (updates.merchantName?.trim() || undefined) : prev.merchantName,
+      title: updates.title !== undefined ? (updates.title?.trim() || undefined) : prev.title,
+      category,
+      rating,
+      status,
       id: prev.id, // prevent ID overwrite
       createdAt: prev.createdAt,
       updatedAt: new Date().toISOString()
     };
 
+    if (isFirestoreAdminConfigured()) {
+      const persisted = await safeFirestoreSetDoc('testimonials', updated.id, updated);
+      if (!persisted && foodConfig.isProduction) {
+        throw new Error('[Produksi] Gagal memperbarui status review di cloud Firestore. Transaksi dibatalkan.');
+      }
+    } else {
+      await safeFirestoreSetDoc('testimonials', updated.id, updated);
+    }
+
     this.data.testimonials[index] = updated;
     this.save();
-    safeFirestoreSetDoc('testimonials', updated.id, updated);
     return updated;
   }
 
@@ -2069,8 +2144,15 @@ export class FoodDatabase {
     const initialLen = this.data.testimonials.length;
     this.data.testimonials = this.data.testimonials.filter(t => t.id !== id);
     if (this.data.testimonials.length !== initialLen) {
+      if (isFirestoreAdminConfigured()) {
+        const deleted = await safeAdminDeleteDoc('testimonials', id);
+        if (!deleted && foodConfig.isProduction) {
+          throw new Error('[Produksi] Gagal menghapus review di cloud Firestore.');
+        }
+      } else {
+        await safeAdminDeleteDoc('testimonials', id);
+      }
       this.save();
-      safeAdminDeleteDoc('testimonials', id);
       return true;
     }
     return false;

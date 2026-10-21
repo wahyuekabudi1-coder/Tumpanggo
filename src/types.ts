@@ -237,19 +237,28 @@ export interface PartnerRegistration {
   storeId?: string;
 }
 
+export type ReviewCategory = 'merchant' | 'pelanggan' | 'umkm';
+export type ReviewStatus = 'draft' | 'pending' | 'published' | 'rejected';
+
 export interface Testimonial {
   id: string;
   userName: string;
-  category: 'umkm' | 'pelanggan';
+  merchantName?: string; // Nama usaha/toko khusus kategori merchant
+  category: ReviewCategory;
+  title?: string; // Judul ulasan (opsional)
   content: string;
   avatarUrl?: string;
-  roleDetail?: string; // e.g. "Pemilik Usaha Kuliner" atau "Pelanggan Setia Tumpang"
+  roleDetail?: string; // e.g. "Pemilik Warung Bakso Barokah" atau "Pelanggan Setia Tumpang"
+  rating?: number; // 1 - 5 stars jika rating tersedia secara nyata
   consentApproved: boolean; // status verifikasi persetujuan publikasi
-  status: 'draft' | 'published';
+  status: ReviewStatus;
   displayOrder: number;
   createdAt: string;
   updatedAt?: string;
 }
+
+// Alias for UserReview
+export type UserReview = Testimonial;
 
 export function calculateTieredServiceFee(subtotal: number): number {
   if (subtotal <= 100000) return 2000;

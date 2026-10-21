@@ -277,6 +277,28 @@
         "createdAt": { "type": "string" }
       },
       "required": ["id", "action", "userId", "role", "details", "createdAt"]
+    },
+    "Testimonial": {
+      "title": "Testimonial",
+      "description": "User review and testimonial from local merchants and customers",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique identifier of review" },
+        "userName": { "type": "string", "description": "Reviewer user name" },
+        "merchantName": { "type": "string", "description": "Merchant business name for merchant category" },
+        "category": { "type": "string", "enum": ["merchant", "pelanggan"], "description": "Reviewer category" },
+        "title": { "type": "string", "description": "Review title or headline" },
+        "content": { "type": "string", "description": "Review detailed body content" },
+        "avatarUrl": { "type": "string", "description": "Profile picture avatar URL" },
+        "roleDetail": { "type": "string", "description": "Role description label" },
+        "rating": { "type": "number", "description": "1 to 5 star rating" },
+        "consentApproved": { "type": "boolean", "description": "True if genuine experience consent acknowledged" },
+        "status": { "type": "string", "enum": ["pending", "published", "rejected", "draft"], "description": "Moderation status" },
+        "displayOrder": { "type": "number", "description": "Manual display priority order" },
+        "createdAt": { "type": "string", "description": "Creation timestamp ISO string" },
+        "updatedAt": { "type": "string", "description": "Last update timestamp ISO string" }
+      },
+      "required": ["id", "userName", "category", "content", "status", "consentApproved", "createdAt"]
     }
   },
   "firestore": {
@@ -335,6 +357,10 @@
     "/shop_audit_logs/{logId}": {
       "schema": "ShopAuditLog",
       "description": "Tumpang Shop administrative and audit trails"
+    },
+    "/testimonials/{testimonialId}": {
+      "schema": "Testimonial",
+      "description": "Authentic user reviews from merchants and customers"
     }
   }
 }

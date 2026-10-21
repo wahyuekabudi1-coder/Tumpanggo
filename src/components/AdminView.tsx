@@ -19,7 +19,7 @@ import {
   Check, X, FileText, AlertTriangle, Truck, RefreshCw, ZoomIn, Eye,
   UserPlus, Search, ArrowUpRight, Clock, Phone, MapPin, Building,
   CheckCircle2, XCircle, ChevronRight, Sliders, ArrowDownRight, Wallet, LogOut,
-  QrCode, ExternalLink, Trash2, Upload, Quote
+  QrCode, ExternalLink, Trash2, Upload, Quote, Star, Filter
 } from 'lucide-react';
 import { useHiddenTrigger } from '../hooks/useHiddenTrigger.ts';
 import HiddenPortalBar from './HiddenPortalBar.tsx';
@@ -48,16 +48,22 @@ export default function AdminView({ onLogout, systemConfig, onUpdateConfig, onSe
   const [testimonials, setTestimonials] = useState<Testimonial[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // States for adding / creating new testimonial in admin
+  // States for adding / editing reviews in admin
   const [showAddTestiForm, setShowAddTestiForm] = useState(false);
+  const [editingTestiId, setEditingTestiId] = useState<string | null>(null);
   const [newTestiName, setNewTestiName] = useState('');
-  const [newTestiCategory, setNewTestiCategory] = useState<'umkm' | 'pelanggan'>('umkm');
+  const [newTestiMerchantName, setNewTestiMerchantName] = useState('');
+  const [newTestiCategory, setNewTestiCategory] = useState<'merchant' | 'pelanggan'>('merchant');
+  const [newTestiTitle, setNewTestiTitle] = useState('');
   const [newTestiRole, setNewTestiRole] = useState('');
+  const [newTestiRating, setNewTestiRating] = useState<number>(5);
   const [newTestiContent, setNewTestiContent] = useState('');
   const [newTestiOrder, setNewTestiOrder] = useState<number>(1);
-  const [newTestiStatus, setNewTestiStatus] = useState<'published' | 'draft'>('published');
+  const [newTestiStatus, setNewTestiStatus] = useState<'published' | 'pending' | 'rejected' | 'draft'>('published');
   const [newTestiConsent, setNewTestiConsent] = useState<boolean>(true);
   const [savingTesti, setSavingTesti] = useState(false);
+  const [adminReviewCategoryFilter, setAdminReviewCategoryFilter] = useState<'all' | 'merchant' | 'pelanggan'>('all');
+  const [adminReviewStatusFilter, setAdminReviewStatusFilter] = useState<'all' | 'published' | 'pending' | 'rejected' | 'draft'>('all');
 
   // Search & Filter
   const [orderSearchQuery, setOrderSearchQuery] = useState('');
@@ -542,19 +548,21 @@ export default function AdminView({ onLogout, systemConfig, onUpdateConfig, onSe
     )
   );
 
-  const handleTogglePublishTestimonial = async (id: string, currentStatus: string) => {
+  const handleUpdateReviewStatus = async (id: string, newStatus: string) => {
     try {
-      const newStatus = currentStatus === 'published' ? 'draft' : 'published';
       const res = await fetch(`/api/admin/testimonials/${id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: newStatus, consentApproved: true })
+        body: JSON.stringify({ 
+          status: newStatus,
+          consentApproved: newStatus === 'published' ? true : undefined
+        })
       });
       if (res.ok) {
         fetchAdminData();
       } else {
         const err = await res.json();
-        alert(err.error || 'Gagal mengubah status testimoni');
+        alert(err.error || 'Gagal mengubah status review');
       }
     } catch (e: any) {
       alert('Terjadi kesalahan: ' + e.message);
@@ -577,7 +585,7 @@ export default function AdminView({ onLogout, systemConfig, onUpdateConfig, onSe
   };
 
   const handleDeleteTestimonial = async (id: string) => {
-    if (!confirm('Hapus cerita pengguna ini?')) return;
+    if (!confirm('Hapus review pengguna ini secara permanen?')) return;
     try {
       const res = await fetch(`/api/admin/testimonials/${id}`, { method: 'DELETE' });
       if (res.ok) {
@@ -588,21 +596,26 @@ export default function AdminView({ onLogout, systemConfig, onUpdateConfig, onSe
     }
   };
 
-  const handleCreateTestimonial = async (e: React.FormEvent) => {
+  const handleSaveReview = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newTestiName.trim() || !newTestiContent.trim()) {
-      alert('Nama dan isi cerita wajib diisi');
+      alert('Nama dan isi review wajib diisi');
       return;
     }
     setSavingTesti(true);
     try {
-      const res = await fetch('/api/admin/testimonials', {
-        method: 'POST',
+      const url = editingTestiId ? `/api/admin/testimonials/${editingTestiId}` : '/api/admin/testimonials';
+      const method = editingTestiId ? 'PUT' : 'POST';
+      const res = await fetch(url, {
+        method,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           userName: newTestiName.trim(),
+          merchantName: newTestiCategory === 'merchant' ? (newTestiMerchantName.trim() || undefined) : undefined,
           category: newTestiCategory,
+          title: newTestiTitle.trim() || undefined,
           roleDetail: newTestiRole.trim() || undefined,
+          rating: newTestiRating > 0 ? newTestiRating : undefined,
           content: newTestiContent.trim(),
           displayOrder: Number(newTestiOrder) || 1,
           status: newTestiStatus,
@@ -611,20 +624,39 @@ export default function AdminView({ onLogout, systemConfig, onUpdateConfig, onSe
       });
       if (res.ok) {
         setShowAddTestiForm(false);
+        setEditingTestiId(null);
         setNewTestiName('');
+        setNewTestiMerchantName('');
+        setNewTestiTitle('');
         setNewTestiRole('');
         setNewTestiContent('');
+        setNewTestiRating(5);
         setNewTestiOrder(1);
         fetchAdminData();
       } else {
         const err = await res.json();
-        alert(err.error || 'Gagal menyimpan testimoni');
+        alert(err.error || 'Gagal menyimpan review');
       }
     } catch (e: any) {
       alert('Terjadi kesalahan: ' + e.message);
     } finally {
       setSavingTesti(false);
     }
+  };
+
+  const handleStartEditReview = (testi: Testimonial) => {
+    setEditingTestiId(testi.id);
+    setNewTestiName(testi.userName);
+    setNewTestiMerchantName(testi.merchantName || '');
+    setNewTestiTitle(testi.title || '');
+    setNewTestiCategory((testi.category === 'merchant' || testi.category === 'umkm') ? 'merchant' : 'pelanggan');
+    setNewTestiRole(testi.roleDetail || '');
+    setNewTestiRating(testi.rating || 5);
+    setNewTestiContent(testi.content);
+    setNewTestiOrder(testi.displayOrder || 1);
+    setNewTestiStatus(testi.status || 'published');
+    setNewTestiConsent(testi.consentApproved ?? true);
+    setShowAddTestiForm(true);
   };
 
   return (
@@ -730,7 +762,7 @@ export default function AdminView({ onLogout, systemConfig, onUpdateConfig, onSe
               { id: 'drivers', label: 'Mitra Driver', count: drivers.length, icon: Users },
               { id: 'partners', label: 'Pendaftaran Mitra', count: pendingPartnerRegs.length, icon: UserPlus },
               { id: 'settlements', label: 'Settlement & Payout', count: settlements.length, icon: DollarSign },
-              { id: 'testimonials', label: 'Cerita Pengguna', count: testimonials.filter(t => t.status === 'draft').length, icon: Quote },
+              { id: 'testimonials', label: 'Review Pengguna', count: testimonials.filter(t => t.status === 'pending' || t.status === 'draft').length, icon: Quote },
               { id: 'settings', label: 'Pengaturan Sistem', icon: Settings },
             ].map(tab => {
               const Icon = tab.icon;
@@ -1647,33 +1679,123 @@ export default function AdminView({ onLogout, systemConfig, onUpdateConfig, onSe
           </div>
         )}
 
-        {/* 8. TAB: KELOLA CERITA PENGGUNA (TESTIMONIALS) */}
+        {/* 8. TAB: KELOLA REVIEW PENGGUNA (TESTIMONIALS & REVIEWS) */}
         {activeTab === 'testimonials' && (
           <div className="space-y-6">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-4 sm:p-5 rounded-2xl border border-slate-200/80 shadow-xs">
               <div>
-                <h2 className="font-display font-bold text-base sm:text-lg text-slate-900">Kelola Cerita Pengguna TumpangGo</h2>
-                <p className="text-xs text-slate-500 mt-0.5">
-                  Kurasi dan moderasi testimoni dari pelaku UMKM dan pelanggan. Hanya cerita yang berstatus "published" dan memiliki persetujuan publikasi yang akan ditampilkan di homepage.
+                <h2 className="font-display font-bold text-base sm:text-lg text-slate-900">Kelola Review Pengguna TumpangGo</h2>
+                <p className="text-xs text-slate-500 mt-0.5 max-w-2xl leading-relaxed">
+                  Kurasi, filter, dan moderasi ulasan nyata dari pemilik merchant dan pelanggan. Hanya ulasan berstatus <strong className="text-emerald-700 font-bold">Published</strong> dan memiliki persetujuan publikasi yang akan tampil di homepage.
                 </p>
               </div>
 
               <button
-                onClick={() => setShowAddTestiForm(!showAddTestiForm)}
-                className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition-all shadow-xs cursor-pointer self-start sm:self-auto"
+                onClick={() => {
+                  if (showAddTestiForm) {
+                    setShowAddTestiForm(false);
+                    setEditingTestiId(null);
+                  } else {
+                    setEditingTestiId(null);
+                    setNewTestiName('');
+                    setNewTestiRole('');
+                    setNewTestiContent('');
+                    setNewTestiRating(5);
+                    setNewTestiOrder(1);
+                    setNewTestiStatus('published');
+                    setNewTestiConsent(true);
+                    setShowAddTestiForm(true);
+                  }
+                }}
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold transition-all shadow-xs cursor-pointer self-start sm:self-auto active:scale-95"
               >
                 <Quote className="w-3.5 h-3.5" />
-                <span>{showAddTestiForm ? 'Tutup Formulir' : 'Tambah Cerita'}</span>
+                <span>{showAddTestiForm ? 'Tutup Formulir' : '+ Tambah Review'}</span>
               </button>
             </div>
 
-            {/* Add New Testimonial Form */}
+            {/* Filter Kategori & Status Moderasi Review */}
+            <div className="bg-white p-3.5 sm:p-4 rounded-2xl border border-slate-200/80 shadow-xs flex flex-wrap items-center justify-between gap-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="flex items-center gap-1 text-xs font-bold text-slate-600 mr-1">
+                  <Filter className="w-3.5 h-3.5 text-slate-400" />
+                  <span>Kategori:</span>
+                </div>
+
+                <div className="flex rounded-xl bg-slate-100 p-1 text-xs font-semibold">
+                  <button
+                    type="button"
+                    onClick={() => setAdminReviewCategoryFilter('all')}
+                    className={`px-3 py-1 rounded-lg transition-all cursor-pointer ${
+                      adminReviewCategoryFilter === 'all'
+                        ? 'bg-white text-slate-900 shadow-2xs font-bold'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    Semua ({testimonials.length})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setAdminReviewCategoryFilter('merchant')}
+                    className={`px-3 py-1 rounded-lg transition-all cursor-pointer flex items-center gap-1 ${
+                      adminReviewCategoryFilter === 'merchant'
+                        ? 'bg-white text-emerald-800 shadow-2xs font-bold'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    <Store className="w-3 h-3" />
+                    <span>Merchant ({testimonials.filter(t => t.category === 'merchant' || t.category === 'umkm').length})</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setAdminReviewCategoryFilter('pelanggan')}
+                    className={`px-3 py-1 rounded-lg transition-all cursor-pointer flex items-center gap-1 ${
+                      adminReviewCategoryFilter === 'pelanggan'
+                        ? 'bg-white text-blue-800 shadow-2xs font-bold'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    <Users className="w-3 h-3" />
+                    <span>Pelanggan ({testimonials.filter(t => t.category === 'pelanggan').length})</span>
+                  </button>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-bold text-slate-600">Status:</span>
+                <select
+                  value={adminReviewStatusFilter}
+                  onChange={(e) => setAdminReviewStatusFilter(e.target.value as any)}
+                  className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5 text-xs font-medium text-slate-700 focus:outline-none focus:border-emerald-600"
+                >
+                  <option value="all">Semua Status ({testimonials.length})</option>
+                  <option value="published">Published ({testimonials.filter(t => t.status === 'published').length})</option>
+                  <option value="pending">Menunggu Moderasi ({testimonials.filter(t => t.status === 'pending').length})</option>
+                  <option value="rejected">Ditolak ({testimonials.filter(t => t.status === 'rejected').length})</option>
+                  <option value="draft">Draft ({testimonials.filter(t => t.status === 'draft').length})</option>
+                </select>
+              </div>
+            </div>
+
+            {/* Add / Edit Review Form */}
             {showAddTestiForm && (
-              <form onSubmit={handleCreateTestimonial} className="bg-white p-4 sm:p-5 rounded-2xl border border-emerald-200 shadow-xs space-y-4">
-                <h3 className="font-bold text-xs sm:text-sm text-slate-900 flex items-center gap-2">
-                  <Quote className="w-4 h-4 text-emerald-600" />
-                  Tambah Cerita Pengguna Baru
-                </h3>
+              <form onSubmit={handleSaveReview} className="bg-white p-4 sm:p-5 rounded-2xl border border-emerald-300 shadow-xs space-y-4">
+                <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+                  <h3 className="font-bold text-xs sm:text-sm text-slate-900 flex items-center gap-2">
+                    <Quote className="w-4 h-4 text-emerald-600" />
+                    <span>{editingTestiId ? 'Edit Review Pengguna' : 'Tambah Review Baru'}</span>
+                  </h3>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowAddTestiForm(false);
+                      setEditingTestiId(null);
+                    }}
+                    className="text-slate-400 hover:text-slate-600 p-1 cursor-pointer"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   <div>
@@ -1693,27 +1815,99 @@ export default function AdminView({ onLogout, systemConfig, onUpdateConfig, onSe
                     <select
                       value={newTestiCategory}
                       onChange={(e) => setNewTestiCategory(e.target.value as any)}
-                      className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-xs focus:outline-none focus:border-emerald-500"
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-xs focus:outline-none focus:border-emerald-500 font-semibold"
                     >
-                      <option value="umkm">Pelaku UMKM</option>
-                      <option value="pelanggan">Pelanggan</option>
+                      <option value="merchant">Review Merchant</option>
+                      <option value="pelanggan">Review Pelanggan</option>
                     </select>
                   </div>
 
                   <div>
-                    <label className="text-xs font-bold text-slate-700 block mb-1">Peran / Keterangan</label>
+                    <label className="text-xs font-bold text-slate-700 block mb-1">
+                      {newTestiCategory === 'merchant' ? 'Nama Usaha / Toko *' : 'Keterangan Warga (Opsional)'}
+                    </label>
                     <input
                       type="text"
-                      value={newTestiRole}
-                      onChange={(e) => setNewTestiRole(e.target.value)}
-                      placeholder="Contoh: Pemilik Warung Bakso Barokah"
+                      value={newTestiCategory === 'merchant' ? newTestiMerchantName : newTestiRole}
+                      onChange={(e) => {
+                        if (newTestiCategory === 'merchant') {
+                          setNewTestiMerchantName(e.target.value);
+                          setNewTestiRole(e.target.value ? `Pemilik ${e.target.value}` : '');
+                        } else {
+                          setNewTestiRole(e.target.value);
+                        }
+                      }}
+                      placeholder={newTestiCategory === 'merchant' ? 'Contoh: Warung Bakso Barokah' : 'Contoh: Warga Tumpang Krajan'}
                       className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-xs focus:outline-none focus:border-emerald-500"
                     />
                   </div>
                 </div>
 
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-xs font-bold text-slate-700 block mb-1">Judul Review (Opsional)</label>
+                    <input
+                      type="text"
+                      value={newTestiTitle}
+                      onChange={(e) => setNewTestiTitle(e.target.value)}
+                      placeholder="Contoh: Sangat Membantu Usaha Kuliner Saya"
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-xs focus:outline-none focus:border-emerald-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="text-xs font-bold text-slate-700 block mb-1">Peran Detail Tambahan (Opsional)</label>
+                    <input
+                      type="text"
+                      value={newTestiRole}
+                      onChange={(e) => setNewTestiRole(e.target.value)}
+                      placeholder="Contoh: Pemilik Warung Sejak 2020"
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-xs focus:outline-none focus:border-emerald-500"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-xs font-bold text-slate-700 block mb-1">Rating Kepuasan (1 - 5 Bintang)</label>
+                    <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 rounded-xl p-2">
+                      {[1, 2, 3, 4, 5].map((s) => (
+                        <button
+                          key={s}
+                          type="button"
+                          onClick={() => setNewTestiRating(s)}
+                          className="p-1 cursor-pointer hover:scale-110 transition-transform"
+                        >
+                          <Star
+                            className={`w-4 h-4 ${
+                              s <= newTestiRating ? 'text-amber-500 fill-amber-400' : 'text-slate-300'
+                            }`}
+                          />
+                        </button>
+                      ))}
+                      <span className="text-xs font-bold text-slate-700 ml-2">
+                        {newTestiRating} / 5 Bintang
+                      </span>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="text-xs font-bold text-slate-700 block mb-1">Status Moderasi *</label>
+                    <select
+                      value={newTestiStatus}
+                      onChange={(e) => setNewTestiStatus(e.target.value as any)}
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-xs focus:outline-none focus:border-emerald-500 font-semibold"
+                    >
+                      <option value="published">Published (Tampil di Homepage)</option>
+                      <option value="pending">Pending (Menunggu Moderasi)</option>
+                      <option value="rejected">Rejected (Ditolak)</option>
+                      <option value="draft">Draft (Disimpan Internal)</option>
+                    </select>
+                  </div>
+                </div>
+
                 <div>
-                  <label className="text-xs font-bold text-slate-700 block mb-1">Isi Cerita / Testimoni *</label>
+                  <label className="text-xs font-bold text-slate-700 block mb-1">Isi Review / Pengalaman *</label>
                   <textarea
                     required
                     rows={3}
@@ -1723,143 +1917,193 @@ export default function AdminView({ onLogout, systemConfig, onUpdateConfig, onSe
                     placeholder="Tuliskan pengalaman nyata pengguna..."
                     className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-xs focus:outline-none focus:border-emerald-500 resize-none"
                   />
+                  <span className="text-[10px] text-slate-400 block text-right">
+                    {newTestiContent.length}/350 karakter
+                  </span>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                  <div>
-                    <label className="text-xs font-bold text-slate-700 block mb-1">Urutan Tampilan</label>
+                <div className="flex items-center justify-between pt-2">
+                  <label className="flex items-center gap-2 cursor-pointer text-xs font-bold text-slate-700">
                     <input
-                      type="number"
-                      value={newTestiOrder}
-                      onChange={(e) => setNewTestiOrder(Number(e.target.value))}
-                      className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-xs focus:outline-none focus:border-emerald-500"
+                      type="checkbox"
+                      checked={newTestiConsent}
+                      onChange={(e) => setNewTestiConsent(e.target.checked)}
+                      className="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
                     />
-                  </div>
+                    <span>Persetujuan Publikasi Terverifikasi (Wajib untuk Tampil di Homepage)</span>
+                  </label>
 
-                  <div>
-                    <label className="text-xs font-bold text-slate-700 block mb-1">Status Publikasi</label>
-                    <select
-                      value={newTestiStatus}
-                      onChange={(e) => setNewTestiStatus(e.target.value as any)}
-                      className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-xs focus:outline-none focus:border-emerald-500"
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowAddTestiForm(false);
+                        setEditingTestiId(null);
+                      }}
+                      className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl cursor-pointer"
                     >
-                      <option value="published">Published (Tampil di Homepage)</option>
-                      <option value="draft">Draft (Disimpan Internal)</option>
-                    </select>
+                      Batal
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={savingTesti}
+                      className="px-4 py-2 bg-emerald-700 hover:bg-emerald-800 disabled:opacity-50 text-white text-xs font-bold rounded-xl cursor-pointer shadow-xs active:scale-95"
+                    >
+                      {savingTesti ? 'Menyimpan...' : (editingTestiId ? 'Simpan Perubahan' : 'Simpan Review')}
+                    </button>
                   </div>
-
-                  <div className="flex items-center pt-5">
-                    <label className="flex items-center gap-2 cursor-pointer text-xs font-bold text-slate-700">
-                      <input
-                        type="checkbox"
-                        checked={newTestiConsent}
-                        onChange={(e) => setNewTestiConsent(e.target.checked)}
-                        className="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
-                      />
-                      <span>Persetujuan Publikasi Terverifikasi</span>
-                    </label>
-                  </div>
-                </div>
-
-                <div className="flex justify-end gap-2 pt-2">
-                  <button
-                    type="button"
-                    onClick={() => setShowAddTestiForm(false)}
-                    className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl"
-                  >
-                    Batal
-                  </button>
-                  <button
-                    type="submit"
-                    disabled={savingTesti}
-                    className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-bold rounded-xl cursor-pointer"
-                  >
-                    {savingTesti ? 'Menyimpan...' : 'Simpan Cerita'}
-                  </button>
                 </div>
               </form>
             )}
 
-            {/* Testimonials List */}
-            {testimonials.length === 0 ? (
-              <div className="bg-white rounded-2xl border border-slate-200 p-8 text-center text-slate-500 text-xs">
-                Belum ada data cerita pengguna. Klik "Tambah Cerita" untuk memasukkan data yang telah disetujui atau tunggu pengajuan dari pengguna.
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {testimonials.map((testi) => (
-                  <div key={testi.id} className="bg-white rounded-2xl border border-slate-200/90 p-4 shadow-xs flex flex-col justify-between">
-                    <div>
-                      <div className="flex items-center justify-between gap-2 mb-2">
-                        <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider ${
-                          testi.category === 'umkm'
-                            ? 'bg-emerald-100 text-emerald-800'
-                            : 'bg-blue-100 text-blue-800'
-                        }`}>
-                          {testi.category === 'umkm' ? 'Pelaku UMKM' : 'Pelanggan'}
-                        </span>
+            {/* Daftar Review dengan Filter Aktif */}
+            {(() => {
+              const filteredList = testimonials.filter(t => {
+                const normCat = (t.category === 'merchant' || t.category === 'umkm') ? 'merchant' : 'pelanggan';
+                if (adminReviewCategoryFilter !== 'all' && normCat !== adminReviewCategoryFilter) return false;
+                if (adminReviewStatusFilter !== 'all' && t.status !== adminReviewStatusFilter) return false;
+                return true;
+              });
 
-                        <div className="flex items-center gap-1.5">
-                          <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                            testi.status === 'published'
-                              ? 'bg-emerald-100 text-emerald-700'
-                              : 'bg-amber-100 text-amber-700'
-                          }`}>
-                            {testi.status === 'published' ? 'Published' : 'Draft'}
-                          </span>
+              if (filteredList.length === 0) {
+                return (
+                  <div className="bg-white rounded-2xl border border-slate-200 p-8 text-center text-slate-500 text-xs flex flex-col items-center gap-2">
+                    <div className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center text-slate-400">
+                      <Quote className="w-5 h-5" />
+                    </div>
+                    <span className="font-bold text-slate-700">Tidak ada data review pada filter ini.</span>
+                    <span className="text-slate-400 max-w-sm">
+                      {testimonials.length === 0
+                        ? 'Belum ada review pengguna di database. Klik tombol "+ Tambah Review" untuk memasukkan ulasan nyata yang telah diverifikasi.'
+                        : 'Coba ubah filter kategori atau status moderasi untuk melihat data review lainnya.'}
+                    </span>
+                  </div>
+                );
+              }
 
-                          <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                            testi.consentApproved
-                              ? 'bg-slate-100 text-emerald-700'
-                              : 'bg-red-50 text-red-600'
-                          }`}>
-                            {testi.consentApproved ? 'Izin OK' : 'Belum Ada Izin'}
-                          </span>
+              return (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {filteredList.map((testi) => {
+                    const isMerchant = (testi.category === 'merchant' || testi.category === 'umkm');
+
+                    return (
+                      <div key={testi.id} className="bg-white rounded-2xl border border-slate-200/90 p-4 sm:p-5 shadow-xs flex flex-col justify-between gap-3">
+                        <div>
+                          {/* Header: Kategori, Rating, dan Status Moderasi */}
+                          <div className="flex items-center justify-between gap-2 mb-2.5">
+                            <div className="flex items-center gap-1.5">
+                              <span className={`px-2.5 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider ${
+                                isMerchant
+                                  ? 'bg-emerald-100 text-emerald-800 border border-emerald-200/60'
+                                  : 'bg-blue-100 text-blue-800 border border-blue-200/60'
+                              }`}>
+                                {isMerchant ? 'Review Merchant' : 'Review Pelanggan'}
+                              </span>
+
+                              {testi.rating && (
+                                <div className="flex items-center gap-0.5 bg-amber-50 px-1.5 py-0.5 rounded text-[10px] font-bold text-amber-700">
+                                  <Star className="w-3 h-3 text-amber-500 fill-amber-400" />
+                                  <span>{testi.rating}.0</span>
+                                </div>
+                              )}
+                            </div>
+
+                            <div className="flex items-center gap-1.5">
+                              <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                                testi.status === 'published'
+                                  ? 'bg-emerald-100 text-emerald-700'
+                                  : testi.status === 'rejected'
+                                  ? 'bg-red-100 text-red-700'
+                                  : testi.status === 'pending'
+                                  ? 'bg-amber-100 text-amber-800'
+                                  : 'bg-slate-100 text-slate-600'
+                              }`}>
+                                {testi.status === 'published' ? 'Published' : (testi.status === 'rejected' ? 'Ditolak' : (testi.status === 'pending' ? 'Pending' : 'Draft'))}
+                              </span>
+
+                              <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                                testi.consentApproved
+                                  ? 'bg-emerald-50 text-emerald-700'
+                                  : 'bg-red-50 text-red-600'
+                              }`}>
+                                {testi.consentApproved ? 'Izin OK' : 'Belum Ada Izin'}
+                              </span>
+                            </div>
+                          </div>
+
+                          {/* Judul & Isi Review */}
+                          {testi.title && (
+                            <h4 className="font-bold text-xs text-slate-900 mb-1">
+                              {testi.title}
+                            </h4>
+                          )}
+                          <p className="text-xs sm:text-[13px] text-slate-700 italic leading-relaxed mb-2">
+                            "{testi.content}"
+                          </p>
+                        </div>
+
+                        {/* Footer: Informasi Pengguna dan Tombol Aksi Moderasi */}
+                        <div className="pt-3 border-t border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+                          <div>
+                            <span className="font-extrabold text-xs text-slate-900 block">{testi.userName}</span>
+                            <span className="text-[10px] text-slate-500">
+                              {testi.merchantName ? `Toko: ${testi.merchantName}` : (testi.roleDetail || (isMerchant ? 'Pemilik Usaha' : 'Pelanggan Tumpang'))}
+                            </span>
+                          </div>
+
+                          <div className="flex flex-wrap items-center gap-1.5 self-end sm:self-auto">
+                            {/* Moderasi Aksi */}
+                            {testi.status !== 'published' ? (
+                              <button
+                                onClick={() => handleUpdateReviewStatus(testi.id, 'published')}
+                                className="px-2.5 py-1 rounded-lg text-[10px] font-bold bg-emerald-700 hover:bg-emerald-800 text-white transition-all cursor-pointer shadow-2xs"
+                                title="Terbitkan ke homepage"
+                              >
+                                Terbitkan
+                              </button>
+                            ) : (
+                              <button
+                                onClick={() => handleUpdateReviewStatus(testi.id, 'pending')}
+                                className="px-2.5 py-1 rounded-lg text-[10px] font-bold bg-amber-100 hover:bg-amber-200 text-amber-800 transition-all cursor-pointer"
+                                title="Kembalikan status menjadi pending"
+                              >
+                                Pendingkan
+                              </button>
+                            )}
+
+                            {testi.status !== 'rejected' && (
+                              <button
+                                onClick={() => handleUpdateReviewStatus(testi.id, 'rejected')}
+                                className="px-2 py-1 rounded-lg text-[10px] font-semibold bg-red-50 hover:bg-red-100 text-red-700 transition-colors cursor-pointer"
+                                title="Tolak review ini"
+                              >
+                                Tolak
+                              </button>
+                            )}
+
+                            <button
+                              onClick={() => handleStartEditReview(testi)}
+                              className="px-2 py-1 rounded-lg text-[10px] font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 transition-colors cursor-pointer"
+                              title="Edit review"
+                            >
+                              Edit
+                            </button>
+
+                            <button
+                              onClick={() => handleDeleteTestimonial(testi.id)}
+                              className="p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors cursor-pointer"
+                              title="Hapus permanen"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
                         </div>
                       </div>
-
-                      <p className="text-xs text-slate-700 italic mb-3">"{testi.content}"</p>
-                    </div>
-
-                    <div className="pt-3 border-t border-slate-100 flex items-center justify-between gap-2">
-                      <div>
-                        <span className="font-extrabold text-xs text-slate-900 block">{testi.userName}</span>
-                        <span className="text-[10px] text-slate-500">{testi.roleDetail || '-'}</span>
-                      </div>
-
-                      <div className="flex items-center gap-1.5">
-                        <button
-                          onClick={() => handleTogglePublishTestimonial(testi.id, testi.status)}
-                          className={`px-2.5 py-1 rounded-lg text-[10px] font-bold transition-all cursor-pointer ${
-                            testi.status === 'published'
-                              ? 'bg-amber-50 text-amber-700 hover:bg-amber-100'
-                              : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
-                          }`}
-                        >
-                          {testi.status === 'published' ? 'Draftkan' : 'Publikasikan'}
-                        </button>
-
-                        <button
-                          onClick={() => handleToggleConsentTestimonial(testi.id, testi.consentApproved)}
-                          className="px-2 py-1 rounded-lg text-[10px] font-semibold bg-slate-100 hover:bg-slate-200 text-slate-600 transition-colors"
-                          title="Ubah status persetujuan"
-                        >
-                          {testi.consentApproved ? 'Cabut Izin' : 'Beri Izin'}
-                        </button>
-
-                        <button
-                          onClick={() => handleDeleteTestimonial(testi.id)}
-                          className="p-1 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors"
-                          title="Hapus cerita"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
+                    );
+                  })}
+                </div>
+              );
+            })()}
           </div>
         )}
 
