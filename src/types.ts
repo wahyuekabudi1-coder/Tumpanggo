@@ -105,6 +105,7 @@ export interface Order {
   uniqueCode: number; // 3 digit (e.g. 1 to 99, randomized and padded)
   customerName: string;
   customerPhone: string;
+  customerPhoneMasked?: string;
   deliveryAddress: string;
   deliveryDetails: string;
   landmark: string;

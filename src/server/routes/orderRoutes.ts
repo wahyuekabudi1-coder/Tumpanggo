@@ -159,11 +159,133 @@ orderRouter.get('/:id/receipt', async (req: Request, res: Response) => {
   }
 });
 
-// Single order tracking (Public tracking with ID)
+/**
+ * Strict allowlist serializer for public order tracking (Lacak Order).
+ * Protects customer privacy by masking phone numbers across the network,
+ * stripping raw GPS coordinates, omitting raw payment proof image payloads,
+ * and stripping internal settlement/accounting fields.
+ */
+export function serializePublicOrderTracking(order: any) {
+  if (!order) return null;
+
+  // Mask phone number: e.g. "081234567899" -> "0812****899"
+  const rawPhone = String(order.customerPhone || '').trim();
+  let maskedPhone = '';
+  if (rawPhone.length >= 7) {
+    maskedPhone = rawPhone.substring(0, 4) + '****' + rawPhone.slice(-3);
+  } else if (rawPhone.length > 0) {
+    maskedPhone = rawPhone.substring(0, 2) + '****';
+  }
+
+  // Sanitize items with strict allowlist
+  const sanitizedItems = Array.isArray(order.items)
+    ? order.items.map((item: any) => ({
+        id: item.id || item.menuItemId || '',
+        menuItemId: item.menuItemId || item.id || '',
+        name: String(item.name || ''),
+        price: Number(item.price) || 0,
+        quantity: Number(item.quantity) || 1,
+        notes: item.notes ? String(item.notes) : ''
+      }))
+    : [];
+
+  const canonicalCode = order.orderNumber || order.id;
+  const cleanRef = String(canonicalCode).replace(/^ord_/, '').replace(/^TF-/, '').toUpperCase();
+  const receiptNumber = order.receiptNumber || (order.receipt?.receiptNumber) || `TG-RCP-${cleanRef}`;
+
+  return {
+    id: order.id,
+    orderNumber: canonicalCode,
+    createdAt: order.createdAt,
+    updatedAt: order.updatedAt,
+    status: order.status,
+    paymentStatus: order.paymentStatus,
+    paymentMethod: order.paymentMethod || 'MERCHANT_QRIS',
+    merchantId: order.merchantId,
+    merchantName: order.merchantName,
+    cookingTimeMinutes: typeof order.cookingTimeMinutes === 'number' ? order.cookingTimeMinutes : null,
+    driverName: order.driverName || null,
+    customerName: order.customerName,
+    customerPhone: maskedPhone,
+    customerPhoneMasked: maskedPhone,
+    deliveryAddress: order.deliveryAddress,
+    landmark: order.landmark || null,
+    deliveryDetails: order.deliveryDetails || null,
+    items: sanitizedItems,
+    subtotal: Number(order.subtotal) || 0,
+    deliveryFee: Number(order.deliveryFee) || 0,
+    serviceFee: Number(order.serviceFee) || 0,
+    uniqueCode: Number(order.uniqueCode) || 0,
+    total: Number(order.total) || 0,
+    receiptNumber: receiptNumber,
+    receipt: order.receipt ? {
+      receiptNumber: order.receipt.receiptNumber || receiptNumber,
+      orderNumber: canonicalCode,
+      issuedAt: order.receipt.issuedAt || order.paymentVerifiedAt || order.createdAt,
+      status: order.receipt.status || 'PAID',
+      paymentMethod: order.receipt.paymentMethod || 'MERCHANT_QRIS',
+      total: Number(order.receipt.total || order.total) || 0
+    } : null,
+    cancelReason: order.cancelReason || null,
+    paymentRejectionReason: order.paymentRejectionReason || null,
+    hasPaymentProof: Boolean(order.paymentProof && String(order.paymentProof).trim().length > 10),
+    paymentProofUrl: order.paymentProof ? `/api/orders/${order.id}/payment-proof` : null,
+    isPublicTracking: true
+  };
+}
+
+// Single order tracking & retrieval
+// Strict RBAC: Authenticated internal roles (Admin, Assigned Merchant, Assigned/Eligible Driver)
+// receive the full operational order entity. Public callers (Customer Lacak Order) receive
+// a sanitized, allowlisted PublicTrackingOrderDTO with masked phone and no private credentials/coordinates.
 orderRouter.get('/:id', async (req: Request, res: Response) => {
   const o = await foodDb.findOrder(req.params.id);
   if (!o) return res.status(404).json({ error: 'Pesanan tidak ditemukan. Periksa kembali kode order Anda.' });
-  res.json(o);
+
+  const user = req.user;
+
+  // 1. Authenticated ADMIN / MASTER_ADMIN: Full authorized operational access
+  if (user && (user.role === 'ADMIN' || user.role === 'MASTER_ADMIN')) {
+    return res.json(o);
+  }
+
+  // 2. Authenticated MERCHANT: Full operational access if order belongs to their store
+  if (user && user.role === 'MERCHANT') {
+    const merchantId = user.entityId || user.userId;
+    if (merchantId && o.merchantId === merchantId) {
+      return res.json(o);
+    }
+  }
+
+  // 3. Authenticated DRIVER (via JWT or verified x-driver-id header):
+  // Full operational access if assigned to this delivery or eligible for pickup broadcast
+  const headerDriverId = (req.headers['x-driver-id'] as string) || (req.query.driverId as string);
+  let verifiedDriverId = '';
+  if (user && user.role === 'DRIVER') {
+    verifiedDriverId = user.entityId || user.userId;
+  } else if (headerDriverId && typeof headerDriverId === 'string') {
+    const d = foodDb.getDriverById(headerDriverId.trim());
+    if (d) {
+      verifiedDriverId = d.id;
+    }
+  }
+
+  if (verifiedDriverId) {
+    const isAssigned = o.driverId === verifiedDriverId;
+    const isAvailableBroadcast = !o.driverId && [
+      OrderStatus.READY_FOR_PICKUP,
+      OrderStatus.COOKING,
+      OrderStatus.PAYMENT_VERIFIED
+    ].includes(o.status);
+
+    if (isAssigned || isAvailableBroadcast) {
+      return res.json(o);
+    }
+  }
+
+  // 4. Default for Customer / Public Tracking:
+  // Return allowlist-only Public Tracking DTO with masked customer phone, no raw coordinates, and no private proofs
+  return res.json(serializePublicOrderTracking(o));
 });
 
 // Dedicated endpoint to query order QRIS metadata and availability
@@ -271,9 +393,11 @@ orderRouter.get('/:id/payment-proof', async (req: Request, res: Response) => {
   }
 });
 
-// Customer order history by phone number
+// Customer order history by phone number - returns allowlisted, privacy-sanitized order list
 orderRouter.get('/customer/:phone', (req: Request, res: Response) => {
-  res.json(foodDb.getOrdersByCustomerPhone(req.params.phone));
+  const orders = foodDb.getOrdersByCustomerPhone(req.params.phone);
+  const sanitized = orders.map(o => serializePublicOrderTracking(o));
+  res.json(sanitized);
 });
 
 // Order creation - Recalculates official prices with structured stage diagnostics

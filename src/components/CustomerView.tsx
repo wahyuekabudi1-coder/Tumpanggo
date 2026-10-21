@@ -1296,7 +1296,7 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
   // Live order refresh
   const refreshActiveOrder = async (overrideId?: string | React.SyntheticEvent) => {
     const rawTarget = typeof overrideId === 'string' ? overrideId : trackingOrderId;
-    const targetId = String(rawTarget || '').trim().replace(/^#/, '');
+    const targetId = String(rawTarget || '').trim().replace(/^#+/, '').trim();
     if (!targetId) {
       setTrackingError('Masukkan kode order terlebih dahulu.');
       return;
@@ -1311,6 +1311,7 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
         setTrackingOrderId(order.orderNumber || order.id);
         setTrackingError(null);
       } else {
+        setActiveOrder(null);
         const errData = await res.json().catch(() => null);
         if (res.status === 404) {
           setTrackingError('Pesanan tidak ditemukan. Periksa kembali kode order Anda.');
@@ -4273,82 +4274,80 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
               >
                 <ArrowLeft className="w-5 h-5" />
               </button>
-              <h3 className="font-display font-bold text-lg text-slate-800">Detail & Pelacakan Pesanan</h3>
+              <h3 className="font-display font-bold text-lg text-slate-800">Lacak Order</h3>
             </div>
 
-            {/* Manual Refresh / Tracker input if no active order */}
-            {!activeOrder ? (
-              <div className="flex flex-col gap-4">
-                <form 
-                  onSubmit={(e) => {
-                    e.preventDefault();
-                    refreshActiveOrder();
-                  }}
-                  className="bg-white border border-slate-200 rounded-2xl p-5 sm:p-6 shadow-sm flex flex-col gap-4"
-                >
-                  <div>
-                    <h4 className="font-display font-bold text-base text-slate-800">Lacak Status Pesanan Makanan</h4>
-                    <p className="text-slate-500 text-xs leading-relaxed mt-1">
-                      Pantau proses memasak dan pengantaran pesanan secara langsung dengan memasukkan kode order Anda.
-                    </p>
-                  </div>
-                  <div className="flex flex-col gap-1.5">
-                    <label htmlFor="input-order-code" className="text-xs font-bold text-slate-700">
-                      Masukkan Kode Order
-                    </label>
-                    <div className="flex flex-col sm:flex-row gap-2">
-                      <input
-                        id="input-order-code"
-                        type="text"
-                        value={trackingOrderId}
-                        onChange={(e) => {
-                          setTrackingOrderId(e.target.value);
-                          if (trackingError) setTrackingError(null);
-                        }}
-                        placeholder="Contoh: TF-20261021-001"
-                        className="flex-1 bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs font-mono uppercase focus:outline-none focus:border-rose-500 focus:bg-white transition-colors"
-                      />
-                      <button
-                        type="submit"
-                        disabled={trackingLoading}
-                        className="px-5 py-3 bg-rose-600 hover:bg-rose-700 disabled:opacity-50 text-white font-bold rounded-xl text-xs flex items-center justify-center gap-2 cursor-pointer shadow-xs transition-colors shrink-0"
-                      >
-                        {trackingLoading ? (
-                          <>
-                            <RefreshCw className="w-4 h-4 animate-spin" />
-                            <span>Memeriksa...</span>
-                          </>
-                        ) : (
-                          <>
-                            <Search className="w-4 h-4" />
-                            <span>Lacak Pesanan</span>
-                          </>
-                        )}
-                      </button>
-                    </div>
-                  </div>
-                  {trackingError && (
-                    <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-rose-700 text-xs flex items-center gap-2">
-                      <AlertCircle className="w-4 h-4 shrink-0 text-rose-600" />
-                      <span className="font-medium">{trackingError}</span>
-                    </div>
-                  )}
-                </form>
-
-                {/* Secondary Option: Cari via WhatsApp */}
-                <div className="bg-slate-50 border border-slate-200/80 rounded-2xl p-4 flex flex-col sm:flex-row items-center justify-between gap-3 text-center sm:text-left">
-                  <div>
-                    <span className="text-xs font-bold text-slate-700 block">Lupa atau belum memiliki kode order?</span>
-                    <span className="text-[11px] text-slate-500">Anda dapat mencari daftar pesanan menggunakan nomor WhatsApp saat checkout.</span>
-                  </div>
+            {/* Input Form Lacak Order - Selalu tersedia untuk melacak pesanan kapan saja */}
+            <form 
+              onSubmit={(e) => {
+                e.preventDefault();
+                refreshActiveOrder(trackingOrderId);
+              }}
+              className="bg-white border border-slate-200 rounded-2xl p-5 sm:p-6 shadow-sm flex flex-col gap-4"
+            >
+              <div>
+                <h4 className="font-display font-bold text-base text-slate-800">Lacak Status Pesanan Makanan</h4>
+                <p className="text-slate-500 text-xs leading-relaxed mt-1">
+                  Pantau proses memasak dan pengantaran pesanan secara langsung dengan memasukkan kode order Anda.
+                </p>
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <label htmlFor="input-order-code" className="text-xs font-bold text-slate-700">
+                  Masukkan Kode Order
+                </label>
+                <div className="flex flex-col sm:flex-row gap-2">
+                  <input
+                    id="input-order-code"
+                    type="text"
+                    value={trackingOrderId}
+                    onChange={(e) => {
+                      setTrackingOrderId(e.target.value);
+                      if (trackingError) setTrackingError(null);
+                    }}
+                    placeholder="Contoh: TF-20261021-001"
+                    className="flex-1 bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs font-mono uppercase focus:outline-none focus:border-rose-500 focus:bg-white transition-colors"
+                  />
                   <button
-                    type="button"
-                    onClick={() => setActiveTab('history')}
-                    className="px-3.5 py-2 bg-white hover:bg-slate-100 border border-slate-200 text-slate-700 text-xs font-bold rounded-xl shadow-xs transition-colors cursor-pointer shrink-0"
+                    type="submit"
+                    disabled={trackingLoading}
+                    className="px-5 py-3 bg-rose-600 hover:bg-rose-700 disabled:opacity-50 text-white font-bold rounded-xl text-xs flex items-center justify-center gap-2 cursor-pointer shadow-xs transition-colors shrink-0"
                   >
-                    Cari via WhatsApp
+                    {trackingLoading ? (
+                      <>
+                        <RefreshCw className="w-4 h-4 animate-spin" />
+                        <span>Memeriksa...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Search className="w-4 h-4" />
+                        <span>Lacak Pesanan</span>
+                      </>
+                    )}
                   </button>
                 </div>
+              </div>
+              {trackingError && (
+                <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-rose-700 text-xs flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 shrink-0 text-rose-600" />
+                  <span className="font-medium">{trackingError}</span>
+                </div>
+              )}
+            </form>
+
+            {!activeOrder ? (
+              /* Secondary Option: Cari via WhatsApp jika belum ada pesanan aktif */
+              <div className="bg-slate-50 border border-slate-200/80 rounded-2xl p-4 flex flex-col sm:flex-row items-center justify-between gap-3 text-center sm:text-left">
+                <div>
+                  <span className="text-xs font-bold text-slate-700 block">Lupa atau belum memiliki kode order?</span>
+                  <span className="text-[11px] text-slate-500">Anda dapat mencari daftar pesanan menggunakan nomor WhatsApp saat checkout.</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('history')}
+                  className="px-3.5 py-2 bg-white hover:bg-slate-100 border border-slate-200 text-slate-700 text-xs font-bold rounded-xl shadow-xs transition-colors cursor-pointer shrink-0"
+                >
+                  Cari via WhatsApp
+                </button>
               </div>
             ) : (
               <div className="flex flex-col gap-4">
@@ -4583,7 +4582,7 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
                       <div>
                         <span className="text-slate-400">No WhatsApp:</span>
                         <span className="font-semibold text-slate-800 ml-1">
-                          {activeOrder.customerPhone ? activeOrder.customerPhone.substring(0, 4) + '****' + activeOrder.customerPhone.slice(-3) : '-'}
+                          {activeOrder.customerPhoneMasked || (activeOrder.customerPhone ? (activeOrder.customerPhone.includes('****') ? activeOrder.customerPhone : activeOrder.customerPhone.substring(0, 4) + '****' + activeOrder.customerPhone.slice(-3)) : '-')}
                         </span>
                       </div>
                     </div>
@@ -6006,8 +6005,8 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
         )}
       </main>
 
-      {/* Sticky Bottom Navigation Footer - Only displayed inside specific services */}
-      {homeSubView !== 'main' && (
+      {/* Sticky Bottom Navigation Footer */}
+      {(homeSubView !== 'main' || activeTab !== 'home') && (
         <nav className="fixed bottom-0 left-0 right-0 max-w-md mx-auto bg-white border-t border-slate-100 px-6 py-2.5 flex justify-between items-center z-[90] shadow-[0_-4px_12px_rgba(0,0,0,0.06)] rounded-t-3xl transition-all duration-300">
           {/* Beranda Layanan */}
           <button 
@@ -6036,6 +6035,7 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
             id="nav-track-order"
             onClick={() => {
               setActiveTab('tracking');
+              if (trackingError) setTrackingError(null);
             }}
             className={`flex flex-col items-center gap-1.5 flex-1 py-1 cursor-pointer transition-all ${
               (activeTab === 'tracking' || activeTab === 'history' || activeTab === 'payment')
@@ -6049,7 +6049,7 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
           >
             <Search className="w-5 h-5" />
             <span className="text-[10px] tracking-tight">
-              {homeSubView === 'food' ? 'Lacak Order' : homeSubView === 'shop' ? 'Lacak Pesanan' : 'Lacak Order'}
+              Lacak Order
             </span>
           </button>
 
@@ -6071,7 +6071,7 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
           >
             <UserPlus className="w-5 h-5" />
             <span className="text-[10px] tracking-tight">
-              {homeSubView === 'food' ? 'Mitra Tumpang Go' : homeSubView === 'shop' ? 'Mitra Niaga' : homeSubView === 'taxi' ? 'Driver Taxi' : 'Mitra Tumpang Go'}
+              {homeSubView === 'shop' ? 'Mitra Niaga' : homeSubView === 'taxi' ? 'Driver Taxi' : 'Mitra Tumpang Go'}
             </span>
           </button>
 
