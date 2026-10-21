@@ -70,9 +70,9 @@ async function runTests() {
   const originalMode = foodDb.getConfig().assignmentMode;
   await foodDb.updateConfig('ADMIN', { assignmentMode: 'MANUAL' as any });
 
-  // Mark payment verified and ready for pickup in MANUAL mode
+  // Mark payment verified in MANUAL mode
   await foodDb.updateOrder('ADMIN', testOrder.id, {
-    status: OrderStatus.READY_FOR_PICKUP,
+    status: OrderStatus.PAYMENT_VERIFIED,
     paymentStatus: PaymentStatus.PAID
   }, 'ADMIN');
 

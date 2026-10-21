@@ -330,7 +330,9 @@ export default function App() {
       if (targetMId) safeStorage.setItem('tumpang_active_merchant_id', targetMId);
       setMerchantPortalTab(initialTab || 'login');
     } else if (role === 'DRIVER') {
-      setActiveDriverId(id || (drivers[0]?.id || ''));
+      const targetDId = id || activeDriverId || safeStorage.getItem('tumpang_active_driver_id') || (drivers[0]?.id || '');
+      setActiveDriverId(targetDId);
+      if (targetDId) safeStorage.setItem('tumpang_active_driver_id', targetDId);
     }
     setShowAuthModal(false);
   };
@@ -344,6 +346,7 @@ export default function App() {
     safeStorage.removeItem('tumpang_is_master');
     safeStorage.removeItem('tumpang_current_portal');
     safeStorage.removeItem('tumpang_active_merchant_id');
+    safeStorage.removeItem('tumpang_active_driver_id');
     setActiveMerchantId('');
     setActiveDriverId('');
     setCurrentRole('CUSTOMER');

@@ -40,13 +40,19 @@ export default function DriverView({ driverId, onLogout, onSelectRole }: DriverV
   // Navigation & Filtering
   const [activeTab, setActiveTab] = useState<'dashboard' | 'history' | 'profile'>('dashboard');
   const [taskFilter, setTaskFilter] = useState<'all' | 'my' | 'available'>('all');
-  const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
+  const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
+  const [selectedOrderDetail, setSelectedOrderDetail] = useState<Order | null>(null);
 
   // Loading & Feedback
   const [loading, setLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
   const [toastMessage, setToastMessage] = useState<{ text: string; type: 'success' | 'error' | 'info' } | null>(null);
+
+  // References for zero-flicker state & async race condition prevention
+  const selectedOrderIdRef = useRef<string | null>(null);
+  const latestFetchIdRef = useRef<number>(0);
+  const isFirstMountRef = useRef<boolean>(true);
 
   // Photo Proof State
   const [deliveryProofUrl, setDeliveryProofUrl] = useState('');
@@ -69,14 +75,19 @@ export default function DriverView({ driverId, onLogout, onSelectRole }: DriverV
   }, []);
 
   // Fetch all driver data: profile, assigned tasks, available tasks
+  // CRITICAL ARCHITECTURE: fetchDriverData depends ONLY on [driverId].
+  // It NEVER depends on selectedOrder or selectedOrderId, avoiding infinite re-render loops.
   const fetchDriverData = useCallback(async (silent = false) => {
-    if (!silent) setLoading(true);
+    const fetchId = ++latestFetchIdRef.current;
+    if (isFirstMountRef.current && !silent) {
+      setLoading(true);
+    }
     setIsRefreshing(true);
 
     try {
       // 1. Profile
       const profRes = await fetch(`/api/drivers/${driverId}`);
-      if (profRes.ok) {
+      if (profRes.ok && fetchId === latestFetchIdRef.current) {
         const d: Driver = await profRes.json();
         setDriver(d);
       }
@@ -88,6 +99,8 @@ export default function DriverView({ driverId, onLogout, onSelectRole }: DriverV
         const rawOrders = await tasksRes.json();
         allOrders = extractArrayResponse<Order>(rawOrders, 'orders');
       }
+
+      if (fetchId !== latestFetchIdRef.current) return;
 
       const safeOrders = Array.isArray(allOrders) ? allOrders : [];
 
@@ -110,37 +123,71 @@ export default function DriverView({ driverId, onLogout, onSelectRole }: DriverV
 
       // 3. Available Broadcast Tasks (unassigned orders ready for pickup or being cooked)
       const availRes = await fetch(`/api/drivers/${driverId}/available-orders`).catch(() => null);
+      let parsedAvail: Order[] = [];
       if (availRes && availRes.ok) {
         const rawAvail = await availRes.json();
-        const parsedAvail = extractArrayResponse<Order>(rawAvail, 'orders');
-        setAvailableOrders(Array.isArray(parsedAvail) ? parsedAvail : []);
+        parsedAvail = extractArrayResponse<Order>(rawAvail, 'orders');
+        if (fetchId === latestFetchIdRef.current) {
+          setAvailableOrders(Array.isArray(parsedAvail) ? parsedAvail : []);
+        }
       }
 
-      // Sync selected order in view if open
-      if (selectedOrder) {
-        const updatedAssigned = safeOrders.find(o => o && o.id === selectedOrder.id);
-        if (updatedAssigned) {
-          setSelectedOrder(updatedAssigned);
+      // 4. Stable Order Detail Synchronization (Zero Flicker, No Re-render Loop)
+      const currentSelectedId = selectedOrderIdRef.current;
+      if (currentSelectedId && fetchId === latestFetchIdRef.current) {
+        let matching = active.find(o => o && o.id === currentSelectedId);
+        if (!matching) {
+          matching = past.find(o => o && o.id === currentSelectedId);
+        }
+        if (!matching && Array.isArray(parsedAvail)) {
+          matching = parsedAvail.find(o => o && o.id === currentSelectedId);
+        }
+
+        if (matching) {
+          setSelectedOrderDetail(prev => {
+            if (prev && prev.id === matching!.id && 
+                prev.status === matching!.status && 
+                prev.updatedAt === matching!.updatedAt &&
+                prev.driverId === matching!.driverId &&
+                prev.paymentStatus === matching!.paymentStatus) {
+              return prev;
+            }
+            return matching!;
+          });
         } else {
-          // Check if available
-          const availCheck = await fetch(`/api/orders/${selectedOrder.id}`).catch(() => null);
-          if (availCheck && availCheck.ok) {
-            const o = await availCheck.json();
-            setSelectedOrder(o);
-          }
+          // If not in lists (e.g. claimed by another driver or status changed), query single order
+          try {
+            const singleRes = await fetch(`/api/orders/${currentSelectedId}`);
+            if (singleRes.ok && fetchId === latestFetchIdRef.current) {
+              const freshOrder: Order = await singleRes.json();
+              setSelectedOrderDetail(prev => {
+                if (prev && prev.id === freshOrder.id && 
+                    prev.status === freshOrder.status && 
+                    prev.updatedAt === freshOrder.updatedAt &&
+                    prev.driverId === freshOrder.driverId &&
+                    prev.paymentStatus === freshOrder.paymentStatus) {
+                  return prev;
+                }
+                return freshOrder;
+              });
+            }
+          } catch {}
         }
       }
     } catch (err: any) {
       console.warn('[DriverView] Fetch data warning:', err?.message || err);
     } finally {
-      setLoading(false);
-      setIsRefreshing(false);
+      if (fetchId === latestFetchIdRef.current) {
+        isFirstMountRef.current = false;
+        setLoading(false);
+        setIsRefreshing(false);
+      }
     }
-  }, [driverId, selectedOrder]);
+  }, [driverId]);
 
   // Initial load & Polling (10s interval when window is active)
   useEffect(() => {
-    fetchDriverData();
+    fetchDriverData(false);
 
     const interval = setInterval(() => {
       if (document.visibilityState === 'visible' && navigator.onLine) {
@@ -163,7 +210,7 @@ export default function DriverView({ driverId, onLogout, onSelectRole }: DriverV
       window.removeEventListener('online', handleVisibility);
       if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
     };
-  }, [driverId, fetchDriverData]);
+  }, [fetchDriverData]);
 
   // Toggle Driver Online / Offline status
   const toggleOnline = async () => {
@@ -196,6 +243,23 @@ export default function DriverView({ driverId, onLogout, onSelectRole }: DriverV
     }
   };
 
+  // Stable Order Selection Handlers
+  const handleSelectOrder = (order: Order) => {
+    selectedOrderIdRef.current = order.id;
+    setSelectedOrderId(order.id);
+    setSelectedOrderDetail(order);
+    setDeliveryProofFile(null);
+    setDeliveryProofUrl('');
+  };
+
+  const handleCloseDetail = () => {
+    selectedOrderIdRef.current = null;
+    setSelectedOrderId(null);
+    setSelectedOrderDetail(null);
+    setDeliveryProofFile(null);
+    setDeliveryProofUrl('');
+  };
+
   // Action: Accept unassigned task atomically
   const handleAcceptTask = async (orderId: string) => {
     if (actionLoading) return;
@@ -213,10 +277,12 @@ export default function DriverView({ driverId, onLogout, onSelectRole }: DriverV
       if (res.ok && data?.success) {
         showToast(`Tugas #${orderId.replace(/^ord_/, '')} berhasil diterima! Segera ambil pesanan.`, 'success');
         setConfirmAcceptOrder(null);
-        await fetchDriverData(true);
         if (data.order) {
-          setSelectedOrder(data.order);
+          selectedOrderIdRef.current = data.order.id;
+          setSelectedOrderId(data.order.id);
+          setSelectedOrderDetail(data.order);
         }
+        await fetchDriverData(true);
       } else {
         showToast(data?.error || 'Gagal menerima tugas ini. Mungkin telah diambil kurir lain.', 'error');
       }
@@ -247,10 +313,8 @@ export default function DriverView({ driverId, onLogout, onSelectRole }: DriverV
 
       if (res.ok) {
         showToast('Pesanan berhasil diambil dari merchant! Hati-hati di jalan.', 'success');
+        setSelectedOrderDetail(prev => (prev && prev.id === orderId ? { ...prev, status: OrderStatus.ORDER_PICKED_UP } : prev));
         await fetchDriverData(true);
-        if (selectedOrder && selectedOrder.id === orderId) {
-          setSelectedOrder(prev => prev ? { ...prev, status: OrderStatus.ORDER_PICKED_UP } : null);
-        }
       } else {
         showToast(data?.error || 'Gagal mengonfirmasi pengambilan pesanan.', 'error');
       }
@@ -288,11 +352,11 @@ export default function DriverView({ driverId, onLogout, onSelectRole }: DriverV
       return;
     }
 
-    if (!selectedOrder || uploadLoading) return;
+    if (!selectedOrderDetail || uploadLoading) return;
     setUploadLoading(true);
 
     try {
-      const res = await fetch(`/api/orders/${selectedOrder.id}/upload-delivery`, {
+      const res = await fetch(`/api/orders/${selectedOrderDetail.id}/upload-delivery`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
@@ -307,7 +371,7 @@ export default function DriverView({ driverId, onLogout, onSelectRole }: DriverV
         showToast('Pengantaran selesai! Ongkir telah tercatat ke akun Anda.', 'success');
         setDeliveryProofUrl('');
         setDeliveryProofFile(null);
-        setSelectedOrder(null);
+        handleCloseDetail();
         await fetchDriverData(true);
         setActiveTab('history');
       } else {
@@ -462,12 +526,12 @@ export default function DriverView({ driverId, onLogout, onSelectRole }: DriverV
             </div>
 
             {/* Selected Single Order Detailed View */}
-            {selectedOrder ? (
+            {selectedOrderDetail ? (
               <div className="flex flex-col gap-3.5 animate-in fade-in duration-200">
                 {/* Back Button */}
                 <button 
-                  onClick={() => setSelectedOrder(null)}
-                  className="flex items-center gap-1.5 text-xs font-bold text-slate-600 hover:text-slate-900 self-start bg-white px-3 py-1.5 rounded-xl border border-slate-200 shadow-xs transition-colors"
+                  onClick={handleCloseDetail}
+                  className="flex items-center gap-1.5 text-xs font-bold text-slate-600 hover:text-slate-900 self-start bg-white px-3 py-1.5 rounded-xl border border-slate-200 shadow-xs transition-colors active:scale-95"
                 >
                   <ChevronRight className="w-4 h-4 rotate-180 text-slate-400" />
                   <span>Kembali ke Daftar Tugas</span>
@@ -481,8 +545,8 @@ export default function DriverView({ driverId, onLogout, onSelectRole }: DriverV
                       Peta Lokasi Pengantaran
                     </span>
                     <button
-                      onClick={() => openMapsNavigation(selectedOrder.deliveryAddress, selectedOrder.customerName)}
-                      className="text-[11px] font-bold text-emerald-700 hover:text-emerald-800 flex items-center gap-1 bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-200"
+                      onClick={() => openMapsNavigation(selectedOrderDetail.deliveryAddress, selectedOrderDetail.customerName)}
+                      className="text-[11px] font-bold text-emerald-700 hover:text-emerald-800 flex items-center gap-1 bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-200 active:scale-95"
                     >
                       <ExternalLink className="w-3 h-3" />
                       Buka Google Maps
@@ -493,8 +557,8 @@ export default function DriverView({ driverId, onLogout, onSelectRole }: DriverV
                     <MapPicker
                       readOnly={true}
                       markerLocations={[
-                        { lat: selectedOrder.latitude || -7.982, lng: selectedOrder.longitude || 112.631, label: selectedOrder.customerName, iconType: 'customer' },
-                        { lat: -7.9482, lng: 112.7612, label: selectedOrder.merchantName, iconType: 'merchant' }
+                        { lat: selectedOrderDetail.latitude || -7.982, lng: selectedOrderDetail.longitude || 112.631, label: selectedOrderDetail.customerName, iconType: 'customer' },
+                        { lat: -7.9482, lng: 112.7612, label: selectedOrderDetail.merchantName, iconType: 'merchant' }
                       ]}
                     />
                   </div>
@@ -504,22 +568,25 @@ export default function DriverView({ driverId, onLogout, onSelectRole }: DriverV
                 <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-xs flex flex-col gap-3.5">
                   <div className="flex justify-between items-center border-b border-slate-100 pb-2.5">
                     <div className="flex items-center gap-1.5">
-                      <span className="text-xs font-bold text-slate-900 font-mono">#{selectedOrder.id.replace(/^ord_/, '')}</span>
-                      <span className="text-[10px] text-slate-400 font-mono">({new Date(selectedOrder.createdAt).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })})</span>
+                      <span className="text-xs font-bold text-slate-900 font-mono">#{selectedOrderDetail.id.replace(/^ord_/, '')}</span>
+                      <span className="text-[10px] text-slate-400 font-mono">({new Date(selectedOrderDetail.createdAt).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })})</span>
                     </div>
                     <span className={`text-[10px] font-extrabold px-2.5 py-1 rounded-lg border ${
-                      selectedOrder.status === OrderStatus.READY_FOR_PICKUP 
+                      selectedOrderDetail.status === OrderStatus.READY_FOR_PICKUP 
                         ? 'bg-indigo-50 text-indigo-700 border-indigo-200' 
-                        : selectedOrder.status === OrderStatus.ORDER_PICKED_UP
+                        : selectedOrderDetail.status === OrderStatus.ORDER_PICKED_UP
                           ? 'bg-sky-50 text-sky-700 border-sky-200'
-                          : selectedOrder.status === OrderStatus.COOKING
+                          : selectedOrderDetail.status === OrderStatus.COOKING
                             ? 'bg-amber-50 text-amber-800 border-amber-200'
-                            : 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                            : selectedOrderDetail.status === OrderStatus.COMPLETED || selectedOrderDetail.status === OrderStatus.DELIVERED
+                              ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                              : 'bg-slate-50 text-slate-700 border-slate-200'
                     }`}>
-                      {selectedOrder.status === OrderStatus.READY_FOR_PICKUP ? 'SIAP JEMPUT 🔔' :
-                       selectedOrder.status === OrderStatus.ORDER_PICKED_UP ? 'SEDANG DIANTAR 🛵' :
-                       selectedOrder.status === OrderStatus.COOKING ? 'SEDANG DIMASAK ⏳' :
-                       selectedOrder.status}
+                      {selectedOrderDetail.status === OrderStatus.READY_FOR_PICKUP ? 'SIAP JEMPUT 🔔' :
+                       selectedOrderDetail.status === OrderStatus.ORDER_PICKED_UP ? 'SEDANG DIANTAR 🛵' :
+                       selectedOrderDetail.status === OrderStatus.COOKING ? 'SEDANG DIMASAK ⏳' :
+                       selectedOrderDetail.status === OrderStatus.COMPLETED || selectedOrderDetail.status === OrderStatus.DELIVERED ? 'SELESAI DIANTAR ✅' :
+                       selectedOrderDetail.status}
                     </span>
                   </div>
 
@@ -533,15 +600,15 @@ export default function DriverView({ driverId, onLogout, onSelectRole }: DriverV
                           Ambil di Toko / Merchant
                         </span>
                         <button
-                          onClick={() => openMapsNavigation(selectedOrder.merchantName, selectedOrder.merchantName)}
-                          className="text-[10px] font-bold text-slate-600 hover:text-slate-900 flex items-center gap-1"
+                          onClick={() => openMapsNavigation(selectedOrderDetail.merchantName, selectedOrderDetail.merchantName)}
+                          className="text-[10px] font-bold text-slate-600 hover:text-slate-900 flex items-center gap-1 active:scale-95"
                         >
                           <ExternalLink className="w-2.5 h-2.5" />
                           Rute Toko
                         </button>
                       </div>
-                      <span className="text-xs font-bold text-slate-900">{selectedOrder.merchantName}</span>
-                      <span className="text-[11px] text-slate-500">Estimasi Memasak: {selectedOrder.cookingTimeMinutes || 25} menit</span>
+                      <span className="text-xs font-bold text-slate-900">{selectedOrderDetail.merchantName}</span>
+                      <span className="text-[11px] text-slate-500">Estimasi Memasak: {selectedOrderDetail.cookingTimeMinutes || 25} menit</span>
                     </div>
 
                     {/* Customer Destination Step */}
@@ -553,7 +620,7 @@ export default function DriverView({ driverId, onLogout, onSelectRole }: DriverV
                         </span>
                         <div className="flex items-center gap-2">
                           <a
-                            href={`https://wa.me/${selectedOrder.customerPhone.replace(/\D/g, '')}?text=Halo%20${encodeURIComponent(selectedOrder.customerName)},%20saya%20kurir%20TumpangGo%20mengantarkan%20pesanan%20Anda.`}
+                            href={`https://wa.me/${selectedOrderDetail.customerPhone.replace(/\D/g, '')}?text=Halo%20${encodeURIComponent(selectedOrderDetail.customerName)},%20saya%20kurir%20TumpangGo%20mengantarkan%20pesanan%20Anda.`}
                             target="_blank"
                             rel="noopener noreferrer"
                             className="px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 text-[10px] font-bold border border-emerald-200 flex items-center gap-1 hover:bg-emerald-100"
@@ -562,7 +629,7 @@ export default function DriverView({ driverId, onLogout, onSelectRole }: DriverV
                             WhatsApp
                           </a>
                           <a
-                            href={`tel:${selectedOrder.customerPhone}`}
+                            href={`tel:${selectedOrderDetail.customerPhone}`}
                             className="px-2 py-0.5 rounded bg-sky-50 text-sky-700 text-[10px] font-bold border border-sky-200 flex items-center gap-1 hover:bg-sky-100"
                           >
                             <Phone className="w-2.5 h-2.5" />
@@ -570,11 +637,11 @@ export default function DriverView({ driverId, onLogout, onSelectRole }: DriverV
                           </a>
                         </div>
                       </div>
-                      <span className="text-xs font-bold text-slate-900">{selectedOrder.customerName} ({selectedOrder.customerPhone})</span>
+                      <span className="text-xs font-bold text-slate-900">{selectedOrderDetail.customerName} ({selectedOrderDetail.customerPhone})</span>
                       <p className="text-[11px] text-slate-600 leading-relaxed bg-white p-2 rounded-lg border border-slate-100 mt-0.5">
-                        <span className="font-semibold text-slate-800">Alamat:</span> {selectedOrder.deliveryAddress}
-                        {selectedOrder.landmark && (
-                          <span className="block text-slate-500 mt-0.5 font-medium"><span className="font-semibold text-slate-800">Patokan:</span> {selectedOrder.landmark}</span>
+                        <span className="font-semibold text-slate-800">Alamat:</span> {selectedOrderDetail.deliveryAddress}
+                        {selectedOrderDetail.landmark && (
+                          <span className="block text-slate-500 mt-0.5 font-medium"><span className="font-semibold text-slate-800">Patokan:</span> {selectedOrderDetail.landmark}</span>
                         )}
                       </p>
                     </div>
@@ -583,21 +650,40 @@ export default function DriverView({ driverId, onLogout, onSelectRole }: DriverV
                     <div className="p-3 rounded-xl bg-emerald-50/50 border border-emerald-200/60 flex justify-between items-center">
                       <div className="flex flex-col">
                         <span className="text-[10px] text-emerald-800 font-extrabold uppercase tracking-wider">Ongkir Kurir (Kecamatan Tumpang)</span>
-                        <span className="text-xs text-slate-600 mt-0.5">{selectedOrder.items?.length || 0} item menu makanan</span>
+                        <span className="text-xs text-slate-600 mt-0.5">{selectedOrderDetail.items?.length || 0} item menu makanan</span>
                       </div>
                       <span className="text-sm font-extrabold text-emerald-700">
-                        Rp {(selectedOrder.deliveryFee || 5000).toLocaleString('id-ID')}
+                        Rp {(selectedOrderDetail.deliveryFee || 5000).toLocaleString('id-ID')}
                       </span>
                     </div>
                   </div>
 
                   {/* ACTION BUTTON WORKFLOW - Single Contextual Action */}
                   <div className="pt-2 border-t border-slate-100">
+
+                    {/* CASE 0: Claimed by another driver */}
+                    {selectedOrderDetail.driverId && selectedOrderDetail.driverId !== driver?.id && (
+                      <div className="p-3.5 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-800 flex flex-col gap-2">
+                        <div className="flex items-center gap-2 font-bold text-rose-900">
+                          <AlertCircle className="w-4 h-4 text-rose-600 flex-shrink-0" />
+                          <span>Tugas Ini Telah Diambil Kurir Lain</span>
+                        </div>
+                        <p className="text-[11px] text-rose-700 leading-relaxed">
+                          Pesanan ini telah diklaim oleh kurir {selectedOrderDetail.driverName || selectedOrderDetail.driverId}. Anda dapat kembali ke daftar tugas untuk memilih pesanan lainnya.
+                        </p>
+                        <button
+                          onClick={handleCloseDetail}
+                          className="self-start mt-1 px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-lg text-xs transition-colors active:scale-95"
+                        >
+                          Kembali ke Daftar Tugas
+                        </button>
+                      </div>
+                    )}
                     
                     {/* CASE 1: Unassigned task -> Accept Task */}
-                    {!selectedOrder.driverId && (
+                    {!selectedOrderDetail.driverId && (
                       <button
-                        onClick={() => setConfirmAcceptOrder(selectedOrder)}
+                        onClick={() => setConfirmAcceptOrder(selectedOrderDetail)}
                         disabled={actionLoading || !driver?.online}
                         className={`w-full py-3.5 font-bold rounded-xl text-xs transition-all shadow-sm flex items-center justify-center gap-2 ${
                           !driver?.online
@@ -611,8 +697,8 @@ export default function DriverView({ driverId, onLogout, onSelectRole }: DriverV
                     )}
 
                     {/* CASE 2: Assigned task, waiting cooking -> Waiting indicator */}
-                    {selectedOrder.driverId === driver?.id && 
-                     (selectedOrder.status === OrderStatus.COOKING || selectedOrder.status === OrderStatus.PAYMENT_VERIFIED) && (
+                    {selectedOrderDetail.driverId === driver?.id && 
+                     (selectedOrderDetail.status === OrderStatus.COOKING || selectedOrderDetail.status === OrderStatus.PAYMENT_VERIFIED) && (
                       <div className="bg-amber-50 border border-amber-200 text-amber-900 p-3 rounded-xl text-xs flex items-center justify-center gap-2 text-center font-bold">
                         <Clock className="w-4 h-4 text-amber-600 animate-spin" />
                         <span>Menunggu Makanan Selesai Dimasak oleh Toko...</span>
@@ -620,9 +706,9 @@ export default function DriverView({ driverId, onLogout, onSelectRole }: DriverV
                     )}
 
                     {/* CASE 3: Assigned task & READY_FOR_PICKUP -> Confirm Pickup */}
-                    {selectedOrder.driverId === driver?.id && selectedOrder.status === OrderStatus.READY_FOR_PICKUP && (
+                    {selectedOrderDetail.driverId === driver?.id && selectedOrderDetail.status === OrderStatus.READY_FOR_PICKUP && (
                       <button
-                        onClick={() => handlePickUpOrder(selectedOrder.id)}
+                        onClick={() => handlePickUpOrder(selectedOrderDetail.id)}
                         disabled={actionLoading}
                         className="w-full py-3.5 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-xl text-xs transition-all shadow-sm flex items-center justify-center gap-2 active:scale-[0.98]"
                       >
@@ -632,7 +718,7 @@ export default function DriverView({ driverId, onLogout, onSelectRole }: DriverV
                     )}
 
                     {/* CASE 4: Assigned task & ORDER_PICKED_UP -> Complete with Photo upload */}
-                    {selectedOrder.driverId === driver?.id && selectedOrder.status === OrderStatus.ORDER_PICKED_UP && (
+                    {selectedOrderDetail.driverId === driver?.id && selectedOrderDetail.status === OrderStatus.ORDER_PICKED_UP && (
                       <form onSubmit={handleCompleteDelivery} className="flex flex-col gap-3">
                         <div className="flex items-center justify-between">
                           <span className="text-[11px] text-slate-700 font-extrabold uppercase tracking-wide flex items-center gap-1">
@@ -700,6 +786,19 @@ export default function DriverView({ driverId, onLogout, onSelectRole }: DriverV
                         </button>
                       </form>
                     )}
+
+                    {/* CASE 5: Already completed or delivered */}
+                    {(selectedOrderDetail.status === OrderStatus.COMPLETED || selectedOrderDetail.status === OrderStatus.DELIVERED) && (
+                      <div className="p-3.5 bg-emerald-50 border border-emerald-200 rounded-xl text-xs text-emerald-800 flex items-center justify-between">
+                        <div className="flex items-center gap-2 font-bold">
+                          <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                          <span>Pengantaran Selesai Tercatat</span>
+                        </div>
+                        <span className="text-[11px] font-mono text-emerald-700 font-bold">
+                          + Rp {(selectedOrderDetail.deliveryFee || 5000).toLocaleString('id-ID')}
+                        </span>
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
@@ -753,7 +852,7 @@ export default function DriverView({ driverId, onLogout, onSelectRole }: DriverV
                       return (
                         <div
                           key={order.id}
-                          onClick={() => setSelectedOrder(order)}
+                          onClick={() => handleSelectOrder(order)}
                           className="bg-white border border-slate-200 hover:border-emerald-300 p-3.5 rounded-2xl shadow-xs transition-all cursor-pointer flex flex-col gap-2.5 active:scale-[0.99]"
                         >
                           <div className="flex justify-between items-center border-b border-slate-100 pb-2">
@@ -841,7 +940,11 @@ export default function DriverView({ driverId, onLogout, onSelectRole }: DriverV
             ) : (
               <div className="flex flex-col gap-2.5">
                 {historyOrders.map(order => (
-                  <div key={order.id} className="bg-white border border-slate-200 rounded-2xl p-3.5 shadow-xs flex flex-col gap-2">
+                  <div 
+                    key={order.id} 
+                    onClick={() => handleSelectOrder(order)}
+                    className="bg-white border border-slate-200 hover:border-emerald-300 rounded-2xl p-3.5 shadow-xs flex flex-col gap-2 cursor-pointer transition-all active:scale-[0.99]"
+                  >
                     <div className="flex justify-between items-center text-xs">
                       <span className="font-mono text-slate-400 text-[11px] font-bold">#{order.id.replace(/^ord_/, '')}</span>
                       <span className={`px-2 py-0.5 rounded text-[9px] font-extrabold uppercase ${
@@ -1019,7 +1122,7 @@ export default function DriverView({ driverId, onLogout, onSelectRole }: DriverV
       <nav className="fixed bottom-0 left-0 right-0 max-w-md mx-auto bg-white border-t border-slate-200 flex justify-around p-2 z-40 shadow-lg">
         <button
           onClick={() => {
-            setSelectedOrder(null);
+            handleCloseDetail();
             setActiveTab('dashboard');
           }}
           className={`flex flex-col items-center gap-1 text-xs font-bold py-1 px-3 rounded-xl transition-all ${
@@ -1032,7 +1135,7 @@ export default function DriverView({ driverId, onLogout, onSelectRole }: DriverV
 
         <button
           onClick={() => {
-            setSelectedOrder(null);
+            handleCloseDetail();
             setActiveTab('history');
           }}
           className={`flex flex-col items-center gap-1 text-xs font-bold py-1 px-3 rounded-xl transition-all ${
@@ -1045,7 +1148,7 @@ export default function DriverView({ driverId, onLogout, onSelectRole }: DriverV
 
         <button
           onClick={() => {
-            setSelectedOrder(null);
+            handleCloseDetail();
             setActiveTab('profile');
           }}
           className={`flex flex-col items-center gap-1 text-xs font-bold py-1 px-3 rounded-xl transition-all ${

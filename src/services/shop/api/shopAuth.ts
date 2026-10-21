@@ -30,9 +30,17 @@ declare global {
  * Issue signed HMAC-SHA256 token for Shop Admin
  */
 export function createShopAuthToken(user: { userId: string; email?: string; role?: 'SHOP_ADMIN' | 'SHOP_CUSTOMER' }, expiresInHours = 24): string {
-  const secret = shopEnv.auth.jwtSecret;
-  if (!secret || secret.length < 32) {
-    throw new Error('SHOP_AUTH_SECRET belum dikonfigurasi dengan aman (minimal 32 karakter).');
+  const secret = shopEnv.auth.jwtSecret || (process.env.SHOP_AUTH_SECRET || '').trim();
+  let effectiveSecret = secret;
+
+  if (shopEnv.isProduction) {
+    if (!secret || secret.length < 32 || secret.includes('fallback') || secret.includes('shop_secret')) {
+      throw new Error('Gagal menerbitkan token Shop: SHOP_AUTH_SECRET belum dikonfigurasi untuk lingkungan produksi (wajib minimal 32 karakter dan bukan fallback).');
+    }
+  } else {
+    if (!effectiveSecret || effectiveSecret.length < 32) {
+      effectiveSecret = 'shop_secret_fallback_dev_min_32_characters_ok';
+    }
   }
 
   const header = Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).toString('base64url');
@@ -47,7 +55,7 @@ export function createShopAuthToken(user: { userId: string; email?: string; role
   ).toString('base64url');
 
   const signature = crypto
-    .createHmac('sha256', secret)
+    .createHmac('sha256', effectiveSecret)
     .update(`${header}.${payload}`)
     .digest('base64url');
 
@@ -65,8 +73,12 @@ export function verifyShopAuthToken(token: string): ShopAuthUser | null {
     if (parts.length !== 3) return null;
     const [header, payload, signature] = parts;
 
-    const secret = shopEnv.auth.jwtSecret;
+    const secret = shopEnv.auth.jwtSecret || (process.env.SHOP_AUTH_SECRET || '').trim();
     if (!secret) return null;
+
+    if (shopEnv.isProduction && (secret.length < 32 || secret.includes('fallback') || secret.includes('shop_secret'))) {
+      return null;
+    }
 
     const expectedSig = crypto
       .createHmac('sha256', secret)

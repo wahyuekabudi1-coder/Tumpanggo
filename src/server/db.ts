@@ -1678,7 +1678,9 @@ export class FoodDatabase {
 
     if (updates.status === OrderStatus.PAYMENT_VERIFIED || updates.paymentStatus === PaymentStatus.PAID) {
       updates.paymentStatus = PaymentStatus.PAID;
-      updates.status = OrderStatus.PAYMENT_VERIFIED;
+      if (!updates.status || updates.status === OrderStatus.WAITING_PAYMENT || updates.status === OrderStatus.WAITING_PAYMENT_VERIFICATION) {
+        updates.status = OrderStatus.PAYMENT_VERIFIED;
+      }
       updates.paymentVerifiedAt = updates.paymentVerifiedAt || new Date().toISOString();
       if ((role === 'ADMIN' || role === 'MASTER_ADMIN' || role === 'SYSTEM') && userId) {
         updates.paymentVerifiedBy = userId;

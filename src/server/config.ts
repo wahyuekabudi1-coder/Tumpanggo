@@ -41,10 +41,13 @@ if (fs.existsSync(localEnvPath)) {
   loadEnvExplicit(localEnvPath);
 }
 
+// Production detection for credential safety
+const isProductionRuntime = process.env.NODE_ENV === 'production' && !process.env.VERCEL_DEV;
+
 // Determine runtime JWT Secret
 let runtimeJwtSecret = (process.env.FOOD_AUTH_SECRET || '').trim();
 if (!runtimeJwtSecret || runtimeJwtSecret.length < 32) {
-  runtimeJwtSecret = 'dev_secret_fallback_do_not_use_in_prod_min_32_characters_long';
+  runtimeJwtSecret = isProductionRuntime ? '' : 'dev_secret_fallback_do_not_use_in_prod_min_32_characters_long';
 }
 
 // Serverless / Vercel filesystem adaptation
@@ -61,9 +64,6 @@ function cleanEnvSecret(val?: string, fallback = ''): string {
   }
   return clean || fallback;
 }
-
-// Production detection for credential safety
-const isProductionRuntime = process.env.NODE_ENV === 'production' && !process.env.VERCEL_DEV;
 
 // Security & Authentication Configuration
 let runtimeAdminPassword = cleanEnvSecret(process.env.FOOD_ADMIN_PASSWORD, isProductionRuntime ? '' : 'TumpangGoAdmin#2026');

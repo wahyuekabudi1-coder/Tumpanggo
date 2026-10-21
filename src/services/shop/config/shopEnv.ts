@@ -55,7 +55,9 @@ const runtimeShopAdminPassword = (process.env.SHOP_ADMIN_PASSWORD || 'TumpangSho
 
 let runtimeShopAuthSecret = (process.env.SHOP_AUTH_SECRET || '').trim();
 if (!runtimeShopAuthSecret || runtimeShopAuthSecret.length < 32) {
-  runtimeShopAuthSecret = 'shop_secret_fallback_dev_min_32_characters_ok';
+  runtimeShopAuthSecret = process.env.NODE_ENV === 'production' 
+    ? '' 
+    : 'shop_secret_fallback_dev_min_32_characters_ok';
 }
 
 // Dedicated Port for Standalone Shop Microservice
