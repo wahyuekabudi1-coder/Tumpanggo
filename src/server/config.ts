@@ -84,7 +84,7 @@ function resolveServerPort(): number {
     const parsed = parseInt(process.env.FOOD_PORT, 10);
     if (!isNaN(parsed) && parsed > 0) return parsed;
   }
-  if (process.env.PORT && process.env.PORT !== '8080') {
+  if (process.env.NODE_ENV === 'production' && process.env.PORT) {
     const parsed = parseInt(process.env.PORT, 10);
     if (!isNaN(parsed) && parsed > 0) return parsed;
   }
