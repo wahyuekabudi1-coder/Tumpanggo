@@ -11,7 +11,7 @@ import path from 'path';
 import {
   Merchant, Category, MenuItem, Order, Driver, Settlement, AuditLog, SystemConfig,
   OrderStatus, PaymentStatus, SettlementStatus, AssignmentMode, PartnerRegistration,
-  Testimonial, AppRole
+  Testimonial, AppRole, OrderReceipt
 } from '../types';
 import { foodConfig, getMasterAccountCredentials } from './config';
 import { hashPassword, verifyPassword } from './auth';
@@ -1301,6 +1301,27 @@ export class FoodDatabase {
         order.merchantQrisImage = merchant.qrisImage;
       }
     }
+    if (order && (order.paymentStatus === PaymentStatus.PAID || [OrderStatus.PAYMENT_VERIFIED, OrderStatus.COOKING, OrderStatus.READY_FOR_PICKUP, OrderStatus.ORDER_PICKED_UP, OrderStatus.DELIVERED, OrderStatus.COMPLETED].includes(order.status)) && !order.receipt) {
+      const receiptNumber = order.receiptNumber || `TG-RCP-${order.id.replace(/^ord_/, '').toUpperCase()}`;
+      const issuedAt = order.paymentVerifiedAt || order.updatedAt || order.createdAt;
+      order.receiptNumber = receiptNumber;
+      order.receipt = {
+        receiptNumber,
+        orderId: order.id,
+        issuedAt,
+        confirmedBy: order.paymentVerifiedBy || 'Admin TumpangGo',
+        paymentMethod: order.paymentMethod || 'MERCHANT_QRIS',
+        transactionRef: order.artopayPaymentId || `QRIS-TG-${order.id.replace(/^ord_/, '').toUpperCase()}`,
+        subtotal: order.subtotal,
+        deliveryFee: order.deliveryFee,
+        serviceFee: order.serviceFee,
+        uniqueCode: order.uniqueCode || 0,
+        total: order.total,
+        customerName: order.customerName,
+        merchantName: order.merchantName,
+        status: 'PAID'
+      };
+    }
     return order ? normalizeOrderDeliveryFee(order) : undefined;
   }
 
@@ -1479,8 +1500,29 @@ export class FoodDatabase {
     if (order.status === OrderStatus.EXPIRED) {
       throw new Error('Pesanan telah kedaluwarsa. Pembayaran kedaluwarsa tidak dapat diverifikasi secara otomatis.');
     }
-    if (order.paymentStatus === PaymentStatus.PAID && order.status === OrderStatus.PAYMENT_VERIFIED) {
-      return order; // Idempotent
+
+    const receiptNumber = order.receiptNumber || `TG-RCP-${order.id.replace(/^ord_/, '').toUpperCase()}`;
+    const issuedAt = order.paymentVerifiedAt || new Date().toISOString();
+    const transactionRef = order.artopayPaymentId || `QRIS-TG-${order.id.replace(/^ord_/, '').toUpperCase()}`;
+    const receipt: OrderReceipt = order.receipt || {
+      receiptNumber,
+      orderId: order.id,
+      issuedAt,
+      confirmedBy: adminId || 'admin_tumpang',
+      paymentMethod: order.paymentMethod || 'MERCHANT_QRIS',
+      transactionRef,
+      subtotal: order.subtotal,
+      deliveryFee: order.deliveryFee,
+      serviceFee: order.serviceFee,
+      uniqueCode: order.uniqueCode || 0,
+      total: order.total,
+      customerName: order.customerName,
+      merchantName: order.merchantName,
+      status: 'PAID'
+    };
+
+    if (order.paymentStatus === PaymentStatus.PAID && order.status === OrderStatus.PAYMENT_VERIFIED && order.receipt) {
+      return order; // Idempotent: already verified with existing receipt
     }
 
     const updated = await this.updateOrder(
@@ -1489,12 +1531,14 @@ export class FoodDatabase {
       {
         status: OrderStatus.PAYMENT_VERIFIED,
         paymentStatus: PaymentStatus.PAID,
-        paymentVerifiedAt: new Date().toISOString(),
-        paymentVerifiedBy: adminId
+        paymentVerifiedAt: issuedAt,
+        paymentVerifiedBy: adminId,
+        receiptNumber,
+        receipt
       },
       'ADMIN'
     );
-    this.log(adminId, `Admin ${adminId} memverifikasi pembayaran LUNAS untuk pesanan #${order.id} (Total: Rp ${order.total.toLocaleString('id-ID')})`, 'ADMIN');
+    this.log(adminId, `Admin ${adminId} memverifikasi pembayaran LUNAS & menerbitkan receipt #${receiptNumber} untuk pesanan #${order.id} (Total: Rp ${order.total.toLocaleString('id-ID')})`, 'ADMIN');
     return updated;
   }
 

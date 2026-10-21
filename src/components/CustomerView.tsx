@@ -23,8 +23,9 @@ import {
   Download, Smartphone, Info, Home, UserPlus, Bike, Users, XCircle, Key, ShieldCheck,
   Wifi, Utensils, Car, Wallet, QrCode, Send, CreditCard, ArrowUpRight, ArrowDownLeft,
   ExternalLink, Globe, Lock, Crown, Sparkles, Building2, BadgeCheck, Award, TrendingUp, ChevronLeft, ChevronRight, Heart, AlertCircle, ZoomIn, Upload,
-  BookOpen, HelpCircle, ChevronDown, ChevronUp
+  BookOpen, HelpCircle, ChevronDown, ChevronUp, Receipt
 } from 'lucide-react';
+import EReceiptModal from './EReceiptModal.tsx';
 
 interface CustomerViewProps {
   onSwitchView?: (view: string) => void;
@@ -525,6 +526,7 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
   const [proofUploadError, setProofUploadError] = useState<string | null>(null);
   const [proofUploadSuccess, setProofUploadSuccess] = useState<string | null>(null);
   const [proofZoomModalImage, setProofZoomModalImage] = useState<string | null>(null);
+  const [showReceiptModal, setShowReceiptModal] = useState<boolean>(false);
   // Dedicated granular states for QRIS loading, fallback stages, and bounded retries
   const [qrisImageStage, setQrisImageStage] = useState<'primary' | 'fallback'>('primary');
   const [qrisRetryCount, setQrisRetryCount] = useState<number>(0);
@@ -3849,17 +3851,27 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
                       </p>
                     </div>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setTrackingOrderId(activeOrder.id);
-                      setActiveTab('tracking');
-                    }}
-                    className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold rounded-xl text-xs flex items-center justify-center gap-2 shadow-xs transition-all cursor-pointer"
-                  >
-                    <span>Pantau Status Pengantaran Pesanan</span>
-                    <ArrowRight className="w-4 h-4" />
-                  </button>
+                  <div className="flex flex-col sm:flex-row gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setShowReceiptModal(true)}
+                      className="flex-1 py-2.5 px-3 bg-slate-900 hover:bg-slate-800 text-white font-extrabold rounded-xl text-xs flex items-center justify-center gap-1.5 shadow-xs transition-all cursor-pointer"
+                    >
+                      <Receipt className="w-4 h-4 text-amber-400" />
+                      <span>Lihat E-Receipt Resmi (PDF)</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setTrackingOrderId(activeOrder.id);
+                        setActiveTab('tracking');
+                      }}
+                      className="flex-1 py-2.5 px-3 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold rounded-xl text-xs flex items-center justify-center gap-1.5 shadow-xs transition-all cursor-pointer"
+                    >
+                      <span>Pantau Pengantaran</span>
+                      <ArrowRight className="w-4 h-4" />
+                    </button>
+                  </div>
                 </div>
               )}
 
@@ -4229,6 +4241,55 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
                     </div>
                   </div>
                 </div>
+
+                {/* Official E-Receipt Banner & Access (Only shown if payment is verified/paid) */}
+                {Boolean(
+                  activeOrder.paymentStatus === PaymentStatus.PAID || 
+                  [OrderStatus.PAYMENT_VERIFIED, OrderStatus.COOKING, OrderStatus.READY_FOR_PICKUP, OrderStatus.ORDER_PICKED_UP, OrderStatus.DELIVERED, OrderStatus.COMPLETED].includes(activeOrder.status)
+                ) && (
+                  <div className="bg-gradient-to-r from-emerald-50 via-teal-50 to-emerald-50 border-2 border-emerald-300 rounded-2xl p-4 shadow-xs flex flex-col gap-3">
+                    <div className="flex items-start justify-between border-b border-emerald-200/70 pb-2.5">
+                      <div className="flex items-center gap-2.5">
+                        <div className="w-10 h-10 rounded-xl bg-emerald-600 text-white flex items-center justify-center shadow-xs shrink-0">
+                          <Receipt className="w-5 h-5" />
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="font-display font-extrabold text-sm text-emerald-950">E-Receipt Resmi TumpangGo</span>
+                            <span className="bg-emerald-600 text-white text-[9px] font-black uppercase px-2 py-0.5 rounded-full tracking-wider">LUNAS</span>
+                          </div>
+                          <p className="text-[11px] text-emerald-800 font-mono font-medium mt-0.5">
+                            No. Bukti: <span className="font-bold">{activeOrder.receiptNumber || activeOrder.receipt?.receiptNumber || `TG-RCP-${activeOrder.id.replace(/^ord_/, '').toUpperCase()}`}</span>
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2 text-xs bg-white/90 p-3 rounded-xl border border-emerald-100">
+                      <div>
+                        <span className="text-slate-400 block text-[10px] font-medium">Status Pembayaran:</span>
+                        <span className="font-bold text-emerald-700 flex items-center gap-1 mt-0.5">
+                          <ShieldCheck className="w-3.5 h-3.5" /> Terverifikasi Admin
+                        </span>
+                      </div>
+                      <div>
+                        <span className="text-slate-400 block text-[10px] font-medium">Total Pembayaran:</span>
+                        <span className="font-bold text-emerald-800 font-mono text-sm mt-0.5 block">
+                          Rp {activeOrder.total.toLocaleString('id-ID')}
+                        </span>
+                      </div>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => setShowReceiptModal(true)}
+                      className="w-full py-2.5 px-3 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold rounded-xl text-xs flex items-center justify-center gap-2 shadow-xs transition-all cursor-pointer active:scale-[0.99]"
+                    >
+                      <Receipt className="w-4 h-4 text-emerald-100" />
+                      <span>Lihat & Unduh E-Receipt (PDF)</span>
+                    </button>
+                  </div>
+                )}
 
                 {/* Tracking Progress Steps */}
                 <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
@@ -5682,6 +5743,13 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
             </button>
           </div>
         </div>
+      )}
+
+      {showReceiptModal && activeOrder && (
+        <EReceiptModal 
+          order={activeOrder} 
+          onClose={() => setShowReceiptModal(false)} 
+        />
       )}
     </div>
   );

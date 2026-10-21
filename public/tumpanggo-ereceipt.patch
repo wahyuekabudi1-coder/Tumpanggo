@@ -1,0 +1,1391 @@
+diff --git a/.env.example b/.env.example
+index bf2fe5f..4051c01 100644
+--- a/.env.example
++++ b/.env.example
+@@ -12,7 +12,6 @@ ARTOPAY_WEBHOOK_SECRET=
+ FIREBASE_API_KEY=
+ FIREBASE_PROJECT_ID=
+ FIREBASE_SERVICE_ACCOUNT_KEY=
+-GEMINI_API_KEY=
+ FOOD_ADMIN_EMAIL=
+ FOOD_ADMIN_PASSWORD=
+ FOOD_AUTH_SECRET=
+@@ -21,8 +20,6 @@ FOOD_DB_FILE=
+ FOOD_PORT=
+ MASTER_ADMIN_EMAIL=
+ MASTER_ADMIN_PASSWORD=
+-NODE_ENV=
+-PORT=
+ SHOP_ADMIN_EMAIL=
+ SHOP_ADMIN_PASSWORD=
+ SHOP_AUTH_SECRET=
+@@ -35,4 +32,7 @@ SHOP_FIRESTORE_PREFIX=
+ SHOP_PORT=
+ SHOP_SERVICE_URL=
+ VITE_ARTOPAY_CLIENT_KEY=
+-VITE_ARTOPAY_PUBLIC_KEY=
+\ No newline at end of file
++VITE_ARTOPAY_PUBLIC_KEY=
++PORT=3000
++GEMINI_API_KEY=
++MASTER_RECOVERY_KEY=
+\ No newline at end of file
+diff --git a/package.json b/package.json
+index 169ece3..ad95d0f 100644
+--- a/package.json
++++ b/package.json
+@@ -25,6 +25,7 @@
+     "express": "^4.21.2",
+     "firebase": "^12.15.0",
+     "firebase-admin": "^14.1.0",
++    "jspdf": "^4.2.1",
+     "lucide-react": "^0.546.0",
+     "motion": "^12.23.24",
+     "qrcode": "^1.5.4",
+diff --git a/public/qris-merchant.png b/public/qris-merchant.png
+index 06c868c..4b340e3 100644
+Binary files a/public/qris-merchant.png and b/public/qris-merchant.png differ
+diff --git a/public/sw.js b/public/sw.js
+index 8fbd923..1c6620e 100644
+--- a/public/sw.js
++++ b/public/sw.js
+@@ -1,4 +1,4 @@
+-const CACHE_NAME = 'tumpang-food-v7';
++const CACHE_NAME = 'tumpang-food-v8';
+ const ASSETS = [
+   '/',
+   '/index.html',
+@@ -48,8 +48,11 @@ self.addEventListener('fetch', (event) => {
+     return;
+   }
+ 
+-  // Bypass API endpoints, WebSocket, and development server internals
++  // Bypass QRIS assets, QRIS streaming endpoints, API endpoints, WebSocket, and dev server internals
+   if (
++    url.includes('qris-merchant') ||
++    url.includes('qris-image') ||
++    url.includes('/qris') ||
+     url.includes('/api/') ||
+     url.includes('/@vite') ||
+     url.includes('/@fs') ||
+diff --git a/src/assets/images/qris-merchant.png b/src/assets/images/qris-merchant.png
+index 06c868c..4b340e3 100644
+Binary files a/src/assets/images/qris-merchant.png and b/src/assets/images/qris-merchant.png differ
+diff --git a/src/assets/images/sw.js b/src/assets/images/sw.js
+index a1e70fd..50aa034 100644
+--- a/src/assets/images/sw.js
++++ b/src/assets/images/sw.js
+@@ -1,4 +1,4 @@
+-const CACHE_NAME = 'tumpang-food-v7';
++const CACHE_NAME = 'tumpang-food-v8';
+ const ASSETS = [
+   '/',
+   '/index.html',
+@@ -36,6 +36,9 @@ self.addEventListener('fetch', (event) => {
+   }
+ 
+   if (
++    url.includes('qris-merchant') ||
++    url.includes('qris-image') ||
++    url.includes('/qris') ||
+     url.includes('/api/') ||
+     url.includes('/@vite') ||
+     url.includes('/@fs') ||
+diff --git a/src/components/AdminView.tsx b/src/components/AdminView.tsx
+index 166881c..84ca6ea 100644
+--- a/src/components/AdminView.tsx
++++ b/src/components/AdminView.tsx
+@@ -19,8 +19,9 @@ import {
+   Check, X, FileText, AlertTriangle, Truck, RefreshCw, ZoomIn, Eye,
+   UserPlus, Search, ArrowUpRight, Clock, Phone, MapPin, Building,
+   CheckCircle2, XCircle, ChevronRight, Sliders, ArrowDownRight, Wallet, LogOut,
+-  QrCode, ExternalLink, Trash2, Upload, Quote, Star, Filter
++  QrCode, ExternalLink, Trash2, Upload, Quote, Star, Filter, Receipt
+ } from 'lucide-react';
++import EReceiptModal from './EReceiptModal.tsx';
+ import { useHiddenTrigger } from '../hooks/useHiddenTrigger.ts';
+ import HiddenPortalBar from './HiddenPortalBar.tsx';
+ import { useSEO } from '../hooks/useSEO.ts';
+@@ -85,6 +86,8 @@ export default function AdminView({ onLogout, systemConfig, onUpdateConfig, onSe
+   const [paymentRejectModal, setPaymentRejectModal] = useState<{ orderId: string; reason: string } | null>(null);
+   const [assignDriverModal, setAssignDriverModal] = useState<{ orderId: string; selectedDriverId: string } | null>(null);
+   const [showImageModal, setShowImageModal] = useState<string | null>(null);
++  const [selectedReceiptOrder, setSelectedReceiptOrder] = useState<Order | null>(null);
++  const [verifyingOrderId, setVerifyingOrderId] = useState<string | null>(null);
+ 
+   // Admin Merchant QRIS Management Modal states
+   const [adminQrisModal, setAdminQrisModal] = useState<{ merchant: Merchant; qrisImage: string; preview: string | null } | null>(null);
+@@ -242,7 +245,9 @@ export default function AdminView({ onLogout, systemConfig, onUpdateConfig, onSe
+   };
+ 
+   const verifyPayment = async (orderId: string) => {
++    if (verifyingOrderId) return;
+     try {
++      setVerifyingOrderId(orderId);
+       const res = await fetch(`/api/orders/${orderId}/verify-payment`, {
+         method: 'POST',
+         headers: { 'Content-Type': 'application/json' },
+@@ -250,14 +255,15 @@ export default function AdminView({ onLogout, systemConfig, onUpdateConfig, onSe
+       });
+       const data = await res.json().catch(() => ({}));
+       if (res.ok) {
+-        fetchAdminData();
+-        alert('Pembayaran BERHASIL diverifikasi (LUNAS)! Status pesanan kini PAID dan diteruskan ke dapur merchant.');
++        await fetchAdminData();
+       } else {
+         alert(data.error || 'Gagal memverifikasi pembayaran.');
+       }
+     } catch (e: any) {
+       console.error(e);
+       alert('Terjadi kesalahan saat memverifikasi pembayaran: ' + (e.message || 'Error'));
++    } finally {
++      setVerifyingOrderId(null);
+     }
+   };
+ 
+@@ -986,15 +992,28 @@ export default function AdminView({ onLogout, systemConfig, onUpdateConfig, onSe
+                         {isWaiting ? (
+                           <div className="flex items-center gap-2">
+                             <button
++                              type="button"
+                               onClick={() => verifyPayment(order.id)}
+-                              className="flex-1 py-2.5 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs flex items-center justify-center gap-1.5 transition-all shadow-xs cursor-pointer"
++                              disabled={verifyingOrderId === order.id}
++                              className="flex-1 py-2.5 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-bold text-xs flex items-center justify-center gap-1.5 transition-all shadow-xs cursor-pointer"
+                             >
+-                              <Check className="w-4 h-4" />
+-                              Verifikasi Pembayaran
++                              {verifyingOrderId === order.id ? (
++                                <>
++                                  <RefreshCw className="w-4 h-4 animate-spin" />
++                                  <span>Memverifikasi...</span>
++                                </>
++                              ) : (
++                                <>
++                                  <Check className="w-4 h-4" />
++                                  <span>Verifikasi Pembayaran</span>
++                                </>
++                              )}
+                             </button>
+ 
+                             <button
++                              type="button"
+                               onClick={() => setPaymentRejectModal({ orderId: order.id, reason: '' })}
++                              disabled={verifyingOrderId === order.id}
+                               className="py-2.5 px-3 rounded-xl border border-rose-200 bg-white hover:bg-rose-50 text-rose-600 font-bold text-xs flex items-center justify-center gap-1 transition-all cursor-pointer"
+                               title="Tolak Pembayaran"
+                             >
+@@ -1003,16 +1022,30 @@ export default function AdminView({ onLogout, systemConfig, onUpdateConfig, onSe
+                             </button>
+                           </div>
+                         ) : isPaid ? (
+-                          <div className="flex items-center justify-between text-xs text-emerald-800 bg-emerald-50 p-2.5 rounded-xl border border-emerald-200">
+-                            <span className="font-bold flex items-center gap-1">
+-                              <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+-                              Lunas Terverifikasi
+-                            </span>
+-                            {order.paymentVerifiedAt && (
+-                              <span className="text-[10px] text-emerald-600 font-mono">
+-                                {new Date(order.paymentVerifiedAt).toLocaleDateString('id-ID')}
++                          <div className="flex flex-col gap-2">
++                            <div className="flex items-center justify-between text-xs text-emerald-800 bg-emerald-50 p-2.5 rounded-xl border border-emerald-200">
++                              <span className="font-bold flex items-center gap-1.5">
++                                <CheckCircle2 className="w-4 h-4 text-emerald-600" />
++                                Lunas Terverifikasi
+                               </span>
+-                            )}
++                              {order.receiptNumber ? (
++                                <span className="font-mono text-[10px] font-bold text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded-md">
++                                  {order.receiptNumber}
++                                </span>
++                              ) : order.paymentVerifiedAt ? (
++                                <span className="text-[10px] text-emerald-600 font-mono">
++                                  {new Date(order.paymentVerifiedAt).toLocaleDateString('id-ID')}
++                                </span>
++                              ) : null}
++                            </div>
++                            <button
++                              type="button"
++                              onClick={() => setSelectedReceiptOrder(order)}
++                              className="w-full py-2 px-3 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs flex items-center justify-center gap-1.5 transition-all shadow-xs cursor-pointer"
++                            >
++                              <Receipt className="w-3.5 h-3.5 text-amber-400" />
++                              <span>Lihat & Unduh E-Receipt Resmi</span>
++                            </button>
+                           </div>
+                         ) : isRejected ? (
+                           <div className="flex items-center justify-between text-xs text-rose-800 bg-rose-50 p-2.5 rounded-xl border border-rose-200">
+@@ -2330,6 +2363,13 @@ export default function AdminView({ onLogout, systemConfig, onUpdateConfig, onSe
+           </div>
+         </div>
+       )}
++
++      {selectedReceiptOrder && (
++        <EReceiptModal 
++          order={selectedReceiptOrder} 
++          onClose={() => setSelectedReceiptOrder(null)} 
++        />
++      )}
+     </div>
+   );
+ }
+diff --git a/src/components/CustomerView.tsx b/src/components/CustomerView.tsx
+index e31c94e..aac8f56 100644
+--- a/src/components/CustomerView.tsx
++++ b/src/components/CustomerView.tsx
+@@ -23,8 +23,9 @@ import {
+   Download, Smartphone, Info, Home, UserPlus, Bike, Users, XCircle, Key, ShieldCheck,
+   Wifi, Utensils, Car, Wallet, QrCode, Send, CreditCard, ArrowUpRight, ArrowDownLeft,
+   ExternalLink, Globe, Lock, Crown, Sparkles, Building2, BadgeCheck, Award, TrendingUp, ChevronLeft, ChevronRight, Heart, AlertCircle, ZoomIn, Upload,
+-  BookOpen, HelpCircle, ChevronDown, ChevronUp
++  BookOpen, HelpCircle, ChevronDown, ChevronUp, Receipt
+ } from 'lucide-react';
++import EReceiptModal from './EReceiptModal.tsx';
+ 
+ interface CustomerViewProps {
+   onSwitchView?: (view: string) => void;
+@@ -525,9 +526,25 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
+   const [proofUploadError, setProofUploadError] = useState<string | null>(null);
+   const [proofUploadSuccess, setProofUploadSuccess] = useState<string | null>(null);
+   const [proofZoomModalImage, setProofZoomModalImage] = useState<string | null>(null);
+-  const [qrisImageError, setQrisImageError] = useState<boolean>(false);
++  const [showReceiptModal, setShowReceiptModal] = useState<boolean>(false);
++  // Dedicated granular states for QRIS loading, fallback stages, and bounded retries
++  const [qrisImageStage, setQrisImageStage] = useState<'primary' | 'fallback'>('primary');
++  const [qrisRetryCount, setQrisRetryCount] = useState<number>(0);
++  const [qrisRetryTimestamp, setQrisRetryTimestamp] = useState<number | null>(null);
++  const [qrisLoading, setQrisLoading] = useState<boolean>(true);
++  const [qrisLoadFailed, setQrisLoadFailed] = useState<boolean>(false);
+   const fileInputRef = useRef<HTMLInputElement>(null);
+ 
++  useEffect(() => {
++    if (activeOrder?.id) {
++      setQrisImageStage('primary');
++      setQrisRetryCount(0);
++      setQrisRetryTimestamp(null);
++      setQrisLoading(true);
++      setQrisLoadFailed(false);
++    }
++  }, [activeOrder?.id]);
++
+   // History search state
+   const [historyPhone, setHistoryPhone] = useState('');
+   const [historyOrders, setHistoryOrders] = useState<Order[]>([]);
+@@ -3587,29 +3604,68 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
+           const currentOrderMerchant = merchants.find(m => m.id === activeOrder.merchantId) || (activeOrder.merchantId === selectedMerchant?.id ? selectedMerchant : null);
+           const rawQris = activeOrder.merchantQrisImage || currentOrderMerchant?.qrisImage;
+ 
+-          // Safe QRIS source resolution compatible with Vercel Production & Preview
++          // Safe QRIS source resolution with primary and fallback staging
+           const resolveQrisSource = (): string | null => {
+-            if (qrisImageError) return null;
+-            if (rawQris && typeof rawQris === 'string' && !rawQris.includes('unsplash') && rawQris.trim().length > 3) {
++            let candidateUrl: string | null = null;
++            if (qrisImageStage === 'primary' && rawQris && typeof rawQris === 'string' && !rawQris.includes('unsplash') && rawQris.trim().length > 3) {
+               const trimmed = rawQris.trim();
+               if (trimmed.startsWith('data:image/') || trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
+-                return trimmed;
+-              }
+-              if (trimmed.startsWith('/')) {
++                candidateUrl = trimmed;
++              } else if (trimmed.startsWith('/')) {
+                 const baseUrl = getApiBaseUrl();
+-                return baseUrl ? `${baseUrl}${trimmed}` : trimmed;
++                candidateUrl = baseUrl ? `${baseUrl}${trimmed}` : trimmed;
++              } else {
++                candidateUrl = trimmed;
+               }
+-              return trimmed;
+-            }
+-            if (activeOrder.id) {
++            } else if (activeOrder.id) {
++              // Fallback endpoint specific to this verified order
+               const baseUrl = getApiBaseUrl();
+               const endpoint = `/api/orders/${activeOrder.id}/qris-image`;
+-              return baseUrl ? `${baseUrl}${endpoint}` : endpoint;
++              candidateUrl = baseUrl ? `${baseUrl}${endpoint}` : endpoint;
+             }
+-            return null;
++
++            if (!candidateUrl) return null;
++
++            // Apply cache-buster ONLY upon explicit user retry
++            if (qrisRetryTimestamp) {
++              const sep = candidateUrl.includes('?') ? '&' : '?';
++              return `${candidateUrl}${sep}retry=${qrisRetryTimestamp}`;
++            }
++            return candidateUrl;
+           };
+ 
+           const qrisImageUrl = resolveQrisSource();
++
++          const handleQrisImageError = () => {
++            console.warn(`[TumpangFood QRIS] Image failed at stage "${qrisImageStage}" (Order: ${activeOrder.id}, Merchant: ${activeOrder.merchantName})`);
++            // If primary failed, automatically try order-specific fallback endpoint
++            if (qrisImageStage === 'primary' && activeOrder.id) {
++              console.log('[TumpangFood QRIS] Trying order-specific fallback endpoint...');
++              setQrisImageStage('fallback');
++              setQrisLoading(true);
++              return;
++            }
++            // If fallback also failed or retries exhausted
++            setQrisLoading(false);
++            setQrisLoadFailed(true);
++          };
++
++          const handleQrisImageLoad = () => {
++            setQrisLoading(false);
++            setQrisLoadFailed(false);
++          };
++
++          const handleRetryQris = () => {
++            if (qrisRetryCount >= 3) {
++              alert('Batas maksimal muat ulang (3x) tercapai. Silakan periksa koneksi internet Anda atau hubungi Bantuan WhatsApp Admin.');
++              return;
++            }
++            setQrisRetryCount(prev => prev + 1);
++            setQrisRetryTimestamp(Date.now());
++            setQrisImageStage('primary');
++            setQrisLoadFailed(false);
++            setQrisLoading(true);
++          };
+           const isPaid = activeOrder.status === OrderStatus.PAYMENT_VERIFIED || activeOrder.paymentStatus === PaymentStatus.PAID;
+           const isWaitingVerification = activeOrder.status === OrderStatus.WAITING_PAYMENT_VERIFICATION || activeOrder.paymentStatus === PaymentStatus.WAITING_VERIFICATION;
+           const isRejected = activeOrder.status === OrderStatus.PAYMENT_REJECTED || activeOrder.paymentStatus === PaymentStatus.REJECTED;
+@@ -3795,22 +3851,32 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
+                       </p>
+                     </div>
+                   </div>
+-                  <button
+-                    type="button"
+-                    onClick={() => {
+-                      setTrackingOrderId(activeOrder.id);
+-                      setActiveTab('tracking');
+-                    }}
+-                    className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold rounded-xl text-xs flex items-center justify-center gap-2 shadow-xs transition-all cursor-pointer"
+-                  >
+-                    <span>Pantau Status Pengantaran Pesanan</span>
+-                    <ArrowRight className="w-4 h-4" />
+-                  </button>
++                  <div className="flex flex-col sm:flex-row gap-2">
++                    <button
++                      type="button"
++                      onClick={() => setShowReceiptModal(true)}
++                      className="flex-1 py-2.5 px-3 bg-slate-900 hover:bg-slate-800 text-white font-extrabold rounded-xl text-xs flex items-center justify-center gap-1.5 shadow-xs transition-all cursor-pointer"
++                    >
++                      <Receipt className="w-4 h-4 text-amber-400" />
++                      <span>Lihat E-Receipt Resmi (PDF)</span>
++                    </button>
++                    <button
++                      type="button"
++                      onClick={() => {
++                        setTrackingOrderId(activeOrder.id);
++                        setActiveTab('tracking');
++                      }}
++                      className="flex-1 py-2.5 px-3 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold rounded-xl text-xs flex items-center justify-center gap-1.5 shadow-xs transition-all cursor-pointer"
++                    >
++                      <span>Pantau Pengantaran</span>
++                      <ArrowRight className="w-4 h-4" />
++                    </button>
++                  </div>
+                 </div>
+               )}
+ 
+               {/* MERCHANT STATIC QRIS CONTAINER */}
+-              {qrisImageUrl ? (
++              {qrisImageUrl && !qrisLoadFailed ? (
+                 <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-xs flex flex-col items-center">
+                   <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-slate-100 text-slate-700 text-[11px] font-bold mb-3">
+                     <Store className="w-3.5 h-3.5 text-rose-600" />
+@@ -3818,15 +3884,24 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
+                   </div>
+ 
+                   {/* QRIS Image Frame */}
+-                  <div className="w-full max-w-[320px] sm:max-w-[360px] bg-slate-50 border-2 border-slate-200 rounded-2xl p-3 sm:p-4 flex flex-col items-center justify-center relative shadow-sm group">
++                  <div className="w-full max-w-[320px] sm:max-w-[360px] bg-slate-50 border-2 border-slate-200 rounded-2xl p-3 sm:p-4 flex flex-col items-center justify-center relative shadow-sm group min-h-[300px]">
++                    {qrisLoading && (
++                      <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-slate-50/90 backdrop-blur-xs rounded-xl">
++                        <RefreshCw className="w-6 h-6 text-rose-600 animate-spin mb-2" />
++                        <span className="text-xs font-semibold text-slate-600">Memuat gambar QRIS...</span>
++                        {qrisImageStage === 'fallback' && (
++                          <span className="text-[10px] text-slate-400 mt-1">Menggunakan jalur cadangan...</span>
++                        )}
++                      </div>
++                    )}
+                     <img 
++                      key={`${qrisImageUrl}_${qrisImageStage}`}
+                       src={qrisImageUrl} 
+                       alt={`QRIS ${activeOrder.merchantName}`}
+-                      className="w-full h-auto max-h-[460px] object-contain rounded-xl cursor-pointer transition-transform group-hover:scale-[1.01] bg-white border border-slate-100 shadow-xs"
++                      className={`w-full h-auto max-h-[460px] object-contain rounded-xl cursor-pointer transition-transform group-hover:scale-[1.01] bg-white border border-slate-100 shadow-xs ${qrisLoading ? 'opacity-0' : 'opacity-100'}`}
+                       onClick={() => setProofZoomModalImage(qrisImageUrl)}
+-                      onError={() => {
+-                        setQrisImageError(true);
+-                      }}
++                      onLoad={handleQrisImageLoad}
++                      onError={handleQrisImageError}
+                     />
+                     <div className="flex items-center gap-2 mt-3 w-full justify-center">
+                       <button
+@@ -3874,31 +3949,29 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
+                     <AlertCircle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+                     <div className="space-y-1">
+                       <h4 className="font-extrabold text-sm text-amber-900">
+-                        {qrisImageError ? 'Gambar QRIS Gagal Dimuat' : 'Pembayaran QRIS Toko Belum Tersedia'}
++                        {qrisLoadFailed ? 'Gambar QRIS Gagal Dimuat' : 'Pembayaran QRIS Toko Belum Tersedia'}
+                       </h4>
+                       <p className="text-[11px] text-amber-800 leading-relaxed">
+-                        {qrisImageError 
++                        {qrisLoadFailed 
+                           ? <>Gambar QRIS resmi untuk merchant <strong>{activeOrder.merchantName}</strong> mengalami kendala jaringan saat dimuat dari server. Demi keamanan transaksi Anda, sistem TumpangGo <strong>tidak menampilkan QRIS palsu/tiruan atau QRIS milik merchant lain</strong>.</>
+                           : <>Merchant <strong>{activeOrder.merchantName}</strong> belum mengunggah gambar QRIS statis resminya. Demi keamanan transaksi dan perlindungan data Anda, sistem TumpangGo <strong>tidak menampilkan QRIS palsu/tiruan atau QRIS milik merchant lain</strong>.</>
+                         }
+                       </p>
+                       <p className="text-[11px] text-amber-700 mt-1">
+-                        Silakan hubungi WhatsApp Bantuan Admin TumpangGo untuk konfirmasi atau batalkan pesanan untuk memilih merchant kuliner yang sudah siap menerima QRIS.
++                        Silakan coba muat ulang atau hubungi WhatsApp Bantuan Admin TumpangGo untuk konfirmasi pembayaran.
+                       </p>
+                     </div>
+                   </div>
+ 
+                   <div className="flex flex-col sm:flex-row gap-2 pt-2 border-t border-amber-200">
+-                    {qrisImageError && (
+-                      <button
+-                        type="button"
+-                        onClick={() => setQrisImageError(false)}
+-                        className="flex-1 py-2.5 px-3 bg-amber-700 hover:bg-amber-800 text-white font-bold rounded-xl text-xs flex items-center justify-center gap-1.5 transition-colors cursor-pointer text-center"
+-                      >
+-                        <RefreshCw className="w-3.5 h-3.5" />
+-                        <span>Coba Muat Ulang QRIS</span>
+-                      </button>
+-                    )}
++                    <button
++                      type="button"
++                      onClick={handleRetryQris}
++                      className="flex-1 py-2.5 px-3 bg-amber-700 hover:bg-amber-800 text-white font-bold rounded-xl text-xs flex items-center justify-center gap-1.5 transition-colors cursor-pointer text-center"
++                    >
++                      <RefreshCw className="w-3.5 h-3.5" />
++                      <span>Coba Muat Ulang QRIS {qrisRetryCount > 0 ? `(${qrisRetryCount}/3)` : ''}</span>
++                    </button>
+                     <a
+                       href={`https://wa.me/6281234567891?text=${encodeURIComponent(`Halo Admin TumpangGo, saya ingin bertanya mengenai pembayaran QRIS untuk pesanan #${activeOrder.id} pada toko ${activeOrder.merchantName}.`)}`}
+                       target="_blank"
+@@ -4169,6 +4242,55 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
+                   </div>
+                 </div>
+ 
++                {/* Official E-Receipt Banner & Access (Only shown if payment is verified/paid) */}
++                {Boolean(
++                  activeOrder.paymentStatus === PaymentStatus.PAID || 
++                  [OrderStatus.PAYMENT_VERIFIED, OrderStatus.COOKING, OrderStatus.READY_FOR_PICKUP, OrderStatus.ORDER_PICKED_UP, OrderStatus.DELIVERED, OrderStatus.COMPLETED].includes(activeOrder.status)
++                ) && (
++                  <div className="bg-gradient-to-r from-emerald-50 via-teal-50 to-emerald-50 border-2 border-emerald-300 rounded-2xl p-4 shadow-xs flex flex-col gap-3">
++                    <div className="flex items-start justify-between border-b border-emerald-200/70 pb-2.5">
++                      <div className="flex items-center gap-2.5">
++                        <div className="w-10 h-10 rounded-xl bg-emerald-600 text-white flex items-center justify-center shadow-xs shrink-0">
++                          <Receipt className="w-5 h-5" />
++                        </div>
++                        <div>
++                          <div className="flex items-center gap-1.5 flex-wrap">
++                            <span className="font-display font-extrabold text-sm text-emerald-950">E-Receipt Resmi TumpangGo</span>
++                            <span className="bg-emerald-600 text-white text-[9px] font-black uppercase px-2 py-0.5 rounded-full tracking-wider">LUNAS</span>
++                          </div>
++                          <p className="text-[11px] text-emerald-800 font-mono font-medium mt-0.5">
++                            No. Bukti: <span className="font-bold">{activeOrder.receiptNumber || activeOrder.receipt?.receiptNumber || `TG-RCP-${activeOrder.id.replace(/^ord_/, '').toUpperCase()}`}</span>
++                          </p>
++                        </div>
++                      </div>
++                    </div>
++
++                    <div className="grid grid-cols-2 gap-2 text-xs bg-white/90 p-3 rounded-xl border border-emerald-100">
++                      <div>
++                        <span className="text-slate-400 block text-[10px] font-medium">Status Pembayaran:</span>
++                        <span className="font-bold text-emerald-700 flex items-center gap-1 mt-0.5">
++                          <ShieldCheck className="w-3.5 h-3.5" /> Terverifikasi Admin
++                        </span>
++                      </div>
++                      <div>
++                        <span className="text-slate-400 block text-[10px] font-medium">Total Pembayaran:</span>
++                        <span className="font-bold text-emerald-800 font-mono text-sm mt-0.5 block">
++                          Rp {activeOrder.total.toLocaleString('id-ID')}
++                        </span>
++                      </div>
++                    </div>
++
++                    <button
++                      type="button"
++                      onClick={() => setShowReceiptModal(true)}
++                      className="w-full py-2.5 px-3 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold rounded-xl text-xs flex items-center justify-center gap-2 shadow-xs transition-all cursor-pointer active:scale-[0.99]"
++                    >
++                      <Receipt className="w-4 h-4 text-emerald-100" />
++                      <span>Lihat & Unduh E-Receipt (PDF)</span>
++                    </button>
++                  </div>
++                )}
++
+                 {/* Tracking Progress Steps */}
+                 <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
+                   <h4 className="font-display font-semibold text-sm text-slate-800 border-b border-slate-100 pb-2.5 mb-4">Status Pengantaran</h4>
+@@ -5622,6 +5744,13 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
+           </div>
+         </div>
+       )}
++
++      {showReceiptModal && activeOrder && (
++        <EReceiptModal 
++          order={activeOrder} 
++          onClose={() => setShowReceiptModal(false)} 
++        />
++      )}
+     </div>
+   );
+ }
+diff --git a/src/components/EReceiptModal.tsx b/src/components/EReceiptModal.tsx
+new file mode 100644
+index 0000000..ba053fe
+--- /dev/null
++++ b/src/components/EReceiptModal.tsx
+@@ -0,0 +1,569 @@
++/**
++ * @license
++ * SPDX-License-Identifier: Apache-2.0
++ * 
++ * TumpangGo Official E-Receipt (Electronic Payment Proof) Component
++ * Renders verified payment receipt and provides client-side PDF download & sharing.
++ */
++
++import React, { useState } from 'react';
++import { jsPDF } from 'jspdf';
++import { 
++  X, Download, Share2, CheckCircle2, ShieldCheck, 
++  Store, User, Calendar, Receipt, Hash, ArrowDownToLine, RefreshCw
++} from 'lucide-react';
++import { Order } from '../types';
++
++interface EReceiptModalProps {
++  order: Order;
++  onClose: () => void;
++}
++
++export default function EReceiptModal({ order, onClose }: EReceiptModalProps) {
++  const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
++  const [shareFeedback, setShareFeedback] = useState<string | null>(null);
++  const [pdfError, setPdfError] = useState<string | null>(null);
++
++  const receiptNumber = order.receiptNumber || order.receipt?.receiptNumber || `TG-RCP-${order.id.replace(/^ord_/, '').toUpperCase()}`;
++  const verificationTime = order.paymentVerifiedAt || order.receipt?.issuedAt || order.updatedAt || order.createdAt;
++  const verifiedDate = new Date(verificationTime);
++  const formattedDate = !isNaN(verifiedDate.getTime()) 
++    ? verifiedDate.toLocaleDateString('id-ID', {
++        day: 'numeric',
++        month: 'long',
++        year: 'numeric',
++        hour: '2-digit',
++        minute: '2-digit'
++      }) + ' WIB'
++    : '21 Oktober 2026';
++
++  const transactionRef = order.receipt?.transactionRef || order.artopayPaymentId || `QRIS-TG-${order.id.replace(/^ord_/, '').toUpperCase()}`;
++  const verifiedBy = order.receipt?.confirmedBy || order.paymentVerifiedBy || 'Admin TumpangGo';
++  const paymentMethodLabel = order.paymentMethod === 'ARTOPAY_QRIS' 
++    ? 'QRIS Dinamis ArtoPay' 
++    : 'QRIS Statis Resmi Merchant';
++
++  // Format currency helper
++  const formatRp = (val: number) => `Rp ${(val || 0).toLocaleString('id-ID')}`;
++
++  // Generate and Download PDF using jsPDF
++  const handleDownloadPdf = async () => {
++    try {
++      setIsGeneratingPdf(true);
++      const doc = new jsPDF({
++        orientation: 'portrait',
++        unit: 'mm',
++        format: 'a4'
++      });
++
++      const pageWidth = doc.internal.pageSize.getWidth();
++      let y = 18;
++
++      // Header Banner Background
++      doc.setFillColor(248, 250, 252);
++      doc.roundedRect(12, 10, pageWidth - 24, 38, 3, 3, 'F');
++      doc.setDrawColor(226, 232, 240);
++      doc.roundedRect(12, 10, pageWidth - 24, 38, 3, 3, 'S');
++
++      // Attempt to load and embed official /logo44.png with exact aspect ratio
++      let logoEmbedded = false;
++      try {
++        const img = new Image();
++        img.crossOrigin = 'anonymous';
++        img.src = '/logo44.png';
++        await new Promise((resolve) => {
++          if (img.complete && img.naturalWidth > 0) return resolve(true);
++          img.onload = () => resolve(true);
++          img.onerror = () => resolve(false);
++          setTimeout(() => resolve(false), 1500);
++        });
++
++        if (img.naturalWidth && img.naturalHeight) {
++          const canvas = document.createElement('canvas');
++          canvas.width = img.naturalWidth;
++          canvas.height = img.naturalHeight;
++          const ctx = canvas.getContext('2d');
++          if (ctx) {
++            ctx.drawImage(img, 0, 0);
++            const base64Data = canvas.toDataURL('image/png');
++            const logoH = 13; // 13mm height
++            const logoW = logoH * (img.naturalWidth / img.naturalHeight); // ~26.9mm width preserving 1438x694
++            doc.addImage(base64Data, 'PNG', 16, 14, logoW, logoH);
++            logoEmbedded = true;
++          }
++        }
++      } catch (e) {
++        console.warn('Could not embed logo image in PDF, using text fallback:', e);
++      }
++
++      // Brand Title & Description
++      const textStartX = logoEmbedded ? 47 : 18;
++      doc.setFont('helvetica', 'bold');
++      doc.setFontSize(16);
++      doc.setTextColor(220, 38, 38); // TumpangGo Red
++      doc.text('TumpangGo', textStartX, y);
++
++      doc.setFont('helvetica', 'normal');
++      doc.setFontSize(7.5);
++      doc.setTextColor(100, 116, 139);
++      doc.text('Platform Digital Kuliner & Niaga Lokal Kecamatan Tumpang, Malang', textStartX, y + 4.5);
++      doc.text('Website Resmi: https://tumpanggo.com', textStartX, y + 8.5);
++
++      // Receipt Title & Badge on Right
++      doc.setFont('helvetica', 'bold');
++      doc.setFontSize(11);
++      doc.setTextColor(15, 23, 42);
++      doc.text('E-RECEIPT RESMI', pageWidth - 18, y, { align: 'right' });
++
++      doc.setFillColor(220, 252, 231);
++      doc.roundedRect(pageWidth - 58, y + 3, 40, 7, 1.5, 1.5, 'F');
++      doc.setFontSize(8);
++      doc.setTextColor(22, 101, 52);
++      doc.text('LUNAS / VERIFIED', pageWidth - 38, y + 7.5, { align: 'center' });
++
++      y = 54;
++
++      // Metadata Grid Box
++      doc.setFillColor(255, 255, 255);
++      doc.setDrawColor(203, 213, 225);
++      doc.roundedRect(12, y, pageWidth - 24, 36, 2, 2, 'S');
++
++      doc.setFont('helvetica', 'bold');
++      doc.setFontSize(8.5);
++      doc.setTextColor(100, 116, 139);
++      doc.text('NO. RECEIPT:', 16, y + 7);
++      doc.text('NO. PESANAN:', 16, y + 14);
++      doc.text('TANGGAL BAYAR:', 16, y + 21);
++      doc.text('METODE BAYAR:', 16, y + 28);
++
++      doc.setFont('helvetica', 'bold');
++      doc.setTextColor(15, 23, 42);
++      doc.text(receiptNumber, 52, y + 7);
++      doc.text(`#${order.id.toUpperCase()}`, 52, y + 14);
++      doc.setFont('helvetica', 'normal');
++      doc.text(formattedDate, 52, y + 21);
++      doc.text(paymentMethodLabel, 52, y + 28);
++
++      // Column 2
++      const col2X = 110;
++      doc.setFont('helvetica', 'bold');
++      doc.setTextColor(100, 116, 139);
++      doc.text('PEMESAN:', col2X, y + 7);
++      doc.text('MERCHANT / TOKO:', col2X, y + 14);
++      doc.text('REF. TRANSAKSI:', col2X, y + 21);
++      doc.text('VERIFIKASI:', col2X, y + 28);
++
++      doc.setFont('helvetica', 'normal');
++      doc.setTextColor(15, 23, 42);
++      doc.text(order.customerName, col2X + 34, y + 7);
++      doc.text(order.merchantName, col2X + 34, y + 14);
++      doc.text(transactionRef, col2X + 34, y + 21);
++      doc.text(`${verifiedBy} (Valid)`, col2X + 34, y + 28);
++
++      y += 44;
++
++      // Table Header: Order Items
++      doc.setFillColor(241, 245, 249);
++      doc.rect(12, y, pageWidth - 24, 7, 'F');
++      doc.setDrawColor(203, 213, 225);
++      doc.line(12, y + 7, pageWidth - 12, y + 7);
++
++      doc.setFont('helvetica', 'bold');
++      doc.setFontSize(8.5);
++      doc.setTextColor(51, 65, 85);
++      doc.text('Menu / Produk Makanan', 16, y + 5);
++      doc.text('Qty', 115, y + 5, { align: 'center' });
++      doc.text('Harga Satuan', 145, y + 5, { align: 'right' });
++      doc.text('Jumlah', pageWidth - 16, y + 5, { align: 'right' });
++
++      y += 11;
++
++      // Items Row
++      doc.setFont('helvetica', 'normal');
++      doc.setFontSize(8.5);
++      doc.setTextColor(15, 23, 42);
++
++      const items = order.items && order.items.length > 0 
++        ? order.items 
++        : [{ menuItemId: 'item1', name: 'Pesanan Kuliner', price: order.subtotal, quantity: 1 }];
++
++      for (const item of items) {
++        const itemTotal = (item.price || 0) * (item.quantity || 1);
++        doc.text(item.name.substring(0, 48), 16, y);
++        doc.text(String(item.quantity || 1), 115, y, { align: 'center' });
++        doc.text(formatRp(item.price), 145, y, { align: 'right' });
++        doc.text(formatRp(itemTotal), pageWidth - 16, y, { align: 'right' });
++        y += 6;
++      }
++
++      // Divider line
++      y += 2;
++      doc.setDrawColor(226, 232, 240);
++      doc.line(12, y, pageWidth - 12, y);
++      y += 6;
++
++      // Financial Calculation Breakdown
++      const rightValX = pageWidth - 16;
++      const rightLabelX = 135;
++
++      doc.setFont('helvetica', 'normal');
++      doc.setTextColor(71, 85, 105);
++      doc.text('Subtotal Makanan:', rightLabelX, y);
++      doc.text(formatRp(order.subtotal), rightValX, y, { align: 'right' });
++      y += 5.5;
++
++      doc.text('Ongkos Kirim (Flat Kec. Tumpang):', rightLabelX, y);
++      doc.text(formatRp(order.deliveryFee), rightValX, y, { align: 'right' });
++      y += 5.5;
++
++      doc.text('Biaya Layanan Sistem:', rightLabelX, y);
++      doc.text(formatRp(order.serviceFee), rightValX, y, { align: 'right' });
++      y += 5.5;
++
++      if (order.uniqueCode && order.uniqueCode > 0) {
++        doc.text('Kode Unik Verifikasi QRIS:', rightLabelX, y);
++        doc.text(`+${order.uniqueCode}`, rightValX, y, { align: 'right' });
++        y += 5.5;
++      }
++
++      // Grand Total Box
++      y += 2;
++      doc.setFillColor(254, 242, 242);
++      doc.roundedRect(120, y, pageWidth - 132, 10, 1.5, 1.5, 'F');
++      doc.setDrawColor(254, 202, 202);
++      doc.roundedRect(120, y, pageWidth - 132, 10, 1.5, 1.5, 'S');
++
++      doc.setFont('helvetica', 'bold');
++      doc.setFontSize(10);
++      doc.setTextColor(185, 28, 28);
++      doc.text('TOTAL PEMBAYARAN:', 125, y + 6.5);
++      doc.text(formatRp(order.total), rightValX, y + 6.5, { align: 'right' });
++
++      y += 18;
++
++      // Delivery Destination details
++      doc.setFillColor(248, 250, 252);
++      doc.roundedRect(12, y, pageWidth - 24, 16, 2, 2, 'F');
++      doc.setDrawColor(226, 232, 240);
++      doc.roundedRect(12, y, pageWidth - 24, 16, 2, 2, 'S');
++
++      doc.setFont('helvetica', 'bold');
++      doc.setFontSize(8);
++      doc.setTextColor(71, 85, 105);
++      doc.text('ALAMAT PENGANTARAN:', 16, y + 5.5);
++      doc.setFont('helvetica', 'normal');
++      doc.setTextColor(15, 23, 42);
++      const deliveryText = `${order.deliveryAddress}${order.deliveryDetails ? ` (${order.deliveryDetails})` : ''}`;
++      doc.text(deliveryText.substring(0, 95), 16, y + 10.5);
++
++      y += 23;
++
++      // Verification Footer Note & Digital Seal
++      doc.setFillColor(240, 253, 244);
++      doc.roundedRect(12, y, pageWidth - 24, 18, 2, 2, 'F');
++      doc.setDrawColor(187, 247, 208);
++      doc.roundedRect(12, y, pageWidth - 24, 18, 2, 2, 'S');
++
++      doc.setFont('helvetica', 'bold');
++      doc.setFontSize(8.5);
++      doc.setTextColor(22, 101, 52);
++      doc.text('BUKTI PEMBAYARAN DIGITAL SAH', 16, y + 6);
++      doc.setFont('helvetica', 'normal');
++      doc.setFontSize(7.5);
++      doc.setTextColor(21, 128, 61);
++      doc.text(
++        'E-Receipt ini diterbitkan secara otomatis dan sah oleh sistem server TumpangGo setelah bukti transaksi diverifikasi oleh Admin. Dokumen digital ini diakui sebagai bukti lunas tanpa memerlukan stempel fisik.',
++        16,
++        y + 11,
++        { maxWidth: pageWidth - 32 }
++      );
++
++      // Save PDF file
++      const safeId = order.id.replace(/^ord_/, '').toUpperCase();
++      const filename = `E-Receipt-TG-${safeId}.pdf`;
++      doc.save(filename);
++      setPdfError(null);
++    } catch (err: any) {
++      console.error('Error generating PDF:', err);
++      setPdfError('Gagal membuat file PDF E-Receipt. Silakan coba kembali.');
++    } finally {
++      setIsGeneratingPdf(false);
++    }
++  };
++
++  // Native share or WhatsApp fallback
++  const handleShare = async () => {
++    const summaryText = 
++      `*E-RECEIPT PEMBAYARAN TUMPANGGO*\n` +
++      `No. Receipt: ${receiptNumber}\n` +
++      `ID Pesanan: #${order.id.toUpperCase()}\n` +
++      `Toko: ${order.merchantName}\n` +
++      `Pemesan: ${order.customerName}\n` +
++      `Total Lunas: ${formatRp(order.total)}\n` +
++      `Metode: ${paymentMethodLabel}\n` +
++      `Waktu: ${formattedDate}\n` +
++      `Status: LUNAS (TERVERIFIKASI)\n\n` +
++      `Diterbitkan resmi oleh sistem TumpangGo.`;
++
++    if (navigator.share) {
++      try {
++        await navigator.share({
++          title: `E-Receipt TumpangGo #${order.id.toUpperCase()}`,
++          text: summaryText
++        });
++        setShareFeedback('Berhasil membagikan receipt!');
++        setTimeout(() => setShareFeedback(null), 3000);
++        return;
++      } catch {
++        // Fallback to WhatsApp link if share is dismissed or unsupported
++      }
++    }
++
++    // Direct WhatsApp pre-filled message (100% Free, user chooses recipient)
++    try {
++      if (navigator.clipboard && navigator.clipboard.writeText) {
++        await navigator.clipboard.writeText(summaryText);
++      }
++    } catch {
++      // ignore clipboard error
++    }
++
++    const waUrl = `https://wa.me/?text=${encodeURIComponent(summaryText)}`;
++    const link = document.createElement('a');
++    link.href = waUrl;
++    link.target = '_blank';
++    link.rel = 'noopener noreferrer';
++    document.body.appendChild(link);
++    link.click();
++    document.body.removeChild(link);
++    setShareFeedback('Teks receipt disalin & tautan WhatsApp dibuka!');
++    setTimeout(() => setShareFeedback(null), 3000);
++  };
++
++  return (
++    <div 
++      className="fixed inset-0 z-[130] bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 overflow-y-auto"
++      onClick={onClose}
++    >
++      <div 
++        className="relative max-w-xl w-full bg-white rounded-3xl shadow-2xl overflow-hidden my-auto border border-slate-200 animate-in fade-in zoom-in-95 duration-150"
++        onClick={(e) => e.stopPropagation()}
++      >
++        {/* Receipt Header Banner */}
++        <div className="bg-gradient-to-r from-slate-900 via-rose-950 to-slate-900 text-white p-5 sm:p-6 relative">
++          <button 
++            type="button"
++            onClick={onClose}
++            className="absolute top-4 right-4 p-1.5 rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors cursor-pointer"
++            title="Tutup"
++          >
++            <X className="w-5 h-5" />
++          </button>
++
++          <div className="flex items-start gap-3.5">
++            <div className="w-12 h-12 rounded-2xl bg-white p-1.5 flex items-center justify-center shrink-0 shadow-md">
++              <img 
++                src="/logo44.png" 
++                alt="Logo TumpangGo" 
++                className="w-full h-full object-contain"
++                onError={(e) => {
++                  (e.currentTarget as HTMLImageElement).src = '/logo44.png';
++                }}
++              />
++            </div>
++            <div>
++              <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 text-[10px] font-bold border border-emerald-500/30 uppercase tracking-wider mb-1">
++                <CheckCircle2 className="w-3 h-3 text-emerald-400" />
++                <span>Pembayaran LUNAS Terverifikasi</span>
++              </div>
++              <h2 className="font-display font-extrabold text-lg sm:text-xl text-white tracking-tight">
++                E-Receipt Pembayaran
++              </h2>
++              <p className="text-[11px] text-slate-300 mt-0.5">
++                Bukti transaksi resmi platform TumpangGo Malang
++              </p>
++            </div>
++          </div>
++        </div>
++
++        {/* Receipt Body */}
++        <div className="p-5 sm:p-6 space-y-4 max-h-[72vh] overflow-y-auto">
++          {/* Key Identifiers Grid */}
++          <div className="grid grid-cols-2 gap-2.5 p-3.5 bg-slate-50 border border-slate-200 rounded-2xl text-xs">
++            <div>
++              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">No. Receipt</span>
++              <span className="font-mono font-extrabold text-slate-900 text-xs sm:text-sm mt-0.5 block">
++                {receiptNumber}
++              </span>
++            </div>
++            <div>
++              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">ID Pesanan</span>
++              <span className="font-mono font-extrabold text-rose-700 text-xs sm:text-sm mt-0.5 block">
++                #{order.id.toUpperCase()}
++              </span>
++            </div>
++            <div>
++              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Waktu Bayar</span>
++              <span className="font-medium text-slate-700 text-[11px] mt-0.5 block">
++                {formattedDate}
++              </span>
++            </div>
++            <div>
++              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Metode Pembayaran</span>
++              <span className="font-semibold text-slate-800 text-[11px] mt-0.5 block">
++                {paymentMethodLabel}
++              </span>
++            </div>
++          </div>
++
++          {/* Parties Info: Customer & Merchant */}
++          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
++            <div className="p-3 bg-white border border-slate-200 rounded-xl">
++              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1 mb-1">
++                <User className="w-3 h-3 text-slate-400" />
++                Data Pelanggan
++              </span>
++              <p className="font-bold text-slate-900 text-xs">{order.customerName}</p>
++              <p className="text-[11px] text-slate-500 font-mono mt-0.5">
++                {order.customerPhone ? `${order.customerPhone.substring(0, 4)}****${order.customerPhone.slice(-3)}` : '-'}
++              </p>
++              <p className="text-[11px] text-slate-600 mt-1 line-clamp-2">
++                {order.deliveryAddress}
++              </p>
++            </div>
++
++            <div className="p-3 bg-white border border-slate-200 rounded-xl">
++              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1 mb-1">
++                <Store className="w-3 h-3 text-rose-500" />
++                Merchant / Toko
++              </span>
++              <p className="font-bold text-slate-900 text-xs">{order.merchantName}</p>
++              <p className="text-[11px] text-slate-500 mt-0.5">Kecamatan Tumpang, Kab. Malang</p>
++              <div className="mt-1 inline-flex items-center gap-1 text-[10px] text-emerald-700 font-bold bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
++                <ShieldCheck className="w-3 h-3 text-emerald-600" />
++                <span>Terverifikasi: {verifiedBy}</span>
++              </div>
++            </div>
++          </div>
++
++          {/* Itemized Order Breakdown */}
++          <div className="border border-slate-200 rounded-2xl overflow-hidden bg-white">
++            <div className="bg-slate-100 px-3.5 py-2 border-b border-slate-200 flex justify-between text-[11px] font-bold text-slate-700">
++              <span>Rincian Makanan</span>
++              <span>Harga</span>
++            </div>
++            <div className="divide-y divide-slate-100 text-xs">
++              {(order.items && order.items.length > 0 ? order.items : [{ menuItemId: '1', name: 'Pesanan Kuliner', price: order.subtotal, quantity: 1 }]).map((it, idx) => (
++                <div key={idx} className="p-3 flex justify-between items-center hover:bg-slate-50/50">
++                  <div className="pr-2">
++                    <p className="font-semibold text-slate-900">{it.name}</p>
++                    <p className="text-[11px] text-slate-400 mt-0.5">
++                      {it.quantity}x @ {formatRp(it.price)}
++                    </p>
++                  </div>
++                  <span className="font-mono font-bold text-slate-800 shrink-0">
++                    {formatRp((it.price || 0) * (it.quantity || 1))}
++                  </span>
++                </div>
++              ))}
++            </div>
++
++            {/* Price Calculations */}
++            <div className="p-3.5 bg-slate-50/80 border-t border-slate-200 space-y-1.5 text-xs text-slate-600">
++              <div className="flex justify-between">
++                <span>Subtotal Makanan</span>
++                <span className="font-mono font-medium">{formatRp(order.subtotal)}</span>
++              </div>
++              <div className="flex justify-between">
++                <div>
++                  <span>Ongkos Kirim</span>
++                  <span className="text-[10px] text-emerald-600 font-bold ml-1.5">(Flat Kec. Tumpang)</span>
++                </div>
++                <span className="font-mono font-medium">{formatRp(order.deliveryFee)}</span>
++              </div>
++              <div className="flex justify-between">
++                <span>Biaya Layanan Sistem</span>
++                <span className="font-mono font-medium">{formatRp(order.serviceFee)}</span>
++              </div>
++              {order.uniqueCode > 0 && (
++                <div className="flex justify-between text-rose-700 font-medium">
++                  <span>Kode Unik Verifikasi QRIS</span>
++                  <span className="font-mono">+{order.uniqueCode}</span>
++                </div>
++              )}
++
++              <div className="border-t border-slate-200 pt-2 flex justify-between items-center text-sm font-extrabold text-slate-900">
++                <span>TOTAL AKHIR LUNAS</span>
++                <span className="text-base sm:text-lg font-mono text-emerald-700 font-black">
++                  {formatRp(order.total)}
++                </span>
++              </div>
++            </div>
++          </div>
++
++          {/* Trust Seal Banner */}
++          <div className="p-3 bg-emerald-50/80 border border-emerald-200 rounded-xl flex items-start gap-2.5 text-xs text-emerald-950">
++            <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
++            <div className="space-y-0.5 text-[11px] leading-relaxed">
++              <span className="font-bold text-emerald-900 block">Diterbitkan Resmi oleh Sistem TumpangGo</span>
++              <p className="text-emerald-800">
++                E-Receipt ini merupakan bukti pembayaran elektronik yang sah dan terverifikasi di server TumpangGo. Anda dapat mengunduh atau menyimpannya kapan saja.
++              </p>
++            </div>
++          </div>
++
++          {shareFeedback && (
++            <div className="p-2.5 bg-blue-50 border border-blue-200 rounded-xl text-center text-xs text-blue-800 font-medium animate-in fade-in">
++              {shareFeedback}
++            </div>
++          )}
++
++          {pdfError && (
++            <div className="p-2.5 bg-rose-50 border border-rose-200 rounded-xl text-center text-xs text-rose-800 font-medium animate-in fade-in">
++              {pdfError}
++            </div>
++          )}
++        </div>
++
++        {/* Action Buttons Footer */}
++        <div className="p-4 bg-slate-50 border-t border-slate-200 flex flex-col sm:flex-row items-center gap-2.5">
++          <button
++            type="button"
++            onClick={handleDownloadPdf}
++            disabled={isGeneratingPdf}
++            className="w-full sm:flex-1 py-3 px-4 bg-rose-600 hover:bg-rose-700 disabled:bg-rose-300 text-white font-extrabold rounded-xl text-xs flex items-center justify-center gap-2 shadow-sm transition-all cursor-pointer"
++          >
++            {isGeneratingPdf ? (
++              <>
++                <RefreshCw className="w-4 h-4 animate-spin" />
++                <span>Menyiapkan PDF...</span>
++              </>
++            ) : (
++              <>
++                <Download className="w-4 h-4" />
++                <span>Unduh PDF E-Receipt</span>
++              </>
++            )}
++          </button>
++
++          <button
++            type="button"
++            onClick={handleShare}
++            className="w-full sm:w-auto py-3 px-4 bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 font-bold rounded-xl text-xs flex items-center justify-center gap-2 transition-colors cursor-pointer"
++          >
++            <Share2 className="w-4 h-4 text-slate-500" />
++            <span>Bagikan</span>
++          </button>
++
++          <button
++            type="button"
++            onClick={onClose}
++            className="w-full sm:w-auto py-3 px-4 bg-slate-200 hover:bg-slate-300 text-slate-800 font-bold rounded-xl text-xs transition-colors cursor-pointer"
++          >
++            Tutup
++          </button>
++        </div>
++      </div>
++    </div>
++  );
++}
+diff --git a/src/server/config.ts b/src/server/config.ts
+index 1d37d38..75a8c3d 100644
+--- a/src/server/config.ts
++++ b/src/server/config.ts
+@@ -74,14 +74,20 @@ let runtimeMasterAdminEmail = (process.env.MASTER_ADMIN_EMAIL || 'tumpanggo@gmai
+ let runtimeMasterAdminPassword = cleanEnvSecret(process.env.MASTER_ADMIN_PASSWORD || process.env.FOOD_ADMIN_PASSWORD, isProductionRuntime ? '' : 'TumpangGoAdmin#2026');
+ 
+ function resolveServerPort(): number {
+-  if (process.env.PORT) {
+-    const parsed = parseInt(process.env.PORT, 10);
+-    if (!isNaN(parsed) && parsed > 0) return parsed;
++  for (let i = 0; i < process.argv.length; i++) {
++    if ((process.argv[i] === '--port' || process.argv[i] === '-p') && process.argv[i + 1]) {
++      const parsed = parseInt(process.argv[i + 1], 10);
++      if (!isNaN(parsed) && parsed > 0) return parsed;
++    }
+   }
+   if (process.env.FOOD_PORT) {
+     const parsed = parseInt(process.env.FOOD_PORT, 10);
+     if (!isNaN(parsed) && parsed > 0) return parsed;
+   }
++  if (process.env.PORT && process.env.PORT !== '8080') {
++    const parsed = parseInt(process.env.PORT, 10);
++    if (!isNaN(parsed) && parsed > 0) return parsed;
++  }
+   return 3000;
+ }
+ 
+diff --git a/src/server/db.ts b/src/server/db.ts
+index a290812..8f491ce 100644
+--- a/src/server/db.ts
++++ b/src/server/db.ts
+@@ -11,7 +11,7 @@ import path from 'path';
+ import {
+   Merchant, Category, MenuItem, Order, Driver, Settlement, AuditLog, SystemConfig,
+   OrderStatus, PaymentStatus, SettlementStatus, AssignmentMode, PartnerRegistration,
+-  Testimonial, AppRole
++  Testimonial, AppRole, OrderReceipt
+ } from '../types';
+ import { foodConfig, getMasterAccountCredentials } from './config';
+ import { hashPassword, verifyPassword } from './auth';
+@@ -1301,6 +1301,27 @@ export class FoodDatabase {
+         order.merchantQrisImage = merchant.qrisImage;
+       }
+     }
++    if (order && (order.paymentStatus === PaymentStatus.PAID || [OrderStatus.PAYMENT_VERIFIED, OrderStatus.COOKING, OrderStatus.READY_FOR_PICKUP, OrderStatus.ORDER_PICKED_UP, OrderStatus.DELIVERED, OrderStatus.COMPLETED].includes(order.status)) && !order.receipt) {
++      const receiptNumber = order.receiptNumber || `TG-RCP-${order.id.replace(/^ord_/, '').toUpperCase()}`;
++      const issuedAt = order.paymentVerifiedAt || order.updatedAt || order.createdAt;
++      order.receiptNumber = receiptNumber;
++      order.receipt = {
++        receiptNumber,
++        orderId: order.id,
++        issuedAt,
++        confirmedBy: order.paymentVerifiedBy || 'Admin TumpangGo',
++        paymentMethod: order.paymentMethod || 'MERCHANT_QRIS',
++        transactionRef: order.artopayPaymentId || `QRIS-TG-${order.id.replace(/^ord_/, '').toUpperCase()}`,
++        subtotal: order.subtotal,
++        deliveryFee: order.deliveryFee,
++        serviceFee: order.serviceFee,
++        uniqueCode: order.uniqueCode || 0,
++        total: order.total,
++        customerName: order.customerName,
++        merchantName: order.merchantName,
++        status: 'PAID'
++      };
++    }
+     return order ? normalizeOrderDeliveryFee(order) : undefined;
+   }
+ 
+@@ -1479,8 +1500,29 @@ export class FoodDatabase {
+     if (order.status === OrderStatus.EXPIRED) {
+       throw new Error('Pesanan telah kedaluwarsa. Pembayaran kedaluwarsa tidak dapat diverifikasi secara otomatis.');
+     }
+-    if (order.paymentStatus === PaymentStatus.PAID && order.status === OrderStatus.PAYMENT_VERIFIED) {
+-      return order; // Idempotent
++
++    const receiptNumber = order.receiptNumber || `TG-RCP-${order.id.replace(/^ord_/, '').toUpperCase()}`;
++    const issuedAt = order.paymentVerifiedAt || new Date().toISOString();
++    const transactionRef = order.artopayPaymentId || `QRIS-TG-${order.id.replace(/^ord_/, '').toUpperCase()}`;
++    const receipt: OrderReceipt = order.receipt || {
++      receiptNumber,
++      orderId: order.id,
++      issuedAt,
++      confirmedBy: adminId || 'admin_tumpang',
++      paymentMethod: order.paymentMethod || 'MERCHANT_QRIS',
++      transactionRef,
++      subtotal: order.subtotal,
++      deliveryFee: order.deliveryFee,
++      serviceFee: order.serviceFee,
++      uniqueCode: order.uniqueCode || 0,
++      total: order.total,
++      customerName: order.customerName,
++      merchantName: order.merchantName,
++      status: 'PAID'
++    };
++
++    if (order.paymentStatus === PaymentStatus.PAID && order.status === OrderStatus.PAYMENT_VERIFIED && order.receipt) {
++      return order; // Idempotent: already verified with existing receipt
+     }
+ 
+     const updated = await this.updateOrder(
+@@ -1489,12 +1531,14 @@ export class FoodDatabase {
+       {
+         status: OrderStatus.PAYMENT_VERIFIED,
+         paymentStatus: PaymentStatus.PAID,
+-        paymentVerifiedAt: new Date().toISOString(),
+-        paymentVerifiedBy: adminId
++        paymentVerifiedAt: issuedAt,
++        paymentVerifiedBy: adminId,
++        receiptNumber,
++        receipt
+       },
+       'ADMIN'
+     );
+-    this.log(adminId, `Admin ${adminId} memverifikasi pembayaran LUNAS untuk pesanan #${order.id} (Total: Rp ${order.total.toLocaleString('id-ID')})`, 'ADMIN');
++    this.log(adminId, `Admin ${adminId} memverifikasi pembayaran LUNAS & menerbitkan receipt #${receiptNumber} untuk pesanan #${order.id} (Total: Rp ${order.total.toLocaleString('id-ID')})`, 'ADMIN');
+     return updated;
+   }
+ 
+diff --git a/src/server/routes/orderRoutes.ts b/src/server/routes/orderRoutes.ts
+index c4a44b8..c8e50e2 100644
+--- a/src/server/routes/orderRoutes.ts
++++ b/src/server/routes/orderRoutes.ts
+@@ -39,6 +39,113 @@ orderRouter.get('/', (req: Request, res: Response) => {
+   return res.status(403).json({ error: 'Akses ditolak.' });
+ });
+ 
++// Dedicated E-Receipt endpoint - strictly accessible only after admin payment verification (PAID)
++// Hardened with anti-enumeration security to protect customer privacy
++orderRouter.get('/:id/receipt', async (req: Request, res: Response) => {
++  try {
++    const o = await foodDb.findOrder(req.params.id);
++    if (!o) return res.status(404).json({ error: 'Pesanan tidak ditemukan.' });
++
++    // Validate payment status: must be PAID or verified forward states
++    const isPaid = o.paymentStatus === PaymentStatus.PAID || 
++      [OrderStatus.PAYMENT_VERIFIED, OrderStatus.COOKING, OrderStatus.READY_FOR_PICKUP, OrderStatus.ORDER_PICKED_UP, OrderStatus.DELIVERED, OrderStatus.COMPLETED].includes(o.status);
++
++    if (!isPaid) {
++      return res.status(403).json({
++        error: 'E-Receipt belum dapat diterbitkan. Pembayaran belum diverifikasi atau belum lunas.',
++        code: 'PAYMENT_NOT_VERIFIED',
++        orderId: o.id,
++        paymentStatus: o.paymentStatus || 'PENDING',
++        orderStatus: o.status
++      });
++    }
++
++    // Ownership & Anti-Enumeration Security Guard:
++    // Check if user is authenticated with privileged or owner role
++    const user = req.user;
++    const isPrivilegedUser = user && (
++      user.role === 'ADMIN' ||
++      user.role === 'MASTER_ADMIN' ||
++      (user.role === 'MERCHANT' && user.entityId === o.merchantId) ||
++      (user.role === 'DRIVER' && user.entityId === o.driverId) ||
++      (user.role === 'CUSTOMER' && (user.userId === (o as any).customerId || (user.email && o.customerPhone && user.email === o.customerPhone)))
++    );
++
++    // If unauthenticated / public customer tracking, verify phone ownership
++    if (!isPrivilegedUser) {
++      const queryPhone = req.query.phone ? String(req.query.phone).trim() : '';
++      const headerPhone = req.headers['x-customer-phone'] ? String(req.headers['x-customer-phone']).trim() : '';
++      const providedPhone = queryPhone || headerPhone;
++
++      const normOrderPhone = String(o.customerPhone || '').replace(/\D/g, '');
++      const normProvidedPhone = providedPhone.replace(/\D/g, '');
++
++      const phoneMatches = Boolean(
++        normProvidedPhone.length >= 4 &&
++        (normOrderPhone.endsWith(normProvidedPhone) || normProvidedPhone.endsWith(normOrderPhone))
++      );
++
++      if (!phoneMatches) {
++        return res.status(403).json({
++          error: 'Akses ditolak: Verifikasi nomor WhatsApp pemesan diperlukan untuk mengakses rincian E-Receipt.',
++          code: 'RECEIPT_VERIFICATION_REQUIRED',
++          orderId: o.id
++        });
++      }
++    }
++
++    // Ensure receipt object is present
++    let receipt = o.receipt;
++    if (!receipt) {
++      const receiptNumber = o.receiptNumber || `TG-RCP-${o.id.replace(/^ord_/, '').toUpperCase()}`;
++      const issuedAt = o.paymentVerifiedAt || o.updatedAt || o.createdAt;
++      receipt = {
++        receiptNumber,
++        orderId: o.id,
++        issuedAt,
++        confirmedBy: o.paymentVerifiedBy || 'Admin TumpangGo',
++        paymentMethod: o.paymentMethod || 'MERCHANT_QRIS',
++        transactionRef: o.artopayPaymentId || `QRIS-TG-${o.id.replace(/^ord_/, '').toUpperCase()}`,
++        subtotal: o.subtotal,
++        deliveryFee: o.deliveryFee,
++        serviceFee: o.serviceFee,
++        uniqueCode: o.uniqueCode || 0,
++        total: o.total,
++        customerName: o.customerName,
++        merchantName: o.merchantName,
++        status: 'PAID'
++      };
++    }
++
++    // Return sanitized data protecting customer sensitive personal details
++    res.json({
++      receipt,
++      order: {
++        id: o.id,
++        customerName: o.customerName,
++        customerPhoneMasked: o.customerPhone ? o.customerPhone.substring(0, 4) + '****' + o.customerPhone.slice(-3) : '',
++        deliveryAddress: o.deliveryAddress,
++        merchantId: o.merchantId,
++        merchantName: o.merchantName,
++        items: o.items,
++        subtotal: o.subtotal,
++        deliveryFee: o.deliveryFee,
++        serviceFee: o.serviceFee,
++        uniqueCode: o.uniqueCode || 0,
++        total: o.total,
++        paymentStatus: o.paymentStatus,
++        status: o.status,
++        paymentMethod: o.paymentMethod || 'MERCHANT_QRIS',
++        paymentVerifiedAt: o.paymentVerifiedAt,
++        paymentVerifiedBy: o.paymentVerifiedBy || 'Admin TumpangGo',
++        createdAt: o.createdAt
++      }
++    });
++  } catch (err: any) {
++    res.status(500).json({ error: err.message || 'Gagal memuat E-Receipt.' });
++  }
++});
++
+ // Single order tracking (Public tracking with ID)
+ orderRouter.get('/:id', async (req: Request, res: Response) => {
+   const o = await foodDb.findOrder(req.params.id);
+diff --git a/src/types.ts b/src/types.ts
+index 4bbc582..de020b4 100644
+--- a/src/types.ts
++++ b/src/types.ts
+@@ -135,6 +135,8 @@ export interface Order {
+   clientRequestId?: string;
+   paymentMethod?: 'MERCHANT_QRIS' | 'MANUAL_TRANSFER' | 'ARTOPAY_QRIS';
+   merchantQrisImage?: string;
++  receiptNumber?: string;
++  receipt?: OrderReceipt;
+   artopayPaymentId?: string;
+   artopayCheckoutUrl?: string;
+   artopayStatus?: 'PENDING' | 'SUCCESS' | 'FAILED' | 'EXPIRED';
+@@ -147,6 +149,23 @@ export interface Order {
+   artopaySandbox?: boolean;
+ }
+ 
++export interface OrderReceipt {
++  receiptNumber: string;
++  orderId: string;
++  issuedAt: string;
++  confirmedBy: string;
++  paymentMethod: string;
++  transactionRef: string;
++  subtotal: number;
++  deliveryFee: number;
++  serviceFee: number;
++  uniqueCode: number;
++  total: number;
++  customerName: string;
++  merchantName: string;
++  status: 'PAID';
++}
++
+ export interface Driver {
+   id: string;
+   name: string;

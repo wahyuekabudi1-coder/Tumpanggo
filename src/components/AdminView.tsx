@@ -19,8 +19,9 @@ import {
   Check, X, FileText, AlertTriangle, Truck, RefreshCw, ZoomIn, Eye,
   UserPlus, Search, ArrowUpRight, Clock, Phone, MapPin, Building,
   CheckCircle2, XCircle, ChevronRight, Sliders, ArrowDownRight, Wallet, LogOut,
-  QrCode, ExternalLink, Trash2, Upload, Quote, Star, Filter
+  QrCode, ExternalLink, Trash2, Upload, Quote, Star, Filter, Receipt
 } from 'lucide-react';
+import EReceiptModal from './EReceiptModal.tsx';
 import { useHiddenTrigger } from '../hooks/useHiddenTrigger.ts';
 import HiddenPortalBar from './HiddenPortalBar.tsx';
 import { useSEO } from '../hooks/useSEO.ts';
@@ -85,6 +86,8 @@ export default function AdminView({ onLogout, systemConfig, onUpdateConfig, onSe
   const [paymentRejectModal, setPaymentRejectModal] = useState<{ orderId: string; reason: string } | null>(null);
   const [assignDriverModal, setAssignDriverModal] = useState<{ orderId: string; selectedDriverId: string } | null>(null);
   const [showImageModal, setShowImageModal] = useState<string | null>(null);
+  const [selectedReceiptOrder, setSelectedReceiptOrder] = useState<Order | null>(null);
+  const [verifyingOrderId, setVerifyingOrderId] = useState<string | null>(null);
 
   // Admin Merchant QRIS Management Modal states
   const [adminQrisModal, setAdminQrisModal] = useState<{ merchant: Merchant; qrisImage: string; preview: string | null } | null>(null);
@@ -242,7 +245,9 @@ export default function AdminView({ onLogout, systemConfig, onUpdateConfig, onSe
   };
 
   const verifyPayment = async (orderId: string) => {
+    if (verifyingOrderId) return;
     try {
+      setVerifyingOrderId(orderId);
       const res = await fetch(`/api/orders/${orderId}/verify-payment`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -250,14 +255,15 @@ export default function AdminView({ onLogout, systemConfig, onUpdateConfig, onSe
       });
       const data = await res.json().catch(() => ({}));
       if (res.ok) {
-        fetchAdminData();
-        alert('Pembayaran BERHASIL diverifikasi (LUNAS)! Status pesanan kini PAID dan diteruskan ke dapur merchant.');
+        await fetchAdminData();
       } else {
         alert(data.error || 'Gagal memverifikasi pembayaran.');
       }
     } catch (e: any) {
       console.error(e);
       alert('Terjadi kesalahan saat memverifikasi pembayaran: ' + (e.message || 'Error'));
+    } finally {
+      setVerifyingOrderId(null);
     }
   };
 
@@ -986,15 +992,28 @@ export default function AdminView({ onLogout, systemConfig, onUpdateConfig, onSe
                         {isWaiting ? (
                           <div className="flex items-center gap-2">
                             <button
+                              type="button"
                               onClick={() => verifyPayment(order.id)}
-                              className="flex-1 py-2.5 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs flex items-center justify-center gap-1.5 transition-all shadow-xs cursor-pointer"
+                              disabled={verifyingOrderId === order.id}
+                              className="flex-1 py-2.5 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-bold text-xs flex items-center justify-center gap-1.5 transition-all shadow-xs cursor-pointer"
                             >
-                              <Check className="w-4 h-4" />
-                              Verifikasi Pembayaran
+                              {verifyingOrderId === order.id ? (
+                                <>
+                                  <RefreshCw className="w-4 h-4 animate-spin" />
+                                  <span>Memverifikasi...</span>
+                                </>
+                              ) : (
+                                <>
+                                  <Check className="w-4 h-4" />
+                                  <span>Verifikasi Pembayaran</span>
+                                </>
+                              )}
                             </button>
 
                             <button
+                              type="button"
                               onClick={() => setPaymentRejectModal({ orderId: order.id, reason: '' })}
+                              disabled={verifyingOrderId === order.id}
                               className="py-2.5 px-3 rounded-xl border border-rose-200 bg-white hover:bg-rose-50 text-rose-600 font-bold text-xs flex items-center justify-center gap-1 transition-all cursor-pointer"
                               title="Tolak Pembayaran"
                             >
@@ -1003,16 +1022,30 @@ export default function AdminView({ onLogout, systemConfig, onUpdateConfig, onSe
                             </button>
                           </div>
                         ) : isPaid ? (
-                          <div className="flex items-center justify-between text-xs text-emerald-800 bg-emerald-50 p-2.5 rounded-xl border border-emerald-200">
-                            <span className="font-bold flex items-center gap-1">
-                              <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                              Lunas Terverifikasi
-                            </span>
-                            {order.paymentVerifiedAt && (
-                              <span className="text-[10px] text-emerald-600 font-mono">
-                                {new Date(order.paymentVerifiedAt).toLocaleDateString('id-ID')}
+                          <div className="flex flex-col gap-2">
+                            <div className="flex items-center justify-between text-xs text-emerald-800 bg-emerald-50 p-2.5 rounded-xl border border-emerald-200">
+                              <span className="font-bold flex items-center gap-1.5">
+                                <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                                Lunas Terverifikasi
                               </span>
-                            )}
+                              {order.receiptNumber ? (
+                                <span className="font-mono text-[10px] font-bold text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded-md">
+                                  {order.receiptNumber}
+                                </span>
+                              ) : order.paymentVerifiedAt ? (
+                                <span className="text-[10px] text-emerald-600 font-mono">
+                                  {new Date(order.paymentVerifiedAt).toLocaleDateString('id-ID')}
+                                </span>
+                              ) : null}
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => setSelectedReceiptOrder(order)}
+                              className="w-full py-2 px-3 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs flex items-center justify-center gap-1.5 transition-all shadow-xs cursor-pointer"
+                            >
+                              <Receipt className="w-3.5 h-3.5 text-amber-400" />
+                              <span>Lihat & Unduh E-Receipt Resmi</span>
+                            </button>
                           </div>
                         ) : isRejected ? (
                           <div className="flex items-center justify-between text-xs text-rose-800 bg-rose-50 p-2.5 rounded-xl border border-rose-200">
@@ -2329,6 +2362,13 @@ export default function AdminView({ onLogout, systemConfig, onUpdateConfig, onSe
             </div>
           </div>
         </div>
+      )}
+
+      {selectedReceiptOrder && (
+        <EReceiptModal 
+          order={selectedReceiptOrder} 
+          onClose={() => setSelectedReceiptOrder(null)} 
+        />
       )}
     </div>
   );

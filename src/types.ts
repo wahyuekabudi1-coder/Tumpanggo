@@ -135,6 +135,8 @@ export interface Order {
   clientRequestId?: string;
   paymentMethod?: 'MERCHANT_QRIS' | 'MANUAL_TRANSFER' | 'ARTOPAY_QRIS';
   merchantQrisImage?: string;
+  receiptNumber?: string;
+  receipt?: OrderReceipt;
   artopayPaymentId?: string;
   artopayCheckoutUrl?: string;
   artopayStatus?: 'PENDING' | 'SUCCESS' | 'FAILED' | 'EXPIRED';
@@ -145,6 +147,23 @@ export interface Order {
   artopayPublicKey?: string;
   artopayOrderId?: string;
   artopaySandbox?: boolean;
+}
+
+export interface OrderReceipt {
+  receiptNumber: string;
+  orderId: string;
+  issuedAt: string;
+  confirmedBy: string;
+  paymentMethod: string;
+  transactionRef: string;
+  subtotal: number;
+  deliveryFee: number;
+  serviceFee: number;
+  uniqueCode: number;
+  total: number;
+  customerName: string;
+  merchantName: string;
+  status: 'PAID';
 }
 
 export interface Driver {

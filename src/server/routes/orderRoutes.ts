@@ -39,6 +39,113 @@ orderRouter.get('/', (req: Request, res: Response) => {
   return res.status(403).json({ error: 'Akses ditolak.' });
 });
 
+// Dedicated E-Receipt endpoint - strictly accessible only after admin payment verification (PAID)
+// Hardened with anti-enumeration security to protect customer privacy
+orderRouter.get('/:id/receipt', async (req: Request, res: Response) => {
+  try {
+    const o = await foodDb.findOrder(req.params.id);
+    if (!o) return res.status(404).json({ error: 'Pesanan tidak ditemukan.' });
+
+    // Validate payment status: must be PAID or verified forward states
+    const isPaid = o.paymentStatus === PaymentStatus.PAID || 
+      [OrderStatus.PAYMENT_VERIFIED, OrderStatus.COOKING, OrderStatus.READY_FOR_PICKUP, OrderStatus.ORDER_PICKED_UP, OrderStatus.DELIVERED, OrderStatus.COMPLETED].includes(o.status);
+
+    if (!isPaid) {
+      return res.status(403).json({
+        error: 'E-Receipt belum dapat diterbitkan. Pembayaran belum diverifikasi atau belum lunas.',
+        code: 'PAYMENT_NOT_VERIFIED',
+        orderId: o.id,
+        paymentStatus: o.paymentStatus || 'PENDING',
+        orderStatus: o.status
+      });
+    }
+
+    // Ownership & Anti-Enumeration Security Guard:
+    // Check if user is authenticated with privileged or owner role
+    const user = req.user;
+    const isPrivilegedUser = user && (
+      user.role === 'ADMIN' ||
+      user.role === 'MASTER_ADMIN' ||
+      (user.role === 'MERCHANT' && user.entityId === o.merchantId) ||
+      (user.role === 'DRIVER' && user.entityId === o.driverId) ||
+      (user.role === 'CUSTOMER' && (user.userId === (o as any).customerId || (user.email && o.customerPhone && user.email === o.customerPhone)))
+    );
+
+    // If unauthenticated / public customer tracking, verify phone ownership
+    if (!isPrivilegedUser) {
+      const queryPhone = req.query.phone ? String(req.query.phone).trim() : '';
+      const headerPhone = req.headers['x-customer-phone'] ? String(req.headers['x-customer-phone']).trim() : '';
+      const providedPhone = queryPhone || headerPhone;
+
+      const normOrderPhone = String(o.customerPhone || '').replace(/\D/g, '');
+      const normProvidedPhone = providedPhone.replace(/\D/g, '');
+
+      const phoneMatches = Boolean(
+        normProvidedPhone.length >= 4 &&
+        (normOrderPhone.endsWith(normProvidedPhone) || normProvidedPhone.endsWith(normOrderPhone))
+      );
+
+      if (!phoneMatches) {
+        return res.status(403).json({
+          error: 'Akses ditolak: Verifikasi nomor WhatsApp pemesan diperlukan untuk mengakses rincian E-Receipt.',
+          code: 'RECEIPT_VERIFICATION_REQUIRED',
+          orderId: o.id
+        });
+      }
+    }
+
+    // Ensure receipt object is present
+    let receipt = o.receipt;
+    if (!receipt) {
+      const receiptNumber = o.receiptNumber || `TG-RCP-${o.id.replace(/^ord_/, '').toUpperCase()}`;
+      const issuedAt = o.paymentVerifiedAt || o.updatedAt || o.createdAt;
+      receipt = {
+        receiptNumber,
+        orderId: o.id,
+        issuedAt,
+        confirmedBy: o.paymentVerifiedBy || 'Admin TumpangGo',
+        paymentMethod: o.paymentMethod || 'MERCHANT_QRIS',
+        transactionRef: o.artopayPaymentId || `QRIS-TG-${o.id.replace(/^ord_/, '').toUpperCase()}`,
+        subtotal: o.subtotal,
+        deliveryFee: o.deliveryFee,
+        serviceFee: o.serviceFee,
+        uniqueCode: o.uniqueCode || 0,
+        total: o.total,
+        customerName: o.customerName,
+        merchantName: o.merchantName,
+        status: 'PAID'
+      };
+    }
+
+    // Return sanitized data protecting customer sensitive personal details
+    res.json({
+      receipt,
+      order: {
+        id: o.id,
+        customerName: o.customerName,
+        customerPhoneMasked: o.customerPhone ? o.customerPhone.substring(0, 4) + '****' + o.customerPhone.slice(-3) : '',
+        deliveryAddress: o.deliveryAddress,
+        merchantId: o.merchantId,
+        merchantName: o.merchantName,
+        items: o.items,
+        subtotal: o.subtotal,
+        deliveryFee: o.deliveryFee,
+        serviceFee: o.serviceFee,
+        uniqueCode: o.uniqueCode || 0,
+        total: o.total,
+        paymentStatus: o.paymentStatus,
+        status: o.status,
+        paymentMethod: o.paymentMethod || 'MERCHANT_QRIS',
+        paymentVerifiedAt: o.paymentVerifiedAt,
+        paymentVerifiedBy: o.paymentVerifiedBy || 'Admin TumpangGo',
+        createdAt: o.createdAt
+      }
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Gagal memuat E-Receipt.' });
+  }
+});
+
 // Single order tracking (Public tracking with ID)
 orderRouter.get('/:id', async (req: Request, res: Response) => {
   const o = await foodDb.findOrder(req.params.id);
