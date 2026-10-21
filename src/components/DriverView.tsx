@@ -275,7 +275,8 @@ export default function DriverView({ driverId, onLogout, onSelectRole }: DriverV
       const data = await res.json().catch(() => null);
 
       if (res.ok && data?.success) {
-        showToast(`Tugas #${orderId.replace(/^ord_/, '')} berhasil diterima! Segera ambil pesanan.`, 'success');
+        const orderNum = data.order?.orderNumber || data.order?.id || orderId;
+        showToast(`Tugas #${orderNum} berhasil diterima! Segera ambil pesanan.`, 'success');
         setConfirmAcceptOrder(null);
         if (data.order) {
           selectedOrderIdRef.current = data.order.id;
@@ -568,7 +569,7 @@ export default function DriverView({ driverId, onLogout, onSelectRole }: DriverV
                 <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-xs flex flex-col gap-3.5">
                   <div className="flex justify-between items-center border-b border-slate-100 pb-2.5">
                     <div className="flex items-center gap-1.5">
-                      <span className="text-xs font-bold text-slate-900 font-mono">#{selectedOrderDetail.id.replace(/^ord_/, '')}</span>
+                      <span className="text-xs font-bold text-slate-900 font-mono">#{selectedOrderDetail.orderNumber || selectedOrderDetail.id}</span>
                       <span className="text-[10px] text-slate-400 font-mono">({new Date(selectedOrderDetail.createdAt).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })})</span>
                     </div>
                     <span className={`text-[10px] font-extrabold px-2.5 py-1 rounded-lg border ${
@@ -857,7 +858,7 @@ export default function DriverView({ driverId, onLogout, onSelectRole }: DriverV
                         >
                           <div className="flex justify-between items-center border-b border-slate-100 pb-2">
                             <div className="flex items-center gap-1.5">
-                              <span className="font-mono text-xs font-bold text-slate-900">#{order.id.replace(/^ord_/, '')}</span>
+                              <span className="font-mono text-xs font-bold text-slate-900">#{order.orderNumber || order.id}</span>
                               <span className="text-[10px] text-slate-400 font-mono">
                                 {new Date(order.createdAt).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}
                               </span>
@@ -946,7 +947,7 @@ export default function DriverView({ driverId, onLogout, onSelectRole }: DriverV
                     className="bg-white border border-slate-200 hover:border-emerald-300 rounded-2xl p-3.5 shadow-xs flex flex-col gap-2 cursor-pointer transition-all active:scale-[0.99]"
                   >
                     <div className="flex justify-between items-center text-xs">
-                      <span className="font-mono text-slate-400 text-[11px] font-bold">#{order.id.replace(/^ord_/, '')}</span>
+                      <span className="font-mono text-slate-500 text-[11px] font-bold">#{order.orderNumber || order.id}</span>
                       <span className={`px-2 py-0.5 rounded text-[9px] font-extrabold uppercase ${
                         order.status === OrderStatus.COMPLETED || order.status === OrderStatus.DELIVERED
                           ? 'bg-emerald-50 text-emerald-800 border border-emerald-200' 

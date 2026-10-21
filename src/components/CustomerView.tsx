@@ -23,7 +23,7 @@ import {
   Download, Smartphone, Info, Home, UserPlus, Bike, Users, XCircle, Key, ShieldCheck,
   Wifi, Utensils, Car, Wallet, QrCode, Send, CreditCard, ArrowUpRight, ArrowDownLeft,
   ExternalLink, Globe, Lock, Crown, Sparkles, Building2, BadgeCheck, Award, TrendingUp, ChevronLeft, ChevronRight, Heart, AlertCircle, ZoomIn, Upload,
-  BookOpen, HelpCircle, ChevronDown, ChevronUp, Receipt
+  BookOpen, HelpCircle, ChevronDown, ChevronUp, Receipt, Copy
 } from 'lucide-react';
 import EReceiptModal from './EReceiptModal.tsx';
 
@@ -413,6 +413,22 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
           if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
         }, 150);
       }
+
+      const trackParam = params.get('track') || params.get('orderId') || params.get('nomorOrder');
+      if (trackParam) {
+        const cleanTrackId = trackParam.trim().replace(/^#/, '');
+        setTrackingOrderId(cleanTrackId);
+        setActiveTab('tracking');
+        fetch(`/api/orders/${encodeURIComponent(cleanTrackId)}`)
+          .then(res => res.ok ? res.json() : null)
+          .then(data => {
+            if (data && (data.id || data.orderNumber)) {
+              setActiveOrder(normalizeOrderDeliveryFee(data));
+              setTrackingOrderId(data.orderNumber || data.id);
+            }
+          })
+          .catch(() => {});
+      }
     } catch {}
   }, []);
 
@@ -535,6 +551,31 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
   }, [activeOrder]);
 
   const [trackingOrderId, setTrackingOrderId] = useState<string>('');
+  const [trackingError, setTrackingError] = useState<string | null>(null);
+  const [trackingLoading, setTrackingLoading] = useState<boolean>(false);
+  const [copiedTrackingId, setCopiedTrackingId] = useState<string | null>(null);
+  const [copiedCustomerTrackingLink, setCopiedCustomerTrackingLink] = useState<string | null>(null);
+
+  const handleCopyCustomerOrderNumber = async (orderNum: string) => {
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(orderNum);
+      }
+      setCopiedTrackingId(orderNum);
+      setTimeout(() => setCopiedTrackingId(null), 2500);
+    } catch {}
+  };
+
+  const handleCopyCustomerTrackingLink = async (orderNum: string) => {
+    try {
+      const trackingUrl = `${window.location.origin}/?track=${encodeURIComponent(orderNum)}`;
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(trackingUrl);
+      }
+      setCopiedCustomerTrackingLink(orderNum);
+      setTimeout(() => setCopiedCustomerTrackingLink(null), 2500);
+    } catch {}
+  };
   const [paymentProofFile, setPaymentProofFile] = useState<string | null>(null);
   const [paymentProofFileName, setPaymentProofFileName] = useState<string | null>(null);
   const [paymentProofFileSize, setPaymentProofFileSize] = useState<string | null>(null);
@@ -1248,16 +1289,31 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
   };
 
   // Live order refresh
-  const refreshActiveOrder = async () => {
-    if (!trackingOrderId) return;
+  const refreshActiveOrder = async (overrideId?: string | React.SyntheticEvent) => {
+    const rawTarget = typeof overrideId === 'string' ? overrideId : trackingOrderId;
+    const targetId = String(rawTarget || '').trim().replace(/^#/, '');
+    if (!targetId) {
+      setTrackingError('Mohon masukkan nomor pesanan Anda.');
+      return;
+    }
+    setTrackingLoading(true);
+    setTrackingError(null);
     try {
-      const res = await fetch(`/api/orders/${trackingOrderId}`);
+      const res = await fetch(`/api/orders/${encodeURIComponent(targetId)}`);
       if (res.ok) {
         const order = await res.json();
         setActiveOrder(normalizeOrderDeliveryFee(order));
+        setTrackingOrderId(order.orderNumber || order.id);
+        setTrackingError(null);
+      } else {
+        const errData = await res.json().catch(() => null);
+        setTrackingError(errData?.error || `Pesanan dengan nomor "${targetId}" tidak ditemukan. Pastikan nomor order Anda benar.`);
       }
     } catch (e) {
       console.error('Error refreshing order:', e);
+      setTrackingError('Gagal memuat status pesanan. Silakan periksa koneksi internet Anda.');
+    } finally {
+      setTrackingLoading(false);
     }
   };
 
@@ -3697,10 +3753,22 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
                   <QrCode className="w-3.5 h-3.5" />
                   <span>Pembayaran QRIS Merchant</span>
                 </div>
-                <h3 className="font-display font-extrabold text-xl text-slate-900">Pembayaran Pesanan</h3>
-                <p className="text-xs text-slate-500 mt-0.5">
-                  ID Pesanan: <span className="font-mono font-bold text-slate-800">#{activeOrder.id.toUpperCase()}</span>
-                </p>
+                <div className="flex items-center justify-center gap-1.5 mt-0.5">
+                  <span className="text-xs text-slate-500">Nomor Pesanan:</span>
+                  <span className="font-mono font-bold text-slate-800 text-xs">#{activeOrder.orderNumber || activeOrder.id}</span>
+                  <button
+                    type="button"
+                    onClick={() => handleCopyCustomerOrderNumber(activeOrder.orderNumber || activeOrder.id)}
+                    title="Salin Nomor Order"
+                    className="p-1 hover:bg-slate-200 text-slate-400 hover:text-slate-700 rounded transition-colors cursor-pointer"
+                  >
+                    {copiedTrackingId === (activeOrder.orderNumber || activeOrder.id) ? (
+                      <Check className="w-3.5 h-3.5 text-emerald-600" />
+                    ) : (
+                      <Copy className="w-3.5 h-3.5" />
+                    )}
+                  </button>
+                </div>
               </div>
 
               {/* Status Header Badge */}
@@ -3825,7 +3893,7 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
                       </div>
                       <button
                         type="button"
-                        onClick={refreshActiveOrder}
+                        onClick={() => refreshActiveOrder()}
                         className="p-2 bg-blue-100 hover:bg-blue-200 text-blue-800 rounded-xl font-bold transition-all"
                         title="Perbarui Status"
                       >
@@ -4162,7 +4230,7 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
                 <button
                   type="button"
                   onClick={() => {
-                    setTrackingOrderId(activeOrder.id);
+                    setTrackingOrderId(activeOrder.orderNumber || activeOrder.id);
                     setActiveTab('tracking');
                   }}
                   className="w-full py-3 bg-slate-900 text-white hover:bg-slate-800 font-bold rounded-xl transition-all text-xs text-center cursor-pointer shadow-xs"
@@ -4192,7 +4260,7 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
             <div className="flex items-center gap-2">
               <button 
                 onClick={() => setActiveTab('home')}
-                className="p-1 hover:bg-slate-200 rounded-lg"
+                className="p-1 hover:bg-slate-200 rounded-lg cursor-pointer"
               >
                 <ArrowLeft className="w-5 h-5" />
               </button>
@@ -4201,40 +4269,121 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
 
             {/* Manual Refresh / Tracker input if no active order */}
             {!activeOrder ? (
-              <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm flex flex-col gap-3">
-                <p className="text-slate-500 text-xs leading-relaxed">Masukkan ID Pesanan Anda untuk memantau status secara langsung.</p>
+              <form 
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  refreshActiveOrder();
+                }}
+                className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm flex flex-col gap-3"
+              >
+                <div>
+                  <h4 className="font-bold text-sm text-slate-800">Lacak Status Pesanan Makanan</h4>
+                  <p className="text-slate-500 text-xs leading-relaxed mt-0.5">
+                    Masukkan Nomor Pesanan kanonis Anda (contoh: <span className="font-mono font-bold text-slate-700">TF-20261021-001</span> atau ID pesanan yang diterima saat pemesanan).
+                  </p>
+                </div>
                 <div className="flex gap-2">
                   <input
                     type="text"
                     value={trackingOrderId}
-                    onChange={(e) => setTrackingOrderId(e.target.value)}
-                    placeholder="ord_xxxxx"
-                    className="flex-1 bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-xs focus:outline-none"
+                    onChange={(e) => {
+                      setTrackingOrderId(e.target.value);
+                      if (trackingError) setTrackingError(null);
+                    }}
+                    placeholder="Contoh: TF-20261021-001 atau ord_xxxxx"
+                    className="flex-1 bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs font-mono focus:outline-none focus:border-rose-500 focus:bg-white transition-colors"
                   />
                   <button
-                    onClick={refreshActiveOrder}
-                    className="px-4 py-2 bg-rose-600 text-white font-bold rounded-xl text-xs"
+                    type="submit"
+                    disabled={trackingLoading}
+                    className="px-5 py-3 bg-rose-600 hover:bg-rose-700 disabled:opacity-50 text-white font-bold rounded-xl text-xs flex items-center justify-center gap-1.5 cursor-pointer shadow-xs transition-colors shrink-0"
                   >
-                    Lacak
+                    {trackingLoading ? (
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      'Lacak'
+                    )}
                   </button>
                 </div>
-              </div>
+                {trackingError && (
+                  <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-rose-700 text-xs flex items-center gap-2">
+                    <AlertCircle className="w-4 h-4 shrink-0 text-rose-600" />
+                    <span>{trackingError}</span>
+                  </div>
+                )}
+              </form>
             ) : (
               <div className="flex flex-col gap-4">
                 {/* Active Info Header */}
                 <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm">
-                  <div className="flex justify-between items-start border-b border-slate-100 pb-3">
+                  <div className="flex justify-between items-start border-b border-slate-100 pb-3 flex-wrap gap-2">
                     <div className="flex flex-col">
-                      <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">ID PESANAN</span>
-                      <span className="font-mono text-sm font-bold text-slate-800 mt-0.5">{activeOrder.id}</span>
+                      <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">NOMOR ORDER KANONIS</span>
+                      <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                        <span className="font-mono text-base font-extrabold text-slate-900">
+                          #{activeOrder.orderNumber || activeOrder.id}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => handleCopyCustomerOrderNumber(activeOrder.orderNumber || activeOrder.id)}
+                          title="Salin Nomor Order"
+                          className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-medium bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg transition-colors cursor-pointer"
+                        >
+                          {copiedTrackingId === (activeOrder.orderNumber || activeOrder.id) ? (
+                            <>
+                              <Check className="w-3 h-3 text-emerald-600" />
+                              <span className="text-emerald-700 font-bold">Disalin</span>
+                            </>
+                          ) : (
+                            <>
+                              <Copy className="w-3 h-3 text-slate-500" />
+                              <span>Salin No</span>
+                            </>
+                          )}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleCopyCustomerTrackingLink(activeOrder.orderNumber || activeOrder.id)}
+                          title="Salin Tautan Pelacakan"
+                          className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-medium bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-lg transition-colors cursor-pointer"
+                        >
+                          {copiedCustomerTrackingLink === (activeOrder.orderNumber || activeOrder.id) ? (
+                            <>
+                              <Check className="w-3 h-3 text-blue-600" />
+                              <span className="font-bold">Tautan Disalin</span>
+                            </>
+                          ) : (
+                            <>
+                              <Share2 className="w-3 h-3 text-blue-500" />
+                              <span>Salin Tautan</span>
+                            </>
+                          )}
+                        </button>
+                      </div>
                     </div>
-                    <button
-                      onClick={refreshActiveOrder}
-                      className="p-1.5 hover:bg-slate-100 text-slate-500 rounded-lg transition-colors border border-slate-200 shadow-sm"
-                      title="Perbarui Status"
-                    >
-                      <RefreshCw className="w-3.5 h-3.5" />
-                    </button>
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setActiveOrder(null);
+                          setTrackingOrderId('');
+                          setTrackingError(null);
+                        }}
+                        className="px-2.5 py-1.5 text-[11px] font-medium text-slate-600 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors cursor-pointer"
+                        title="Lacak pesanan lainnya"
+                      >
+                        Lacak Lainnya
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => refreshActiveOrder()}
+                        disabled={trackingLoading}
+                        className="p-1.5 hover:bg-slate-100 text-slate-500 rounded-lg transition-colors border border-slate-200 shadow-sm cursor-pointer"
+                        title="Perbarui Status"
+                      >
+                        <RefreshCw className={`w-3.5 h-3.5 ${trackingLoading ? 'animate-spin text-rose-600' : ''}`} />
+                      </button>
+                    </div>
                   </div>
 
                   {/* Order Core Info */}
@@ -4275,7 +4424,7 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
                             <span className="bg-emerald-600 text-white text-[9px] font-black uppercase px-2 py-0.5 rounded-full tracking-wider">LUNAS</span>
                           </div>
                           <p className="text-[11px] text-emerald-800 font-mono font-medium mt-0.5">
-                            No. Bukti: <span className="font-bold">{activeOrder.receiptNumber || activeOrder.receipt?.receiptNumber || `TG-RCP-${activeOrder.id.replace(/^ord_/, '').toUpperCase()}`}</span>
+                            No. Bukti: <span className="font-bold">{activeOrder.receiptNumber || activeOrder.receipt?.receiptNumber || `TG-RCP-${(activeOrder.orderNumber || activeOrder.id).replace(/^ord_/, '').replace(/^TF-/, '').toUpperCase()}`}</span>
                           </p>
                         </div>
                       </div>
@@ -4523,13 +4672,13 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
                         key={o.id}
                         onClick={() => {
                           setActiveOrder(o);
-                          setTrackingOrderId(o.id);
+                          setTrackingOrderId(o.orderNumber || o.id);
                           setActiveTab('tracking');
                         }}
                         className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm hover:shadow-md transition-all cursor-pointer flex flex-col gap-2"
                       >
                         <div className="flex justify-between items-center text-xs">
-                          <span className="font-mono font-bold text-slate-500">{o.id}</span>
+                          <span className="font-mono font-bold text-slate-800">#{o.orderNumber || o.id}</span>
                           <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
                             o.status === OrderStatus.COMPLETED 
                               ? 'bg-emerald-100 text-emerald-800' 

@@ -726,7 +726,7 @@ export default function MerchantView({ merchantId: rawMerchantId, onLogout, onSe
                       <div className="p-4 bg-emerald-50/60 border-b border-emerald-100 flex items-center justify-between">
                         <div>
                           <span className="font-mono text-xs font-extrabold text-slate-900">
-                            #{order.id.slice(-6).toUpperCase()}
+                            #{order.orderNumber || order.id}
                           </span>
                           <span className="block text-[10px] text-slate-500">
                             Masuk: {new Date(order.createdAt).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })} WIB
@@ -866,7 +866,7 @@ export default function MerchantView({ merchantId: rawMerchantId, onLogout, onSe
                     {pendingPaymentOrders.map(order => (
                       <div key={order.id} className="bg-white rounded-xl p-3 border border-amber-200 text-xs space-y-1.5 shadow-2xs">
                         <div className="flex justify-between items-center">
-                          <span className="font-mono font-bold text-slate-800">#{order.id.slice(-6).toUpperCase()}</span>
+                          <span className="font-mono font-bold text-slate-800">#{order.orderNumber || order.id}</span>
                           <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-800">
                             Menunggu Admin
                           </span>
@@ -926,7 +926,7 @@ export default function MerchantView({ merchantId: rawMerchantId, onLogout, onSe
                       <div className="p-4 bg-blue-50/70 border-b border-blue-100 flex items-center justify-between">
                         <div>
                           <span className="font-mono text-xs font-extrabold text-slate-900">
-                            #{order.id.slice(-6).toUpperCase()}
+                            #{order.orderNumber || order.id}
                           </span>
                           <span className="block text-[10px] text-slate-500">
                             Masuk: {new Date(order.createdAt).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })} WIB
@@ -1060,7 +1060,7 @@ export default function MerchantView({ merchantId: rawMerchantId, onLogout, onSe
                       {/* Top Bar */}
                       <div className="flex justify-between items-center pb-2 border-b border-slate-100">
                         <div>
-                          <span className="font-mono text-xs font-bold text-slate-800">#{order.id.slice(-6).toUpperCase()}</span>
+                          <span className="font-mono text-xs font-bold text-slate-800">#{order.orderNumber || order.id}</span>
                           <span className="block text-[10px] text-slate-400">
                             {new Date(order.createdAt).toLocaleDateString('id-ID')} • {new Date(order.createdAt).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}
                           </span>

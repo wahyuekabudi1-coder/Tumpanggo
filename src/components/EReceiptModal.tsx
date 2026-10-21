@@ -24,7 +24,9 @@ export default function EReceiptModal({ order, onClose }: EReceiptModalProps) {
   const [shareFeedback, setShareFeedback] = useState<string | null>(null);
   const [pdfError, setPdfError] = useState<string | null>(null);
 
-  const receiptNumber = order.receiptNumber || order.receipt?.receiptNumber || `TG-RCP-${order.id.replace(/^ord_/, '').toUpperCase()}`;
+  const canonicalOrderCode = order.orderNumber || order.id;
+  const cleanCode = canonicalOrderCode.replace(/^ord_/, '').replace(/^TF-/, '').toUpperCase();
+  const receiptNumber = order.receiptNumber || order.receipt?.receiptNumber || `TG-RCP-${cleanCode}`;
   const verificationTime = order.paymentVerifiedAt || order.receipt?.issuedAt || order.updatedAt || order.createdAt;
   const verifiedDate = new Date(verificationTime);
   const formattedDate = !isNaN(verifiedDate.getTime()) 
@@ -37,7 +39,7 @@ export default function EReceiptModal({ order, onClose }: EReceiptModalProps) {
       }) + ' WIB'
     : '21 Oktober 2026';
 
-  const transactionRef = order.receipt?.transactionRef || order.artopayPaymentId || `QRIS-TG-${order.id.replace(/^ord_/, '').toUpperCase()}`;
+  const transactionRef = order.receipt?.transactionRef || order.artopayPaymentId || `QRIS-TG-${cleanCode}`;
   const verifiedBy = order.receipt?.confirmedBy || order.paymentVerifiedBy || 'Admin TumpangGo';
   const paymentMethodLabel = order.paymentMethod === 'ARTOPAY_QRIS' 
     ? 'QRIS Dinamis ArtoPay' 
@@ -139,7 +141,7 @@ export default function EReceiptModal({ order, onClose }: EReceiptModalProps) {
       doc.setFont('helvetica', 'bold');
       doc.setTextColor(15, 23, 42);
       doc.text(receiptNumber, 52, y + 7);
-      doc.text(`#${order.id.toUpperCase()}`, 52, y + 14);
+      doc.text(`#${canonicalOrderCode}`, 52, y + 14);
       doc.setFont('helvetica', 'normal');
       doc.text(formattedDate, 52, y + 21);
       doc.text(paymentMethodLabel, 52, y + 28);
@@ -279,7 +281,7 @@ export default function EReceiptModal({ order, onClose }: EReceiptModalProps) {
       );
 
       // Save PDF file
-      const safeId = order.id.replace(/^ord_/, '').toUpperCase();
+      const safeId = canonicalOrderCode.replace(/^ord_/, '').toUpperCase();
       const filename = `E-Receipt-TG-${safeId}.pdf`;
       doc.save(filename);
       setPdfError(null);
@@ -296,7 +298,7 @@ export default function EReceiptModal({ order, onClose }: EReceiptModalProps) {
     const summaryText = 
       `*E-RECEIPT PEMBAYARAN TUMPANGGO*\n` +
       `No. Receipt: ${receiptNumber}\n` +
-      `ID Pesanan: #${order.id.toUpperCase()}\n` +
+      `No. Pesanan: #${canonicalOrderCode}\n` +
       `Toko: ${order.merchantName}\n` +
       `Pemesan: ${order.customerName}\n` +
       `Total Lunas: ${formatRp(order.total)}\n` +
@@ -308,7 +310,7 @@ export default function EReceiptModal({ order, onClose }: EReceiptModalProps) {
     if (navigator.share) {
       try {
         await navigator.share({
-          title: `E-Receipt TumpangGo #${order.id.toUpperCase()}`,
+          title: `E-Receipt TumpangGo #${canonicalOrderCode}`,
           text: summaryText
         });
         setShareFeedback('Berhasil membagikan receipt!');
@@ -397,9 +399,9 @@ export default function EReceiptModal({ order, onClose }: EReceiptModalProps) {
               </span>
             </div>
             <div>
-              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">ID Pesanan</span>
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Nomor Pesanan</span>
               <span className="font-mono font-extrabold text-rose-700 text-xs sm:text-sm mt-0.5 block">
-                #{order.id.toUpperCase()}
+                #{canonicalOrderCode}
               </span>
             </div>
             <div>

@@ -100,6 +100,7 @@ export interface OrderItem {
 
 export interface Order {
   id: string;
+  orderNumber?: string; // Canonical public order number e.g. "TF-20261021-001" or "TF-ZSXU9O4"
   uniqueCode: number; // 3 digit (e.g. 1 to 99, randomized and padded)
   customerName: string;
   customerPhone: string;
@@ -152,6 +153,7 @@ export interface Order {
 export interface OrderReceipt {
   receiptNumber: string;
   orderId: string;
+  orderNumber?: string;
   issuedAt: string;
   confirmedBy: string;
   paymentMethod: string;

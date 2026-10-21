@@ -106,15 +106,18 @@ orderRouter.get('/:id/receipt', async (req: Request, res: Response) => {
     // Ensure receipt object is present
     let receipt = o.receipt;
     if (!receipt) {
-      const receiptNumber = o.receiptNumber || `TG-RCP-${o.id.replace(/^ord_/, '').toUpperCase()}`;
+      const canonicalCode = o.orderNumber || o.id;
+      const cleanRef = canonicalCode.replace(/^ord_/, '').replace(/^TF-/, '').toUpperCase();
+      const receiptNumber = o.receiptNumber || `TG-RCP-${cleanRef}`;
       const issuedAt = o.paymentVerifiedAt || o.updatedAt || o.createdAt;
       receipt = {
         receiptNumber,
         orderId: o.id,
+        orderNumber: canonicalCode,
         issuedAt,
         confirmedBy: o.paymentVerifiedBy || 'Admin TumpangGo',
         paymentMethod: o.paymentMethod || 'MERCHANT_QRIS',
-        transactionRef: o.artopayPaymentId || `QRIS-TG-${o.id.replace(/^ord_/, '').toUpperCase()}`,
+        transactionRef: o.artopayPaymentId || `QRIS-TG-${cleanRef}`,
         subtotal: o.subtotal,
         deliveryFee: o.deliveryFee,
         serviceFee: o.serviceFee,
@@ -131,6 +134,7 @@ orderRouter.get('/:id/receipt', async (req: Request, res: Response) => {
       receipt,
       order: {
         id: o.id,
+        orderNumber: o.orderNumber || o.id,
         customerName: o.customerName,
         customerPhoneMasked: o.customerPhone ? o.customerPhone.substring(0, 4) + '****' + o.customerPhone.slice(-3) : '',
         deliveryAddress: o.deliveryAddress,

@@ -253,6 +253,23 @@ export class FoodDatabase {
       }
     });
 
+    // Idempotent migration: Ensure all existing orders have a canonical public orderNumber
+    let ordersBackfilled = false;
+    for (const o of this.data.orders) {
+      if (!o.orderNumber) {
+        const cleanId = (o.id || '').replace(/^ord_/, '').toUpperCase();
+        o.orderNumber = `TF-${cleanId}`;
+        ordersBackfilled = true;
+      }
+      if (o.receipt && !o.receipt.orderNumber) {
+        o.receipt.orderNumber = o.orderNumber;
+        ordersBackfilled = true;
+      }
+    }
+    if (ordersBackfilled) {
+      this.save();
+    }
+
     this.bootstrapMasterAccount();
 
     if (this.data.merchants.length === 0) {
@@ -1301,22 +1318,55 @@ export class FoodDatabase {
     const cleanId = String(id).trim();
     if (!cleanId) return undefined;
 
-    const cleanLower = cleanId.toLowerCase();
-    const withoutPrefix = cleanLower.startsWith('ord_') ? cleanLower.replace(/^ord_/, '') : cleanLower;
-    const withPrefix = cleanLower.startsWith('ord_') ? cleanLower : 'ord_' + cleanLower;
+    // Remove optional leading # and whitespace
+    const rawClean = cleanId.replace(/^#/, '').trim();
+    const cleanLower = rawClean.toLowerCase();
+    const cleanUpper = rawClean.toUpperCase();
+    const withoutOrd = cleanLower.startsWith('ord_') ? cleanLower.replace(/^ord_/, '') : cleanLower;
+    const withOrd = cleanLower.startsWith('ord_') ? cleanLower : 'ord_' + cleanLower;
+    const withoutTf = cleanUpper.startsWith('TF-') ? cleanUpper.replace(/^TF-/, '') : cleanUpper;
+    const withTf = cleanUpper.startsWith('TF-') ? cleanUpper : 'TF-' + cleanUpper;
 
     const matcher = (item: Order | null | undefined): boolean => {
-      if (!item || !item.id) return false;
-      const itemId = String(item.id).trim();
+      if (!item) return false;
+      const itemId = String(item.id || '').trim();
       const itemLower = itemId.toLowerCase();
-      return (
-        itemId === cleanId ||
+      const itemUpper = itemId.toUpperCase();
+      const itemOrderNumber = String(item.orderNumber || '').trim();
+      const numUpper = itemOrderNumber.toUpperCase();
+
+      // 1. Direct or normalized match on canonical orderNumber
+      if (itemOrderNumber && (
+        itemOrderNumber === rawClean ||
+        numUpper === cleanUpper ||
+        numUpper === withTf ||
+        numUpper.replace(/^TF-/, '') === withoutTf
+      )) {
+        return true;
+      }
+
+      // 2. Direct or normalized match on internal database id
+      if (
+        itemId === rawClean ||
         itemLower === cleanLower ||
-        itemLower === withoutPrefix ||
-        itemLower === withPrefix ||
-        itemLower.replace(/^ord_/, '') === withoutPrefix ||
-        (cleanId.length >= 6 && (itemId.endsWith(cleanId) || itemId.toUpperCase().endsWith(cleanId.toUpperCase())))
-      );
+        itemLower === withoutOrd ||
+        itemLower === withOrd ||
+        itemLower.replace(/^ord_/, '') === withoutOrd
+      ) {
+        return true;
+      }
+
+      // 3. Match suffix (e.g. last 4-6 chars of ID or orderNumber)
+      if (rawClean.length >= 4) {
+        if (itemUpper.endsWith(cleanUpper) || (itemUpper.replace(/^ORD_/, '').endsWith(cleanUpper))) {
+          return true;
+        }
+        if (numUpper.endsWith(cleanUpper) || (numUpper.replace(/^TF-/, '').endsWith(cleanUpper))) {
+          return true;
+        }
+      }
+
+      return false;
     };
 
     let o = this.data.orders.find(matcher);
@@ -1517,16 +1567,19 @@ export class FoodDatabase {
     }
 
     if (order && (order.paymentStatus === PaymentStatus.PAID || [OrderStatus.PAYMENT_VERIFIED, OrderStatus.COOKING, OrderStatus.READY_FOR_PICKUP, OrderStatus.ORDER_PICKED_UP, OrderStatus.DELIVERED, OrderStatus.COMPLETED].includes(order.status)) && !order.receipt) {
-      const receiptNumber = order.receiptNumber || `TG-RCP-${String(order.id).replace(/^ord_/, '').toUpperCase()}`;
+      const canonicalOrderCode = order.orderNumber || order.id;
+      const cleanRef = String(canonicalOrderCode).replace(/^ord_/, '').replace(/^TF-/, '').toUpperCase();
+      const receiptNumber = order.receiptNumber || `TG-RCP-${cleanRef}`;
       const issuedAt = order.paymentVerifiedAt || order.updatedAt || order.createdAt;
       order.receiptNumber = receiptNumber;
       order.receipt = {
         receiptNumber,
         orderId: order.id,
+        orderNumber: canonicalOrderCode,
         issuedAt,
         confirmedBy: order.paymentVerifiedBy || 'Admin TumpangGo',
         paymentMethod: order.paymentMethod || 'MERCHANT_QRIS',
-        transactionRef: order.artopayPaymentId || `QRIS-TG-${String(order.id).replace(/^ord_/, '').toUpperCase()}`,
+        transactionRef: order.artopayPaymentId || `QRIS-TG-${cleanRef}`,
         subtotal: order.subtotal,
         deliveryFee: order.deliveryFee,
         serviceFee: order.serviceFee,
@@ -1576,17 +1629,28 @@ export class FoodDatabase {
       activeUniqueCodes
     );
 
+    const now = new Date();
+    const datePrefix = now.toISOString().slice(0, 10).replace(/-/g, '');
+    const dailyCount = this.data.orders.filter(o => o.createdAt && o.createdAt.startsWith(now.toISOString().slice(0, 10))).length + 1;
+    let orderNumber = `TF-${datePrefix}-${String(dailyCount).padStart(3, '0')}`;
+    let attempt = 0;
+    while (this.data.orders.some(o => o.orderNumber === orderNumber)) {
+      attempt++;
+      orderNumber = `TF-${datePrefix}-${String(dailyCount + attempt).padStart(3, '0')}`;
+    }
+
     const newOrder: Order = normalizeOrderDeliveryFee({
       ...validatedOrderData,
       id: 'ord_' + Math.random().toString(36).substring(2, 9),
+      orderNumber,
       clientRequestId: rawInput.clientRequestId ? String(rawInput.clientRequestId).trim() : undefined,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
+      createdAt: now.toISOString(),
+      updatedAt: now.toISOString()
     });
 
     this.data.orders.unshift(newOrder);
     this.save();
-    this.log('CUSTOMER', `Created order ${newOrder.id} Total: Rp ${newOrder.total.toLocaleString()} (UniqueCode: ${newOrder.uniqueCode})`, 'CUSTOMER');
+    this.log('CUSTOMER', `Created order ${newOrder.orderNumber} (ID: ${newOrder.id}) Total: Rp ${newOrder.total.toLocaleString()} (UniqueCode: ${newOrder.uniqueCode})`, 'CUSTOMER');
 
     if (isFirestoreAdminConfigured()) {
       const probe = await testFirestoreConnection();
@@ -1615,24 +1679,12 @@ export class FoodDatabase {
     role: AppRole = 'SYSTEM'
   ): Promise<Order> {
     const cleanId = String(id || '').trim();
-    let index = this.data.orders.findIndex(o => o.id === cleanId);
+    let index = this.data.orders.findIndex(o => o.id === cleanId || (o.orderNumber && o.orderNumber === cleanId));
     if (index === -1) {
-      const cleanLower = cleanId.toLowerCase();
-      const withoutPrefix = cleanLower.startsWith('ord_') ? cleanLower.replace(/^ord_/, '') : cleanLower;
-      const withPrefix = cleanLower.startsWith('ord_') ? cleanLower : 'ord_' + cleanLower;
-      index = this.data.orders.findIndex(o => {
-        if (!o || !o.id) return false;
-        const oId = String(o.id).trim();
-        const oLower = oId.toLowerCase();
-        return (
-          oId === cleanId ||
-          oLower === cleanLower ||
-          oLower === withoutPrefix ||
-          oLower === withPrefix ||
-          oLower.replace(/^ord_/, '') === withoutPrefix ||
-          (cleanId.length >= 6 && (oId.endsWith(cleanId) || oId.toUpperCase().endsWith(cleanId.toUpperCase())))
-        );
-      });
+      const match = this.getOrderById(cleanId);
+      if (match) {
+        index = this.data.orders.findIndex(o => o.id === match.id);
+      }
     }
 
     if (index === -1) {
@@ -1650,6 +1702,10 @@ export class FoodDatabase {
 
     const currentOrder = this.data.orders[index];
     const prevStatus = currentOrder.status;
+
+    // Canonical identifiers are strictly immutable
+    delete (updates as any).id;
+    delete (updates as any).orderNumber;
 
     // Validate state transition if status is being updated
     if (updates.status && updates.status !== prevStatus) {
