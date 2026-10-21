@@ -130,7 +130,7 @@ export interface Order {
   createdAt: string;
   updatedAt: string;
   paymentExpiresAt: string; // ISO string (createdAt + 10 mins)
-  preOrderDate?: string; // e.g. "2026-07-03" (YYYY-MM-DD)
+  preOrderDate?: string; // e.g. "2026-07-03" (YYYY-MM-DD) - Retained strictly for reading historical transactions
   clientRequestId?: string;
   paymentMethod?: 'MERCHANT_QRIS' | 'MANUAL_TRANSFER' | 'ARTOPAY_QRIS';
   merchantQrisImage?: string;

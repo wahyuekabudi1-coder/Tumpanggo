@@ -9,6 +9,9 @@
 import { Order, OrderItem, OrderStatus, PaymentStatus, MenuItem, Merchant, SystemConfig, calculateTieredServiceFee, AssignmentMode } from '../../types';
 import { calculateDeliveryFee, FLAT_TUMPANG_DELIVERY_FEE, normalizeOrderDeliveryFee } from '../../utils/deliveryFee';
 
+// NOTE: preOrderDate is strictly excluded from CreateOrderInput contract.
+// New orders are instant on-demand orders. Any client attempting to send preOrderDate
+// will have that field completely ignored, and it will never be copied to the new Order record.
 export interface CreateOrderInput {
   customerName: string;
   customerPhone: string;
@@ -29,6 +32,7 @@ export class OrderService {
   /**
    * Validates and recalculates an incoming order against official database records.
    * Prevents customer-side price tampering.
+   * Guarantees that preOrderDate is never copied from input to the resulting order.
    */
   public static validateAndBuildOrder(
     input: CreateOrderInput,
@@ -36,7 +40,7 @@ export class OrderService {
     menuItems: MenuItem[],
     systemConfig: SystemConfig,
     activeUniqueCodes: number[]
-  ): Omit<Order, 'id' | 'createdAt' | 'updatedAt'> {
+  ): Omit<Order, 'id' | 'createdAt' | 'updatedAt' | 'preOrderDate'> {
     if (!merchant) {
       throw new Error('Merchant tidak ditemukan.');
     }
