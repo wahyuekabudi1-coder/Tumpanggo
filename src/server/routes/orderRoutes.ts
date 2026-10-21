@@ -7,7 +7,10 @@
  * Enforces payment expiration rules, terminal state guards, and RBAC order visibility.
  */
 
+import path from 'path';
+import fs from 'fs';
 import { Router, Request, Response } from 'express';
+import sharp from 'sharp';
 import { foodDb } from '../db';
 import { OrderStatus, PaymentStatus } from '../../types';
 import { requireRole } from '../auth';
@@ -41,6 +44,111 @@ orderRouter.get('/:id', async (req: Request, res: Response) => {
   const o = await foodDb.findOrder(req.params.id);
   if (!o) return res.status(404).json({ error: 'Pesanan tidak ditemukan.' });
   res.json(o);
+});
+
+// Dedicated endpoint to query order QRIS metadata and availability
+orderRouter.get('/:id/qris', async (req: Request, res: Response) => {
+  try {
+    const order = await foodDb.findOrder(req.params.id);
+    if (!order) return res.status(404).json({ error: 'Pesanan tidak ditemukan.' });
+    const merchant = foodDb.getMerchantById(order.merchantId);
+    const rawQris = order.merchantQrisImage || merchant?.qrisImage;
+    const hasQris = Boolean(rawQris && typeof rawQris === 'string' && rawQris.trim().length > 3 && !rawQris.includes('unsplash'));
+    res.json({
+      orderId: order.id,
+      merchantId: order.merchantId,
+      merchantName: order.merchantName,
+      total: order.total,
+      hasQris,
+      qrisImage: hasQris ? rawQris : null,
+      qrisImageUrl: hasQris ? `/api/orders/${order.id}/qris-image` : null
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Gagal memuat status QRIS pesanan.' });
+  }
+});
+
+// Dedicated endpoint to stream order QRIS image binary directly
+orderRouter.get('/:id/qris-image', async (req: Request, res: Response) => {
+  try {
+    const order = await foodDb.findOrder(req.params.id);
+    if (!order) return res.status(404).json({ error: 'Pesanan tidak ditemukan.' });
+    const merchant = foodDb.getMerchantById(order.merchantId);
+    const rawQris = order.merchantQrisImage || merchant?.qrisImage;
+    if (!rawQris || typeof rawQris !== 'string' || rawQris.trim().length < 3 || rawQris.includes('unsplash')) {
+      return res.status(404).json({ error: `Toko "${order.merchantName}" belum memiliki QRIS statis resmi.` });
+    }
+
+    const cleanQris = rawQris.trim();
+
+    // 1. Base64 Data URL
+    if (cleanQris.startsWith('data:image/')) {
+      const matches = cleanQris.match(/^data:(image\/[a-zA-Z0-9.+_-]+);base64,(.+)$/);
+      if (matches) {
+        res.setHeader('Content-Type', matches[1]);
+        res.setHeader('Cache-Control', 'public, max-age=86400');
+        return res.send(Buffer.from(matches[2], 'base64'));
+      }
+    }
+
+    // 2. Relative static asset path (e.g. /qris-merchant.png)
+    if (cleanQris.startsWith('/')) {
+      const candidatePaths = [
+        path.resolve(process.cwd(), 'dist', cleanQris.replace(/^\//, '')),
+        path.resolve(process.cwd(), 'public', cleanQris.replace(/^\//, '')),
+        path.resolve('/var/task', 'dist', cleanQris.replace(/^\//, '')),
+        path.resolve('/var/task', 'public', cleanQris.replace(/^\//, ''))
+      ];
+      for (const p of candidatePaths) {
+        if (fs.existsSync(p) && fs.statSync(p).isFile()) {
+          const ext = path.extname(p).toLowerCase();
+          const mime = ext === '.png' ? 'image/png' : (ext === '.webp' ? 'image/webp' : 'image/jpeg');
+          res.setHeader('Content-Type', mime);
+          res.setHeader('Cache-Control', 'public, max-age=86400');
+          return res.sendFile(p);
+        }
+      }
+    }
+
+    // 3. Absolute URL redirect
+    if (cleanQris.startsWith('http://') || cleanQris.startsWith('https://')) {
+      return res.redirect(cleanQris);
+    }
+
+    return res.status(404).json({ error: 'Gambar QRIS pesanan tidak dapat diakses.' });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Gagal memuat gambar QRIS pesanan.' });
+  }
+});
+
+// Dedicated endpoint to stream uploaded payment proof image binary directly
+orderRouter.get('/:id/payment-proof', async (req: Request, res: Response) => {
+  try {
+    const order = await foodDb.findOrder(req.params.id);
+    if (!order) return res.status(404).json({ error: 'Pesanan tidak ditemukan.' });
+    const proof = order.paymentProof;
+    if (!proof || typeof proof !== 'string' || proof.trim().length < 10) {
+      return res.status(404).json({ error: 'Bukti pembayaran belum diunggah untuk pesanan ini.' });
+    }
+
+    const cleanProof = proof.trim();
+    if (cleanProof.startsWith('data:image/')) {
+      const matches = cleanProof.match(/^data:(image\/[a-zA-Z0-9.+_-]+);base64,(.+)$/);
+      if (matches) {
+        res.setHeader('Content-Type', matches[1]);
+        res.setHeader('Cache-Control', 'private, max-age=3600');
+        return res.send(Buffer.from(matches[2], 'base64'));
+      }
+    }
+
+    if (cleanProof.startsWith('http://') || cleanProof.startsWith('https://')) {
+      return res.redirect(cleanProof);
+    }
+
+    return res.status(404).json({ error: 'Format bukti pembayaran tidak valid.' });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Gagal memuat bukti pembayaran.' });
+  }
 });
 
 // Customer order history by phone number
@@ -286,7 +394,7 @@ orderRouter.post('/:id/assign-driver', requireRole(['ADMIN']), async (req: Reque
   }
 });
 
-// Customer payment proof upload - Enforces 10-minute expiry
+// Customer payment proof upload - Enforces 10-minute expiry & serverless image optimization
 orderRouter.post('/:id/upload-payment', async (req: Request, res: Response) => {
   const { paymentProof } = req.body;
   if (!paymentProof || typeof paymentProof !== 'string' || paymentProof.trim().length < 10) {
@@ -294,8 +402,16 @@ orderRouter.post('/:id/upload-payment', async (req: Request, res: Response) => {
   }
 
   const cleanProof = paymentProof.trim();
-  if (!cleanProof.startsWith('data:image/') && !cleanProof.startsWith('http://') && !cleanProof.startsWith('https://')) {
-    return res.status(400).json({ error: 'Format file tidak didukung. Mohon unggah bukti berformat gambar (JPEG/PNG/WebP).' });
+  const isDataUri = cleanProof.startsWith('data:image/');
+  const isHttpUrl = cleanProof.startsWith('http://') || cleanProof.startsWith('https://');
+
+  if (!isDataUri && !isHttpUrl) {
+    return res.status(400).json({ error: 'Format file tidak didukung. Mohon unggah bukti berformat gambar (JPG, PNG, atau WebP).' });
+  }
+
+  // Size guard: max ~8MB base64
+  if (isDataUri && cleanProof.length > 11 * 1024 * 1024) {
+    return res.status(400).json({ error: 'Ukuran file gambar bukti transfer melebihi batas maksimal 8MB. Silakan pilih foto dengan resolusi lebih kecil.' });
   }
 
   const order = await foodDb.findOrder(req.params.id);
@@ -329,12 +445,38 @@ orderRouter.post('/:id/upload-payment', async (req: Request, res: Response) => {
     });
   }
 
+  let finalProof = cleanProof;
+  const proofUrl = `/api/orders/${order.id}/payment-proof`;
+
+  // Server-side image optimization with sharp (safe for Vercel Serverless & Firestore 1MB limits)
+  if (isDataUri) {
+    try {
+      const match = cleanProof.match(/^data:image\/([a-zA-Z0-9.+_-]+);base64,(.+)$/);
+      if (match) {
+        const rawBuffer = Buffer.from(match[2], 'base64');
+        const optimizedBuffer = await sharp(rawBuffer)
+          .rotate() // Auto-rotate according to EXIF
+          .resize({ width: 1200, height: 1200, fit: 'inside', withoutEnlargement: true })
+          .webp({ quality: 80 })
+          .toBuffer();
+        finalProof = `data:image/webp;base64,${optimizedBuffer.toString('base64')}`;
+      }
+    } catch (sharpErr: any) {
+      console.warn('[OrderRoutes] Sharp optimization warning, falling back to original client image:', sharpErr?.message || sharpErr);
+      // If sharp failed because the input was not a valid image
+      if (sharpErr?.message?.includes('unsupported') || sharpErr?.message?.includes('Input buffer')) {
+        return res.status(400).json({ error: 'File gambar yang dipilih tidak valid atau rusak. Silakan pilih foto screenshot yang sah.' });
+      }
+    }
+  }
+
   try {
     const updated = await foodDb.updateOrder(
       'CUSTOMER',
       req.params.id,
       {
-        paymentProof: cleanProof,
+        paymentProof: finalProof,
+        paymentProofUrl: proofUrl,
         paymentProofUploadedAt: new Date().toISOString(),
         paymentStatus: PaymentStatus.WAITING_VERIFICATION,
         status: OrderStatus.WAITING_PAYMENT_VERIFICATION,
@@ -344,7 +486,7 @@ orderRouter.post('/:id/upload-payment', async (req: Request, res: Response) => {
     );
     res.json(updated);
   } catch (e: any) {
-    res.status(400).json({ error: e.message });
+    res.status(400).json({ error: e.message || 'Gagal menyimpan bukti pembayaran.' });
   }
 });
 

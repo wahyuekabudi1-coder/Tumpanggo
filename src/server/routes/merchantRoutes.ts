@@ -6,6 +6,8 @@
  * Manages merchant profiles, menu catalogs, orders, and license redemptions.
  */
 
+import path from 'path';
+import fs from 'fs';
 import { Router, Request, Response, NextFunction } from 'express';
 import { foodDb } from '../db';
 import { requireRole, requireMerchantOwner } from '../auth';
@@ -29,6 +31,77 @@ merchantRouter.get('/:id', (req: Request, res: Response, next: NextFunction) => 
     res.json(m);
   } catch (err) {
     next(err);
+  }
+});
+
+// Dedicated endpoint to query Merchant Static QRIS metadata
+merchantRouter.get('/:id/qris', (req: Request, res: Response) => {
+  try {
+    const m = foodDb.getMerchantById(req.params.id);
+    if (!m) return res.status(404).json({ error: 'Merchant tidak ditemukan.' });
+    const rawQris = m.qrisImage;
+    const hasQris = Boolean(rawQris && typeof rawQris === 'string' && rawQris.trim().length > 3 && !rawQris.includes('unsplash'));
+    res.json({
+      merchantId: m.id,
+      merchantName: m.name,
+      hasQris,
+      qrisImage: hasQris ? rawQris : null,
+      qrisImageUrl: hasQris ? `/api/merchants/${m.id}/qris-image` : null
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Gagal memuat status QRIS toko.' });
+  }
+});
+
+// Dedicated endpoint to stream or serve Merchant Static QRIS binary directly
+merchantRouter.get('/:id/qris-image', async (req: Request, res: Response) => {
+  try {
+    const m = foodDb.getMerchantById(req.params.id);
+    if (!m) return res.status(404).json({ error: 'Merchant tidak ditemukan.' });
+    const rawQris = m.qrisImage;
+    if (!rawQris || typeof rawQris !== 'string' || rawQris.trim().length < 3 || rawQris.includes('unsplash')) {
+      return res.status(404).json({ error: `Toko "${m.name}" belum memiliki QRIS statis resmi.` });
+    }
+
+    const cleanQris = rawQris.trim();
+
+    // 1. Base64 Data URL
+    if (cleanQris.startsWith('data:image/')) {
+      const matches = cleanQris.match(/^data:(image\/[a-zA-Z0-9.+_-]+);base64,(.+)$/);
+      if (matches) {
+        res.setHeader('Content-Type', matches[1]);
+        res.setHeader('Cache-Control', 'public, max-age=86400');
+        return res.send(Buffer.from(matches[2], 'base64'));
+      }
+    }
+
+    // 2. Relative static asset path (e.g. /qris-merchant.png)
+    if (cleanQris.startsWith('/')) {
+      const candidatePaths = [
+        path.resolve(process.cwd(), 'dist', cleanQris.replace(/^\//, '')),
+        path.resolve(process.cwd(), 'public', cleanQris.replace(/^\//, '')),
+        path.resolve('/var/task', 'dist', cleanQris.replace(/^\//, '')),
+        path.resolve('/var/task', 'public', cleanQris.replace(/^\//, ''))
+      ];
+      for (const p of candidatePaths) {
+        if (fs.existsSync(p) && fs.statSync(p).isFile()) {
+          const ext = path.extname(p).toLowerCase();
+          const mime = ext === '.png' ? 'image/png' : (ext === '.webp' ? 'image/webp' : 'image/jpeg');
+          res.setHeader('Content-Type', mime);
+          res.setHeader('Cache-Control', 'public, max-age=86400');
+          return res.sendFile(p);
+        }
+      }
+    }
+
+    // 3. Absolute URL redirect
+    if (cleanQris.startsWith('http://') || cleanQris.startsWith('https://')) {
+      return res.redirect(cleanQris);
+    }
+
+    return res.status(404).json({ error: 'Gambar QRIS tidak dapat diakses.' });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Gagal memuat gambar QRIS.' });
   }
 });
 

@@ -116,6 +116,7 @@ export interface Order {
   serviceFee: number;
   total: number; // subtotal + deliveryFee + serviceFee + uniqueCode/1000 or similar, let's add uniqueCode as integer to total
   paymentProof?: string; // Cloudinary or base64 URL
+  paymentProofUrl?: string; // Backend streaming URL (/api/orders/:id/payment-proof)
   paymentProofUploadedAt?: string;
   paymentRejectionReason?: string;
   paymentVerifiedBy?: string;

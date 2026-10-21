@@ -529,6 +529,7 @@ export class FoodDatabase {
         const remoteMerchants = await safeAdminGetDocs('merchants');
         if (remoteMerchants.length > 0) {
           this.data.merchants = remoteMerchants as Merchant[];
+          this.ensureStructure();
         } else if (this.data.merchants.length > 0) {
           for (const m of this.data.merchants) {
             await safeAdminSetDoc('merchants', m.id, m);
@@ -822,6 +823,9 @@ export class FoodDatabase {
       .filter((m): m is Merchant => Boolean(m && typeof m === 'object'))
       .map(m => {
         const { password, ...safe } = m;
+        if (!safe.qrisImage || safe.qrisImage.includes('unsplash')) {
+          safe.qrisImage = this.data.systemConfig?.qrisImage || '/qris-merchant.png';
+        }
         return {
           ...safe,
           id: safe.id || 'm_unknown'
@@ -834,6 +838,9 @@ export class FoodDatabase {
     const m = this.data.merchants.find(m => m && m.id === id);
     if (!m) return undefined;
     const { password, ...safe } = m;
+    if (!safe.qrisImage || safe.qrisImage.includes('unsplash')) {
+      safe.qrisImage = this.data.systemConfig?.qrisImage || '/qris-merchant.png';
+    }
     return safe as Merchant;
   }
 
@@ -869,6 +876,7 @@ export class FoodDatabase {
     const newMerchant: Merchant = {
       ...merchantData,
       id: 'm_' + Math.random().toString(36).substring(2, 9),
+      qrisImage: merchantData.qrisImage || this.data.systemConfig?.qrisImage || '/qris-merchant.png',
       rating: 5.0,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
@@ -1285,6 +1293,12 @@ export class FoodDatabase {
         }
       } catch (e: any) {
         console.warn(`[TumpangFood DB] Query remote order ${cleanId} failed:`, e.message);
+      }
+    }
+    if (order && (!order.merchantQrisImage || order.merchantQrisImage.includes('unsplash'))) {
+      const merchant = this.getMerchantById(order.merchantId);
+      if (merchant?.qrisImage) {
+        order.merchantQrisImage = merchant.qrisImage;
       }
     }
     return order ? normalizeOrderDeliveryFee(order) : undefined;

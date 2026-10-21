@@ -12,7 +12,7 @@ import ErrorBoundary from './ErrorBoundary.tsx';
 import { useHiddenTrigger } from '../hooks/useHiddenTrigger.ts';
 import { compressImage, compressBase64 } from '../utils/imageCompressor.ts';
 import { safeStorage } from '../utils/safeStorage.ts';
-import { apiFetch as fetch, extractArrayResponse } from '../utils/apiClient.ts';
+import { apiFetch as fetch, extractArrayResponse, getApiBaseUrl } from '../utils/apiClient.ts';
 import { calculateDeliveryFee, FLAT_TUMPANG_DELIVERY_FEE, isDestinationInKecamatanTumpang, normalizeOrderDeliveryFee } from '../utils/deliveryFee.ts';
 import { useSEO } from '../hooks/useSEO.ts';
 import UmkmEducationModule, { UMKM_ARTICLES } from './UmkmEducationModule.tsx';
@@ -519,11 +519,14 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
 
   const [trackingOrderId, setTrackingOrderId] = useState<string>('');
   const [paymentProofFile, setPaymentProofFile] = useState<string | null>(null);
-  const [paymentProofUrl, setPaymentProofUrl] = useState<string>('');
+  const [paymentProofFileName, setPaymentProofFileName] = useState<string | null>(null);
+  const [paymentProofFileSize, setPaymentProofFileSize] = useState<string | null>(null);
   const [uploadLoading, setUploadLoading] = useState(false);
   const [proofUploadError, setProofUploadError] = useState<string | null>(null);
   const [proofUploadSuccess, setProofUploadSuccess] = useState<string | null>(null);
   const [proofZoomModalImage, setProofZoomModalImage] = useState<string | null>(null);
+  const [qrisImageError, setQrisImageError] = useState<boolean>(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // History search state
   const [historyPhone, setHistoryPhone] = useState('');
@@ -1121,9 +1124,8 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
   // Handle proof upload
   const handlePaymentProofUpload = async (e: React.FormEvent) => {
     e.preventDefault();
-    const proof = paymentProofFile || paymentProofUrl;
-    if (!proof) {
-      setProofUploadError('Silakan pilih file bukti pembayaran atau masukkan tautan gambar.');
+    if (!paymentProofFile) {
+      setProofUploadError('Silakan pilih foto atau tangkapan layar (screenshot) bukti pembayaran terlebih dahulu.');
       return;
     }
 
@@ -1136,7 +1138,7 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
       const res = await fetch(`/api/orders/${activeOrder.id}/upload-payment`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ paymentProof: proof })
+        body: JSON.stringify({ paymentProof: paymentProofFile })
       });
       const updatedOrder = await res.json();
       if (res.ok) {
@@ -1144,37 +1146,71 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
         setProofUploadSuccess('Bukti pembayaran berhasil diunggah! Menunggu verifikasi admin.');
         setProofUploadError(null);
         setPaymentProofFile(null);
-        setPaymentProofUrl('');
+        setPaymentProofFileName(null);
+        setPaymentProofFileSize(null);
+        if (fileInputRef.current) {
+          fileInputRef.current.value = '';
+        }
       } else {
         setProofUploadError(updatedOrder.error || 'Gagal mengunggah bukti pembayaran.');
       }
     } catch (err: any) {
       console.error('Error uploading payment:', err);
-      setProofUploadError('Terjadi kesalahan saat memproses unggahan bukti pembayaran.');
+      setProofUploadError('Terjadi kendala koneksi saat mengirim bukti pembayaran ke server.');
     } finally {
       setUploadLoading(false);
     }
   };
 
-
-
-
-  // Handle file selection and convert to Base64
+  // Handle file selection, validate format & size, then compress client-side
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) {
-      try {
-        const compressed = await compressImage(file, 800, 800, 0.6);
-        setPaymentProofFile(compressed);
-      } catch (err) {
-        console.error('Error compressing payment proof:', err);
-        // Fallback
-        const reader = new FileReader();
-        reader.onloadend = () => {
-          setPaymentProofFile(reader.result as string);
-        };
-        reader.readAsDataURL(file);
-      }
+    if (!file) return;
+
+    setProofUploadError(null);
+    setProofUploadSuccess(null);
+
+    // 1. Validation: Format must be JPG/JPEG, PNG, or WEBP
+    const validMimes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
+    const validExtensions = /\.(jpe?g|png|webp)$/i;
+    if (!validMimes.includes(file.type.toLowerCase()) && !validExtensions.test(file.name)) {
+      setProofUploadError('Format file tidak didukung. Mohon pilih foto berformat JPG, JPEG, PNG, atau WEBP.');
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      return;
+    }
+
+    // 2. Validation: Maximum file size 10MB
+    const MAX_SIZE = 10 * 1024 * 1024;
+    if (file.size > MAX_SIZE) {
+      setProofUploadError('Ukuran file foto melebihi batas maksimal 10MB. Silakan pilih foto dengan resolusi lebih kecil.');
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      return;
+    }
+
+    setPaymentProofFileName(file.name);
+    setPaymentProofFileSize((file.size / 1024).toFixed(1) + ' KB');
+
+    try {
+      // Client-side canvas compression for responsive speed & Firestore safety
+      const compressed = await compressImage(file, 1000, 1000, 0.75);
+      setPaymentProofFile(compressed);
+    } catch (err) {
+      console.error('Error compressing payment proof:', err);
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setPaymentProofFile(reader.result as string);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const handleClearSelectedProof = () => {
+    setPaymentProofFile(null);
+    setPaymentProofFileName(null);
+    setPaymentProofFileSize(null);
+    setProofUploadError(null);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
     }
   };
 
@@ -3549,10 +3585,31 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
         {/* 5. PAYMENT / BILLING TAB - MERCHANT STATIC QRIS */}
         {activeTab === 'payment' && activeOrder && (() => {
           const currentOrderMerchant = merchants.find(m => m.id === activeOrder.merchantId) || (activeOrder.merchantId === selectedMerchant?.id ? selectedMerchant : null);
-          const rawQris = currentOrderMerchant?.qrisImage || activeOrder.merchantQrisImage;
-          const qrisImageUrl = (rawQris && typeof rawQris === 'string' && !rawQris.includes('unsplash') && rawQris.trim().length > 3)
-            ? rawQris.trim()
-            : null;
+          const rawQris = activeOrder.merchantQrisImage || currentOrderMerchant?.qrisImage;
+
+          // Safe QRIS source resolution compatible with Vercel Production & Preview
+          const resolveQrisSource = (): string | null => {
+            if (qrisImageError) return null;
+            if (rawQris && typeof rawQris === 'string' && !rawQris.includes('unsplash') && rawQris.trim().length > 3) {
+              const trimmed = rawQris.trim();
+              if (trimmed.startsWith('data:image/') || trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
+                return trimmed;
+              }
+              if (trimmed.startsWith('/')) {
+                const baseUrl = getApiBaseUrl();
+                return baseUrl ? `${baseUrl}${trimmed}` : trimmed;
+              }
+              return trimmed;
+            }
+            if (activeOrder.id) {
+              const baseUrl = getApiBaseUrl();
+              const endpoint = `/api/orders/${activeOrder.id}/qris-image`;
+              return baseUrl ? `${baseUrl}${endpoint}` : endpoint;
+            }
+            return null;
+          };
+
+          const qrisImageUrl = resolveQrisSource();
           const isPaid = activeOrder.status === OrderStatus.PAYMENT_VERIFIED || activeOrder.paymentStatus === PaymentStatus.PAID;
           const isWaitingVerification = activeOrder.status === OrderStatus.WAITING_PAYMENT_VERIFICATION || activeOrder.paymentStatus === PaymentStatus.WAITING_VERIFICATION;
           const isRejected = activeOrder.status === OrderStatus.PAYMENT_REJECTED || activeOrder.paymentStatus === PaymentStatus.REJECTED;
@@ -3767,8 +3824,8 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
                       alt={`QRIS ${activeOrder.merchantName}`}
                       className="w-full h-auto max-h-[460px] object-contain rounded-xl cursor-pointer transition-transform group-hover:scale-[1.01] bg-white border border-slate-100 shadow-xs"
                       onClick={() => setProofZoomModalImage(qrisImageUrl)}
-                      onError={(e) => {
-                        (e.target as HTMLImageElement).src = '/qris-merchant.png';
+                      onError={() => {
+                        setQrisImageError(true);
                       }}
                     />
                     <div className="flex items-center gap-2 mt-3 w-full justify-center">
@@ -3782,7 +3839,7 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
                       </button>
                       <a
                         href={qrisImageUrl}
-                        download="qris-merchant.png"
+                        download={`qris-${activeOrder.merchantName.toLowerCase().replace(/[^a-z0-9]+/g, '-')}.png`}
                         className="bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-bold px-3 py-1.5 rounded-xl flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer"
                       >
                         <Download className="w-3.5 h-3.5" />
@@ -3811,14 +3868,19 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
                   </div>
                 </div>
               ) : (
-                /* Anti-Fake Fallback: Merchant doesn't have QRIS uploaded yet */
+                /* Anti-Fake Fallback: Merchant doesn't have QRIS uploaded yet or image failed to load */
                 <div className="bg-amber-50 border border-amber-200 rounded-2xl p-5 shadow-xs flex flex-col gap-3 text-xs text-amber-900">
                   <div className="flex items-start gap-2.5">
                     <AlertCircle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
                     <div className="space-y-1">
-                      <h4 className="font-extrabold text-sm text-amber-900">Pembayaran QRIS Toko Belum Tersedia</h4>
+                      <h4 className="font-extrabold text-sm text-amber-900">
+                        {qrisImageError ? 'Gambar QRIS Gagal Dimuat' : 'Pembayaran QRIS Toko Belum Tersedia'}
+                      </h4>
                       <p className="text-[11px] text-amber-800 leading-relaxed">
-                        Merchant <strong>{activeOrder.merchantName}</strong> belum mengunggah gambar QRIS statis resminya. Demi keamanan transaksi dan perlindungan data Anda, sistem TumpangGo <strong>tidak menampilkan QRIS palsu/tiruan atau QRIS milik merchant lain</strong>.
+                        {qrisImageError 
+                          ? <>Gambar QRIS resmi untuk merchant <strong>{activeOrder.merchantName}</strong> mengalami kendala jaringan saat dimuat dari server. Demi keamanan transaksi Anda, sistem TumpangGo <strong>tidak menampilkan QRIS palsu/tiruan atau QRIS milik merchant lain</strong>.</>
+                          : <>Merchant <strong>{activeOrder.merchantName}</strong> belum mengunggah gambar QRIS statis resminya. Demi keamanan transaksi dan perlindungan data Anda, sistem TumpangGo <strong>tidak menampilkan QRIS palsu/tiruan atau QRIS milik merchant lain</strong>.</>
+                        }
                       </p>
                       <p className="text-[11px] text-amber-700 mt-1">
                         Silakan hubungi WhatsApp Bantuan Admin TumpangGo untuk konfirmasi atau batalkan pesanan untuk memilih merchant kuliner yang sudah siap menerima QRIS.
@@ -3827,6 +3889,16 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
                   </div>
 
                   <div className="flex flex-col sm:flex-row gap-2 pt-2 border-t border-amber-200">
+                    {qrisImageError && (
+                      <button
+                        type="button"
+                        onClick={() => setQrisImageError(false)}
+                        className="flex-1 py-2.5 px-3 bg-amber-700 hover:bg-amber-800 text-white font-bold rounded-xl text-xs flex items-center justify-center gap-1.5 transition-colors cursor-pointer text-center"
+                      >
+                        <RefreshCw className="w-3.5 h-3.5" />
+                        <span>Coba Muat Ulang QRIS</span>
+                      </button>
+                    )}
                     <a
                       href={`https://wa.me/6281234567891?text=${encodeURIComponent(`Halo Admin TumpangGo, saya ingin bertanya mengenai pembayaran QRIS untuk pesanan #${activeOrder.id} pada toko ${activeOrder.merchantName}.`)}`}
                       target="_blank"
@@ -3856,7 +3928,7 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
                   <div className="flex items-center justify-between border-b border-slate-100 pb-2.5 mb-3.5">
                     <h4 className="font-display font-bold text-sm text-slate-800 flex items-center gap-1.5">
                       <Upload className="w-4 h-4 text-rose-600" />
-                      Unggah Bukti Pembayaran QRIS
+                      <span>Unggah Bukti Pembayaran</span>
                     </h4>
                     <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Format: JPG, PNG, WEBP</span>
                   </div>
@@ -3877,66 +3949,107 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
                     )}
 
                     <div>
-                      <label className="text-[10px] text-slate-500 font-bold uppercase tracking-wider block mb-1.5">
-                        Pilih Foto / Tangkapan Layar Bukti Transfer:
+                      <label className="text-xs font-bold text-slate-800 block mb-1">
+                        Unggah Bukti Pembayaran
                       </label>
+                      <p className="text-xs text-slate-500 mb-2.5 leading-relaxed">
+                        Pilih foto atau screenshot bukti pembayaran dari perangkat Anda.
+                      </p>
+
+                      {/* Hidden native file input for mobile gallery & desktop file picker */}
                       <input
+                        ref={fileInputRef}
                         type="file"
-                        accept="image/jpeg,image/png,image/webp,image/*"
+                        accept="image/jpeg,image/jpg,image/png,image/webp"
                         onChange={handleFileChange}
-                        className="w-full text-xs text-slate-500 file:mr-3 file:py-2.5 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-rose-50 file:text-rose-700 hover:file:bg-rose-100 cursor-pointer"
+                        className="hidden"
                       />
-                    </div>
 
-                    <div>
-                      <label className="text-[10px] text-slate-500 font-bold uppercase tracking-wider block mb-1">
-                        Atau Masukkan Tautan Gambar Bukti (URL):
-                      </label>
-                      <input
-                        type="url"
-                        value={paymentProofUrl}
-                        onChange={(e) => {
-                          setPaymentProofUrl(e.target.value);
-                          setPaymentProofFile(null);
-                        }}
-                        placeholder="https://example.com/bukti-transfer.jpg"
-                        className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-xs focus:outline-none focus:border-rose-500"
-                      />
-                    </div>
-
-                    {/* Image Preview before submit */}
-                    {(paymentProofFile || paymentProofUrl) && (
-                      <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 flex flex-col items-center gap-2">
-                        <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block self-start">
-                          Pratinjau Bukti Sebelum Dikirim:
-                        </span>
-                        <div className="w-full max-w-xs h-48 bg-white border border-slate-200 rounded-xl overflow-hidden relative shadow-xs flex items-center justify-center">
-                          <img 
-                            src={paymentProofFile || paymentProofUrl} 
-                            alt="Pratinjau Bukti Pembayaran" 
-                            className="w-full h-full object-contain"
-                          />
-                        </div>
+                      {/* File Upload Control: Button Pilih Gambar */}
+                      {!paymentProofFile ? (
                         <button
                           type="button"
-                          onClick={() => {
-                            setPaymentProofFile(null);
-                            setPaymentProofUrl('');
-                          }}
-                          className="text-[11px] text-rose-600 font-bold hover:underline self-center cursor-pointer"
+                          onClick={() => fileInputRef.current?.click()}
+                          className="w-full py-4 px-4 bg-slate-50 hover:bg-rose-50/50 border-2 border-dashed border-slate-300 hover:border-rose-400 rounded-2xl flex flex-col items-center justify-center gap-2 transition-all cursor-pointer group text-center"
                         >
-                          Hapus & Ganti Foto Lain
+                          <div className="w-12 h-12 rounded-full bg-rose-100 text-rose-700 flex items-center justify-center group-hover:scale-110 transition-transform">
+                            <Upload className="w-6 h-6" />
+                          </div>
+                          <div className="flex flex-col items-center">
+                            <span className="font-extrabold text-sm text-slate-800 group-hover:text-rose-700 transition-colors">
+                              Pilih Gambar
+                            </span>
+                            <span className="text-[11px] text-slate-500 mt-0.5">
+                              Pilih foto dari galeri HP atau folder komputer (JPG, PNG, WEBP maks. 10MB)
+                            </span>
+                          </div>
                         </button>
-                      </div>
-                    )}
+                      ) : (
+                        /* Image Preview Container */
+                        <div className="bg-slate-50 border border-slate-200 rounded-2xl p-3.5 flex flex-col gap-3">
+                          <div className="flex items-center justify-between">
+                            <span className="text-[10px] font-extrabold text-slate-500 uppercase tracking-wider">
+                              Pratinjau Bukti Sebelum Dikirim:
+                            </span>
+                            {paymentProofFileSize && (
+                              <span className="text-[10px] font-mono font-bold text-slate-500 bg-white px-2 py-0.5 rounded-md border border-slate-200">
+                                {paymentProofFileSize}
+                              </span>
+                            )}
+                          </div>
+
+                          <div className="w-full h-56 bg-white border border-slate-200 rounded-xl overflow-hidden relative shadow-xs flex items-center justify-center group">
+                            <img 
+                              src={paymentProofFile} 
+                              alt="Pratinjau Bukti Pembayaran" 
+                              className="w-full h-full object-contain cursor-pointer transition-transform group-hover:scale-[1.02]"
+                              onClick={() => setProofZoomModalImage(paymentProofFile)}
+                            />
+                            <button
+                              type="button"
+                              onClick={() => setProofZoomModalImage(paymentProofFile)}
+                              className="absolute bottom-2 right-2 bg-slate-900/80 hover:bg-slate-900 text-white text-[10px] font-bold px-2.5 py-1 rounded-lg flex items-center gap-1 backdrop-blur-xs transition-colors cursor-pointer"
+                            >
+                              <ZoomIn className="w-3 h-3" />
+                              <span>Perbesar</span>
+                            </button>
+                          </div>
+
+                          {paymentProofFileName && (
+                            <p className="text-[11px] text-slate-600 font-mono truncate text-center">
+                              {paymentProofFileName}
+                            </p>
+                          )}
+
+                          <div className="flex items-center gap-2 pt-1">
+                            <button
+                              type="button"
+                              onClick={() => fileInputRef.current?.click()}
+                              className="flex-1 py-2 px-3 bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 font-bold rounded-xl text-xs flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+                            >
+                              <Upload className="w-3.5 h-3.5" />
+                              <span>Ganti Gambar</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={handleClearSelectedProof}
+                              className="py-2 px-3 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 font-bold rounded-xl text-xs flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                              <span>Hapus</span>
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
 
                     <button
                       type="submit"
-                      disabled={uploadLoading || (!paymentProofFile && !paymentProofUrl)}
+                      disabled={uploadLoading || !paymentProofFile}
                       className={`w-full py-3.5 font-extrabold rounded-xl transition-all shadow-md text-xs flex items-center justify-center gap-2 ${
-                        uploadLoading || (!paymentProofFile && !paymentProofUrl)
+                        uploadLoading || !paymentProofFile
                           ? 'bg-slate-200 text-slate-400 border border-slate-300 shadow-none cursor-not-allowed'
-                          : 'bg-rose-600 hover:bg-rose-700 text-white shadow-rose-600/20 cursor-pointer'
+                          : 'bg-rose-600 hover:bg-rose-700 text-white shadow-rose-600/20 cursor-pointer active:scale-[0.99]'
                       }`}
                     >
                       {uploadLoading ? (
