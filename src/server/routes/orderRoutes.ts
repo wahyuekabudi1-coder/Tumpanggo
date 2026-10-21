@@ -158,6 +158,9 @@ orderRouter.get('/:id/receipt', async (req: Request, res: Response) => {
     // Return sanitized data protecting customer sensitive personal details
     res.json({
       receipt,
+      receiptNumber: receipt.receiptNumber,
+      orderNumber: receipt.orderNumber,
+      ...receipt,
       order: {
         id: o.id,
         orderNumber: o.orderNumber || o.id,
@@ -231,6 +234,7 @@ export function serializePublicOrderTracking(order: any) {
     merchantName: order.merchantName,
     cookingTimeMinutes: typeof order.cookingTimeMinutes === 'number' ? order.cookingTimeMinutes : null,
     driverName: order.driverName || null,
+    customerPhone: maskedPhone,
     customerPhoneMasked: maskedPhone,
     items: sanitizedItems,
     subtotal: Number(order.subtotal) || 0,
@@ -322,52 +326,9 @@ orderRouter.get('/:id/qris', async (req: Request, res: Response) => {
   } catch (err: any) {
     res.status(500).json({ error: err.message || 'Gagal memuat status QRIS pesanan.' });
   }
-// Dedicated endpoint to get official electronic receipt for verified orders
-orderRouter.get('/:id/receipt', async (req: Request, res: Response) => {
-  try {
-    const order = await foodDb.findOrder(req.params.id);
-    if (!order) return res.status(404).json({ error: 'Pesanan tidak ditemukan.' });
-
-    const canonicalCode = order.orderNumber || order.id;
-    const cleanRef = String(canonicalCode).replace(/^ord_/, '').replace(/^TF-/, '').toUpperCase();
-    const receiptNumber = order.receiptNumber || order.receipt?.receiptNumber || `TG-RCP-${cleanRef}`;
-
-    if (order.receipt) {
-      return res.json({
-        ...order.receipt,
-        orderId: order.id,
-        orderNumber: canonicalCode,
-        receiptNumber
-      });
-    }
-
-    // If order is paid/verified but receipt object not populated yet
-    if (order.paymentStatus === PaymentStatus.PAID || [OrderStatus.PAYMENT_VERIFIED, OrderStatus.COOKING, OrderStatus.READY_FOR_PICKUP, OrderStatus.ORDER_PICKED_UP, OrderStatus.DELIVERED, OrderStatus.COMPLETED].includes(order.status)) {
-      const issuedAt = order.paymentVerifiedAt || order.updatedAt || order.createdAt;
-      return res.json({
-        receiptNumber,
-        orderId: order.id,
-        orderNumber: canonicalCode,
-        issuedAt,
-        confirmedBy: order.paymentVerifiedBy || 'Admin TumpangGo',
-        paymentMethod: order.paymentMethod || 'MERCHANT_QRIS',
-        transactionRef: order.artopayPaymentId || `QRIS-TG-${cleanRef}`,
-        subtotal: order.subtotal,
-        deliveryFee: order.deliveryFee,
-        serviceFee: order.serviceFee,
-        uniqueCode: order.uniqueCode || 0,
-        total: order.total,
-        customerName: order.customerName,
-        merchantName: order.merchantName,
-        status: 'PAID'
-      });
-    }
-
-    return res.status(404).json({ error: 'Kuitansi elektronik (E-Receipt) hanya tersedia untuk pesanan yang telah terverifikasi lunas.' });
-  } catch (err: any) {
-    res.status(500).json({ error: err.message || 'Gagal memuat kuitansi elektronik.' });
-  }
 });
+
+// Dedicated endpoint to stream order QRIS image
 orderRouter.get('/:id/qris-image', async (req: Request, res: Response) => {
   try {
     const order = await foodDb.findOrder(req.params.id);
@@ -498,6 +459,15 @@ orderRouter.get('/:id/payment-proof', async (req: Request, res: Response) => {
 
 // In-memory sliding window rate limiter for customer history queries
 const customerHistoryRateLimiter = new Map<string, { count: number; resetAt: number }>();
+
+export function resetCustomerHistoryRateLimit(key?: string): void {
+  if (key) {
+    customerHistoryRateLimiter.delete(key);
+  } else {
+    customerHistoryRateLimiter.clear();
+  }
+}
+
 export function checkCustomerHistoryRateLimit(key: string, limit = 5, windowMs = 60000): { allowed: boolean; retryAfter: number } {
   const now = Date.now();
   const entry = customerHistoryRateLimiter.get(key);

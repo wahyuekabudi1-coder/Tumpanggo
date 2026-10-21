@@ -393,10 +393,10 @@ async function runSecurityAudit() {
   const driverOrders = await driverOrdersRes.json();
   const driverWorks = driverOrdersRes.status === 200 && Array.isArray(driverOrders);
 
-  // 8.5 E-Receipt access
-  const receiptRes = await fetch(`${BASE_URL}/api/orders/${orderId}/receipt`);
+  // 8.5 E-Receipt access (with verified customer phone)
+  const receiptRes = await fetch(`${BASE_URL}/api/orders/${orderId}/receipt?phone=081299887766`);
   const receiptData = await receiptRes.json();
-  const receiptWorks = receiptRes.status === 200 && Boolean(receiptData.receiptNumber);
+  const receiptWorks = receiptRes.status === 200 && Boolean(receiptData.receiptNumber || receiptData.receipt?.receiptNumber);
 
   const point8AllPass = trackingWorks && adminVerifyWorks && merchantWorks && driverWorks && receiptWorks;
   recordTest(

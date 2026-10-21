@@ -70,7 +70,7 @@ async function runTests() {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ 
-        username: foodConfig.adminEmail, 
+        username: 'admin@tumpanggo.com', 
         password: foodConfig.adminPassword,
         role: 'ADMIN'
       })

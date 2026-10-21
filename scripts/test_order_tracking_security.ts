@@ -147,7 +147,7 @@ async function runSecurityTests() {
     assert(!publicRes.rawBody.includes(rawCustomerPhone), 'Raw phone number is completely absent from the network JSON body');
     assert(!publicRes.rawBody.includes('SUPER_SECRET_PAYMENT_PROOF_BASE64'), 'Raw base64 payment proof image is omitted from public response');
     assert(pubData.hasPaymentProof === true, 'Public DTO provides safe boolean hasPaymentProof flag');
-    assert(pubData.paymentProofUrl === `/api/orders/${testOrderId}/payment-proof`, 'Public DTO provides safe streaming URL instead of heavy payload');
+    assert(pubData.paymentProofUrl === undefined, 'Public DTO strips paymentProofUrl to prevent unauthorized access');
     assert(pubData.isSettled === undefined, 'Internal settlement status is omitted from public response');
     assert(pubData.settlementId === undefined, 'Internal settlement ID is omitted from public response');
 
@@ -219,23 +219,34 @@ async function runSecurityTests() {
     const otherMerchantRes = await requestJson(server, `/api/orders/${testOrderId}`, 'GET', {
       'Authorization': `Bearer ${otherMerchantToken}`
     });
-    assert(otherMerchantRes.status === 200, 'Non-owning merchant gets HTTP 200 fallback');
-    assert(otherMerchantRes.data.isPublicTracking === true, 'Non-owning merchant gets sanitized public DTO without operational leak');
-    assert(otherMerchantRes.data.customerPhone.includes('****'), 'Non-owning merchant cannot view unmasked phone');
+    assert(otherMerchantRes.status === 403, 'Non-owning merchant gets HTTP 403 Forbidden for another store order');
+    assert(otherMerchantRes.data.error?.includes('Akses ditolak'), 'Error message confirms forbidden access to other store');
 
-    // --- TEST GROUP 4: DRIVER VERIFICATION ---
-    console.log('\n--- Test Group 4: Driver Role Authorization ---');
+    // --- TEST GROUP 4: DRIVER VERIFICATION (STRICT JWT, NO SPOOFING) ---
+    console.log('\n--- Test Group 4: Driver Role Authorization & Anti-Spoofing ---');
 
     // Ensure driver exists in database
     const driverList = foodDb.getDrivers();
     const testDriver = driverList[0] || { id: 'drv_test_courier', name: 'Pak Slamet' };
+    const driverToken = createAuthToken({
+      userId: testDriver.id,
+      role: 'DRIVER',
+      entityId: testDriver.id
+    });
 
     // When order is available for pickup (unassigned & cooking)
     const driverQueryRes = await requestJson(server, `/api/orders/${testOrderId}`, 'GET', {
+      'Authorization': `Bearer ${driverToken}`
+    });
+    assert(driverQueryRes.status === 200, 'Eligible courier with JWT receives HTTP 200');
+    assert(driverQueryRes.data.customerPhone === rawCustomerPhone, 'Eligible courier receives full delivery details');
+
+    // Driver spoofing via header without JWT is rejected
+    const spoofRes = await requestJson(server, `/api/orders/${testOrderId}`, 'GET', {
       'x-driver-id': testDriver.id
     });
-    assert(driverQueryRes.status === 200, 'Eligible courier receives HTTP 200');
-    assert(driverQueryRes.data.customerPhone === rawCustomerPhone, 'Eligible courier receives full delivery details');
+    assert(spoofRes.status === 200 && spoofRes.data.isPublicTracking === true, 'Header spoofing without JWT is rejected to public DTO');
+    assert(spoofRes.data.customerPhone.includes('****'), 'Spoofed request cannot see raw phone');
 
     // Assigned to a specific driver
     await foodDb.updateOrder('SYSTEM', testOrderId, {
@@ -244,24 +255,36 @@ async function runSecurityTests() {
       status: OrderStatus.ORDER_PICKED_UP
     });
 
-    // Query with correct assigned driver
+    // Query with correct assigned driver JWT
     const assignedCourierRes = await requestJson(server, `/api/orders/${testOrderId}`, 'GET', {
-      'x-driver-id': testDriver.id
+      'Authorization': `Bearer ${driverToken}`
     });
     assert(assignedCourierRes.data.customerPhone === rawCustomerPhone, 'Assigned courier retains full delivery details');
 
     // Query with different driver when already claimed
-    const otherCourierRes = await requestJson(server, `/api/orders/${testOrderId}`, 'GET', {
-      'x-driver-id': 'drv_other_rival_courier_999'
+    const otherDriverToken = createAuthToken({
+      userId: 'drv_other_rival_courier_999',
+      role: 'DRIVER',
+      entityId: 'drv_other_rival_courier_999'
     });
-    assert(otherCourierRes.data.isPublicTracking === true, 'Unassigned driver receives sanitized DTO without private customer data');
-    assert(otherCourierRes.data.customerPhone.includes('****'), 'Unassigned driver cannot view customer phone');
+    const otherCourierRes = await requestJson(server, `/api/orders/${testOrderId}`, 'GET', {
+      'Authorization': `Bearer ${otherDriverToken}`
+    });
+    assert(otherCourierRes.status === 403, 'Unassigned driver receives HTTP 403 Forbidden for another driver order');
 
-    // --- TEST GROUP 5: CUSTOMER HISTORY SANITIZATION ---
-    console.log('\n--- Test Group 5: Customer Phone History Sanitization ---');
+    // --- TEST GROUP 5: CUSTOMER HISTORY SANITIZATION & PRIVACY ---
+    console.log('\n--- Test Group 5: Customer Phone History Sanitization & Privacy ---');
 
-    const historyRes = await requestJson(server, `/api/orders/customer/${rawCustomerPhone}`);
-    assert(historyRes.status === 200, 'Customer order history returns HTTP 200');
+    // 5.1 Unverified public caller is rejected with 403
+    const unverifiedRes = await requestJson(server, `/api/orders/customer/${rawCustomerPhone}`);
+    assert(unverifiedRes.status === 403, 'Unverified customer phone history access returns HTTP 403');
+    assert(unverifiedRes.data.code === 'UNVERIFIED_CUSTOMER_HISTORY_DISABLED', 'Unverified error code is UNVERIFIED_CUSTOMER_HISTORY_DISABLED');
+
+    // 5.2 Authenticated Admin can view customer history
+    const historyRes = await requestJson(server, `/api/orders/customer/${rawCustomerPhone}`, 'GET', {
+      'Authorization': `Bearer ${adminToken}`
+    });
+    assert(historyRes.status === 200, 'Authenticated admin customer order history returns HTTP 200');
     assert(Array.isArray(historyRes.data) && historyRes.data.length > 0, 'History contains order list');
     assert(historyRes.data[0].customerPhone.includes('****'), 'History orders have masked customer phone');
     assert(!historyRes.rawBody.includes('SUPER_SECRET_PAYMENT_PROOF_BASE64'), 'History orders do not leak payment proof base64');

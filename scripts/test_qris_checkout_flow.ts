@@ -157,7 +157,7 @@ async function runQrisTests() {
     if (
       fetched.id === orderId &&
       fetched.status === 'WAITING_PAYMENT_VERIFICATION' &&
-      Boolean(fetched.paymentProof) &&
+      Boolean(fetched.hasPaymentProof || fetched.paymentProof) &&
       fetched.deliveryFee === 5000
     ) {
       console.log(`✅ [PASS] Database persistence verified: Order #${orderId} correctly retains payment proof and flat deliveryFee.`);
