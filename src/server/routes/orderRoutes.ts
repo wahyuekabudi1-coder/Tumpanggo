@@ -599,27 +599,52 @@ orderRouter.post('/:id/upload-payment', async (req: Request, res: Response) => {
 
 // Admin payment verification endpoint - Authoritative verification
 orderRouter.post('/:id/verify-payment', requireRole(['ADMIN']), async (req: Request, res: Response) => {
+  const reqId = (req as any).id || 'req_' + Math.random().toString(36).substring(2, 8);
+  const rawOrderId = String(req.params.id || '').trim();
+  const adminId = req.user?.userId || req.user?.email || 'admin';
+
+  console.log(`[Order Verification Request] [${reqId}] POST /api/orders/:id/verify-payment received. Target order ID: "${rawOrderId}", Admin: "${adminId}"`);
+
+  if (!rawOrderId) {
+    console.warn(`[Order Verification Warning] [${reqId}] Missing order ID in route parameter.`);
+    return res.status(400).json({ error: 'ID pesanan wajib disertakan dalam parameter permintaan.' });
+  }
+
   try {
-    const adminId = req.user?.userId || req.user?.email || 'admin';
-    const updated = await foodDb.verifyOrderPayment(adminId, req.params.id);
+    const updated = await foodDb.verifyOrderPayment(adminId, rawOrderId);
+    console.log(`[Order Verification Success] [${reqId}] Order "${updated.id}" successfully verified to PAID. Receipt issued: ${updated.receiptNumber || 'None'}`);
     res.json({ success: true, order: updated });
   } catch (e: any) {
+    console.error(`[Order Verification Error] [${reqId}] Failed verifying order "${rawOrderId}":`, e.message);
     res.status(400).json({ error: e.message || 'Gagal memverifikasi pembayaran.' });
   }
 });
 
 // Admin payment rejection endpoint with mandatory reason
 orderRouter.post('/:id/reject-payment', requireRole(['ADMIN']), async (req: Request, res: Response) => {
-  const { reason } = req.body;
+  const reqId = (req as any).id || 'req_' + Math.random().toString(36).substring(2, 8);
+  const rawOrderId = String(req.params.id || '').trim();
+  const adminId = req.user?.userId || req.user?.email || 'admin';
+  const { reason } = req.body || {};
+
+  console.log(`[Order Rejection Request] [${reqId}] POST /api/orders/:id/reject-payment received. Target order ID: "${rawOrderId}", Admin: "${adminId}"`);
+
+  if (!rawOrderId) {
+    console.warn(`[Order Rejection Warning] [${reqId}] Missing order ID in route parameter.`);
+    return res.status(400).json({ error: 'ID pesanan wajib disertakan dalam parameter permintaan.' });
+  }
+
   if (!reason || !String(reason).trim()) {
+    console.warn(`[Order Rejection Warning] [${reqId}] Rejection reason is missing for order "${rawOrderId}".`);
     return res.status(400).json({ error: 'Alasan penolakan bukti pembayaran wajib disertakan agar pelanggan dapat memperbaikinya.' });
   }
 
   try {
-    const adminId = req.user?.userId || req.user?.email || 'admin';
-    const updated = await foodDb.rejectOrderPayment(adminId, req.params.id, String(reason).trim());
+    const updated = await foodDb.rejectOrderPayment(adminId, rawOrderId, String(reason).trim());
+    console.log(`[Order Rejection Success] [${reqId}] Order "${updated.id}" status set to PAYMENT_REJECTED. Reason: "${String(reason).trim()}"`);
     res.json({ success: true, order: updated });
   } catch (e: any) {
+    console.error(`[Order Rejection Error] [${reqId}] Failed rejecting order "${rawOrderId}":`, e.message);
     res.status(400).json({ error: e.message || 'Gagal menolak bukti pembayaran.' });
   }
 });

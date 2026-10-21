@@ -631,7 +631,8 @@ export async function safeAdminGetDoc(collectionName: string, docId: string): Pr
   try {
     const snap = await adminDb.collection(collectionName).doc(docId).get();
     if (snap.exists) {
-      return snap.data();
+      const data = snap.data() || {};
+      return { id: snap.id, ...data };
     }
     return null;
   } catch (err: any) {

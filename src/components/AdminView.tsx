@@ -246,9 +246,14 @@ export default function AdminView({ onLogout, systemConfig, onUpdateConfig, onSe
 
   const verifyPayment = async (orderId: string) => {
     if (verifyingOrderId) return;
+    const cleanOrderId = String(orderId || '').trim();
+    if (!cleanOrderId) {
+      alert('ID pesanan tidak valid.');
+      return;
+    }
     try {
-      setVerifyingOrderId(orderId);
-      const res = await fetch(`/api/orders/${orderId}/verify-payment`, {
+      setVerifyingOrderId(cleanOrderId);
+      const res = await fetch(`/api/orders/${encodeURIComponent(cleanOrderId)}/verify-payment`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ role: 'ADMIN' })
@@ -260,7 +265,7 @@ export default function AdminView({ onLogout, systemConfig, onUpdateConfig, onSe
         alert(data.error || 'Gagal memverifikasi pembayaran.');
       }
     } catch (e: any) {
-      console.error(e);
+      console.error('Error verifying payment:', e);
       alert('Terjadi kesalahan saat memverifikasi pembayaran: ' + (e.message || 'Error'));
     } finally {
       setVerifyingOrderId(null);
@@ -268,12 +273,17 @@ export default function AdminView({ onLogout, systemConfig, onUpdateConfig, onSe
   };
 
   const rejectPayment = async (orderId: string, reason: string) => {
+    const cleanOrderId = String(orderId || '').trim();
+    if (!cleanOrderId) {
+      alert('ID pesanan tidak valid.');
+      return;
+    }
     if (!reason || !reason.trim()) {
       alert('Alasan penolakan bukti pembayaran wajib diisi.');
       return;
     }
     try {
-      const res = await fetch(`/api/orders/${orderId}/reject-payment`, {
+      const res = await fetch(`/api/orders/${encodeURIComponent(cleanOrderId)}/reject-payment`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
@@ -284,13 +294,13 @@ export default function AdminView({ onLogout, systemConfig, onUpdateConfig, onSe
       const data = await res.json().catch(() => ({}));
       if (res.ok) {
         setPaymentRejectModal(null);
-        fetchAdminData();
+        await fetchAdminData();
         alert('Bukti pembayaran ditolak. Pelanggan akan mendapatkan rincian alasan penolakan dan dapat mengunggah bukti baru.');
       } else {
         alert(data.error || 'Gagal menolak bukti pembayaran.');
       }
     } catch (e: any) {
-      console.error(e);
+      console.error('Error rejecting payment:', e);
       alert('Terjadi kesalahan saat menolak pembayaran: ' + (e.message || 'Error'));
     }
   };

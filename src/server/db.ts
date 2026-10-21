@@ -427,6 +427,40 @@ export class FoodDatabase {
     }
   }
 
+  /**
+   * Reload database state from disk if file was updated by another process/worker
+   */
+  public reloadFromDiskIfNeeded(): boolean {
+    try {
+      if (fs.existsSync(FOOD_DB_FILE)) {
+        const stats = fs.statSync(FOOD_DB_FILE);
+        if (stats.mtimeMs > this.lastFileMtime) {
+          const content = fs.readFileSync(FOOD_DB_FILE, 'utf-8');
+          if (content && content.trim().length > 10) {
+            const parsed = JSON.parse(content);
+            if (parsed && typeof parsed === 'object') {
+              if (Array.isArray(parsed.orders)) this.data.orders = parsed.orders;
+              if (Array.isArray(parsed.merchants)) this.data.merchants = parsed.merchants;
+              if (Array.isArray(parsed.drivers)) this.data.drivers = parsed.drivers;
+              if (Array.isArray(parsed.categories)) this.data.categories = parsed.categories;
+              if (Array.isArray(parsed.menuItems)) this.data.menuItems = parsed.menuItems;
+              if (Array.isArray(parsed.settlements)) this.data.settlements = parsed.settlements;
+              if (Array.isArray(parsed.partnerRegistrations)) this.data.partnerRegistrations = parsed.partnerRegistrations;
+              if (Array.isArray(parsed.testimonials)) this.data.testimonials = parsed.testimonials;
+              if (parsed.systemConfig) this.data.systemConfig = parsed.systemConfig;
+              this.lastFileMtime = stats.mtimeMs;
+              console.log(`[TumpangFood DB] Auto-reloaded ${this.data.orders.length} orders from disk snapshot.`);
+              return true;
+            }
+          }
+        }
+      }
+    } catch (e: any) {
+      console.warn('[TumpangFood DB] Error during disk reload check:', e.message);
+    }
+    return false;
+  }
+
   private initPromise: Promise<void> | null = null;
   private lastSyncTimestamp = 0;
   private readonly CACHE_TTL_MS = 15000;
@@ -1262,7 +1296,38 @@ export class FoodDatabase {
   }
 
   public getOrderById(id: string): Order | undefined {
-    const o = this.data.orders.find(o => o.id === id);
+    if (!id) return undefined;
+    const cleanId = String(id).trim();
+    if (!cleanId) return undefined;
+
+    const cleanLower = cleanId.toLowerCase();
+    const withoutPrefix = cleanLower.startsWith('ord_') ? cleanLower.replace(/^ord_/, '') : cleanLower;
+    const withPrefix = cleanLower.startsWith('ord_') ? cleanLower : 'ord_' + cleanLower;
+
+    const matcher = (item: Order | null | undefined): boolean => {
+      if (!item || !item.id) return false;
+      const itemId = String(item.id).trim();
+      const itemLower = itemId.toLowerCase();
+      return (
+        itemId === cleanId ||
+        itemLower === cleanLower ||
+        itemLower === withoutPrefix ||
+        itemLower === withPrefix ||
+        itemLower.replace(/^ord_/, '') === withoutPrefix ||
+        (cleanId.length >= 6 && (itemId.endsWith(cleanId) || itemId.toUpperCase().endsWith(cleanId.toUpperCase())))
+      );
+    };
+
+    let o = this.data.orders.find(matcher);
+
+    if (!o) {
+      // Reload from disk in case order was created/updated by another serverless instance or worker
+      const reloaded = this.reloadFromDiskIfNeeded();
+      if (reloaded) {
+        o = this.data.orders.find(matcher);
+      }
+    }
+
     return o ? normalizeOrderDeliveryFee(o) : undefined;
   }
 
@@ -1280,29 +1345,52 @@ export class FoodDatabase {
 
   public async findOrder(id: string): Promise<Order | undefined> {
     if (!id) return undefined;
-    const cleanId = id.trim();
-    let order = this.data.orders.find(o => o.id === cleanId);
+    const cleanId = String(id).trim();
+    if (!cleanId) return undefined;
+
+    // Stage 1: In-memory & local disk flexible lookup
+    let order = this.getOrderById(cleanId);
+
+    // Stage 2: Remote Cloud Firestore lookup if not found in memory or disk
     if (!order && isFirestoreAdminConfigured()) {
       try {
-        const remote = await safeAdminGetDoc('orders', cleanId);
-        if (remote) {
-          order = remote as Order;
-          const idx = this.data.orders.findIndex(o => o.id === cleanId);
-          if (idx >= 0) this.data.orders[idx] = order;
-          else this.data.orders.unshift(order);
+        const candidateKeys = Array.from(new Set([
+          cleanId,
+          cleanId.startsWith('ord_') ? cleanId.replace(/^ord_/, '') : 'ord_' + cleanId,
+          cleanId.toLowerCase(),
+          cleanId.startsWith('ord_') ? cleanId.toLowerCase() : 'ord_' + cleanId.toLowerCase()
+        ]));
+
+        for (const docKey of candidateKeys) {
+          const remote = await safeAdminGetDoc('orders', docKey);
+          if (remote) {
+            order = remote as Order;
+            if (!order.id) order.id = docKey;
+            console.log(`[TumpangFood DB] Successfully retrieved order "${order.id}" directly from Firestore via key "${docKey}".`);
+            const idx = this.data.orders.findIndex(o => o.id === order!.id || o.id === cleanId);
+            if (idx >= 0) {
+              this.data.orders[idx] = order;
+            } else {
+              this.data.orders.unshift(order);
+            }
+            this.save();
+            break;
+          }
         }
       } catch (e: any) {
         console.warn(`[TumpangFood DB] Query remote order ${cleanId} failed:`, e.message);
       }
     }
+
     if (order && (!order.merchantQrisImage || order.merchantQrisImage.includes('unsplash'))) {
       const merchant = this.getMerchantById(order.merchantId);
       if (merchant?.qrisImage) {
         order.merchantQrisImage = merchant.qrisImage;
       }
     }
+
     if (order && (order.paymentStatus === PaymentStatus.PAID || [OrderStatus.PAYMENT_VERIFIED, OrderStatus.COOKING, OrderStatus.READY_FOR_PICKUP, OrderStatus.ORDER_PICKED_UP, OrderStatus.DELIVERED, OrderStatus.COMPLETED].includes(order.status)) && !order.receipt) {
-      const receiptNumber = order.receiptNumber || `TG-RCP-${order.id.replace(/^ord_/, '').toUpperCase()}`;
+      const receiptNumber = order.receiptNumber || `TG-RCP-${String(order.id).replace(/^ord_/, '').toUpperCase()}`;
       const issuedAt = order.paymentVerifiedAt || order.updatedAt || order.createdAt;
       order.receiptNumber = receiptNumber;
       order.receipt = {
@@ -1311,7 +1399,7 @@ export class FoodDatabase {
         issuedAt,
         confirmedBy: order.paymentVerifiedBy || 'Admin TumpangGo',
         paymentMethod: order.paymentMethod || 'MERCHANT_QRIS',
-        transactionRef: order.artopayPaymentId || `QRIS-TG-${order.id.replace(/^ord_/, '').toUpperCase()}`,
+        transactionRef: order.artopayPaymentId || `QRIS-TG-${String(order.id).replace(/^ord_/, '').toUpperCase()}`,
         subtotal: order.subtotal,
         deliveryFee: order.deliveryFee,
         serviceFee: order.serviceFee,
@@ -1399,8 +1487,39 @@ export class FoodDatabase {
     updates: Partial<Order>,
     role: AppRole = 'SYSTEM'
   ): Promise<Order> {
-    const index = this.data.orders.findIndex(o => o.id === id);
-    if (index === -1) throw new Error('Order not found');
+    const cleanId = String(id || '').trim();
+    let index = this.data.orders.findIndex(o => o.id === cleanId);
+    if (index === -1) {
+      const cleanLower = cleanId.toLowerCase();
+      const withoutPrefix = cleanLower.startsWith('ord_') ? cleanLower.replace(/^ord_/, '') : cleanLower;
+      const withPrefix = cleanLower.startsWith('ord_') ? cleanLower : 'ord_' + cleanLower;
+      index = this.data.orders.findIndex(o => {
+        if (!o || !o.id) return false;
+        const oId = String(o.id).trim();
+        const oLower = oId.toLowerCase();
+        return (
+          oId === cleanId ||
+          oLower === cleanLower ||
+          oLower === withoutPrefix ||
+          oLower === withPrefix ||
+          oLower.replace(/^ord_/, '') === withoutPrefix ||
+          (cleanId.length >= 6 && (oId.endsWith(cleanId) || oId.toUpperCase().endsWith(cleanId.toUpperCase())))
+        );
+      });
+    }
+
+    if (index === -1) {
+      // Try reloading from disk or fetching from remote Firestore
+      const fetched = await this.findOrder(cleanId);
+      if (fetched) {
+        index = this.data.orders.findIndex(o => o.id === fetched.id);
+      }
+    }
+
+    if (index === -1) {
+      console.warn(`[TumpangFood DB] updateOrder failed: Order not found for ID "${cleanId}". Total orders in memory: ${this.data.orders.length}`);
+      throw new Error('Pesanan tidak ditemukan.');
+    }
 
     const currentOrder = this.data.orders[index];
     const prevStatus = currentOrder.status;
@@ -1460,23 +1579,23 @@ export class FoodDatabase {
     this.save();
 
     if (updates.status && updates.status !== prevStatus) {
-      this.log(userId, `Updated order ${id} status from ${prevStatus} to ${updates.status}`, role);
+      this.log(userId, `Updated order ${currentOrder.id} status from ${prevStatus} to ${updates.status}`, role);
 
       // Auto-assign driver when payment is verified if configured
       if (
         updates.status === OrderStatus.PAYMENT_VERIFIED &&
         this.data.systemConfig.assignmentMode === AssignmentMode.AUTOMATIC
       ) {
-        await this.autoAssignDriver(id);
+        await this.autoAssignDriver(currentOrder.id);
       }
     } else {
-      this.log(userId, `Updated order ${id} details`, role);
+      this.log(userId, `Updated order ${currentOrder.id} details`, role);
     }
 
     if (isFirestoreAdminConfigured()) {
       const probe = await testFirestoreConnection();
       if (probe.connected) {
-        const persisted = await safeFirestoreSetDoc('orders', id, this.data.orders[index]);
+        const persisted = await safeFirestoreSetDoc('orders', currentOrder.id, this.data.orders[index]);
         if (!persisted) {
           this.data.orders[index] = currentOrder;
           this.save();
@@ -1492,8 +1611,13 @@ export class FoodDatabase {
   }
 
   public async verifyOrderPayment(adminId: string, orderId: string): Promise<Order> {
-    const order = this.getOrderById(orderId);
-    if (!order) throw new Error('Pesanan tidak ditemukan.');
+    const cleanId = String(orderId || '').trim();
+    console.log(`[TumpangFood DB] verifyOrderPayment starting for orderId: "${cleanId}" by admin: "${adminId}"`);
+    const order = await this.findOrder(cleanId);
+    if (!order) {
+      console.warn(`[TumpangFood DB] verifyOrderPayment failed: Order not found for ID "${cleanId}". Available orders in memory: ${this.data.orders.length}`);
+      throw new Error('Pesanan tidak ditemukan.');
+    }
     if (order.status === OrderStatus.CANCELLED) {
       throw new Error('Pesanan yang telah dibatalkan tidak dapat diverifikasi.');
     }
@@ -1501,9 +1625,9 @@ export class FoodDatabase {
       throw new Error('Pesanan telah kedaluwarsa. Pembayaran kedaluwarsa tidak dapat diverifikasi secara otomatis.');
     }
 
-    const receiptNumber = order.receiptNumber || `TG-RCP-${order.id.replace(/^ord_/, '').toUpperCase()}`;
+    const receiptNumber = order.receiptNumber || `TG-RCP-${String(order.id).replace(/^ord_/, '').toUpperCase()}`;
     const issuedAt = order.paymentVerifiedAt || new Date().toISOString();
-    const transactionRef = order.artopayPaymentId || `QRIS-TG-${order.id.replace(/^ord_/, '').toUpperCase()}`;
+    const transactionRef = order.artopayPaymentId || `QRIS-TG-${String(order.id).replace(/^ord_/, '').toUpperCase()}`;
     const receipt: OrderReceipt = order.receipt || {
       receiptNumber,
       orderId: order.id,
@@ -1527,7 +1651,7 @@ export class FoodDatabase {
 
     const updated = await this.updateOrder(
       adminId,
-      orderId,
+      order.id,
       {
         status: OrderStatus.PAYMENT_VERIFIED,
         paymentStatus: PaymentStatus.PAID,
@@ -1543,8 +1667,13 @@ export class FoodDatabase {
   }
 
   public async rejectOrderPayment(adminId: string, orderId: string, reason: string): Promise<Order> {
-    const order = this.getOrderById(orderId);
-    if (!order) throw new Error('Pesanan tidak ditemukan.');
+    const cleanId = String(orderId || '').trim();
+    console.log(`[TumpangFood DB] rejectOrderPayment starting for orderId: "${cleanId}" by admin: "${adminId}"`);
+    const order = await this.findOrder(cleanId);
+    if (!order) {
+      console.warn(`[TumpangFood DB] rejectOrderPayment failed: Order not found for ID "${cleanId}". Available orders in memory: ${this.data.orders.length}`);
+      throw new Error('Pesanan tidak ditemukan.');
+    }
     if (!reason || !reason.trim()) {
       throw new Error('Alasan penolakan bukti pembayaran wajib diisi.');
     }
@@ -1552,7 +1681,7 @@ export class FoodDatabase {
 
     const updated = await this.updateOrder(
       adminId,
-      orderId,
+      order.id,
       {
         status: OrderStatus.PAYMENT_REJECTED,
         paymentStatus: PaymentStatus.REJECTED,
@@ -1567,7 +1696,8 @@ export class FoodDatabase {
   }
 
   public async autoAssignDriver(orderId: string): Promise<void> {
-    const order = this.getOrderById(orderId);
+    const cleanId = String(orderId || '').trim();
+    const order = await this.findOrder(cleanId);
     if (!order) return;
 
     const availableDrivers = this.data.drivers.filter(d => d.online && d.active);
