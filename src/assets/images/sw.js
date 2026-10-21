@@ -1,4 +1,4 @@
-const CACHE_NAME = 'tumpang-food-v7';
+const CACHE_NAME = 'tumpang-food-v8';
 const ASSETS = [
   '/',
   '/index.html',
@@ -36,6 +36,9 @@ self.addEventListener('fetch', (event) => {
   }
 
   if (
+    url.includes('qris-merchant') ||
+    url.includes('qris-image') ||
+    url.includes('/qris') ||
     url.includes('/api/') ||
     url.includes('/@vite') ||
     url.includes('/@fs') ||

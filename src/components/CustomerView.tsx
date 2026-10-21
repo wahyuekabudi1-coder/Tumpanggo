@@ -525,8 +525,23 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
   const [proofUploadError, setProofUploadError] = useState<string | null>(null);
   const [proofUploadSuccess, setProofUploadSuccess] = useState<string | null>(null);
   const [proofZoomModalImage, setProofZoomModalImage] = useState<string | null>(null);
-  const [qrisImageError, setQrisImageError] = useState<boolean>(false);
+  // Dedicated granular states for QRIS loading, fallback stages, and bounded retries
+  const [qrisImageStage, setQrisImageStage] = useState<'primary' | 'fallback'>('primary');
+  const [qrisRetryCount, setQrisRetryCount] = useState<number>(0);
+  const [qrisRetryTimestamp, setQrisRetryTimestamp] = useState<number | null>(null);
+  const [qrisLoading, setQrisLoading] = useState<boolean>(true);
+  const [qrisLoadFailed, setQrisLoadFailed] = useState<boolean>(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (activeOrder?.id) {
+      setQrisImageStage('primary');
+      setQrisRetryCount(0);
+      setQrisRetryTimestamp(null);
+      setQrisLoading(true);
+      setQrisLoadFailed(false);
+    }
+  }, [activeOrder?.id]);
 
   // History search state
   const [historyPhone, setHistoryPhone] = useState('');
@@ -3587,29 +3602,68 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
           const currentOrderMerchant = merchants.find(m => m.id === activeOrder.merchantId) || (activeOrder.merchantId === selectedMerchant?.id ? selectedMerchant : null);
           const rawQris = activeOrder.merchantQrisImage || currentOrderMerchant?.qrisImage;
 
-          // Safe QRIS source resolution compatible with Vercel Production & Preview
+          // Safe QRIS source resolution with primary and fallback staging
           const resolveQrisSource = (): string | null => {
-            if (qrisImageError) return null;
-            if (rawQris && typeof rawQris === 'string' && !rawQris.includes('unsplash') && rawQris.trim().length > 3) {
+            let candidateUrl: string | null = null;
+            if (qrisImageStage === 'primary' && rawQris && typeof rawQris === 'string' && !rawQris.includes('unsplash') && rawQris.trim().length > 3) {
               const trimmed = rawQris.trim();
               if (trimmed.startsWith('data:image/') || trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
-                return trimmed;
-              }
-              if (trimmed.startsWith('/')) {
+                candidateUrl = trimmed;
+              } else if (trimmed.startsWith('/')) {
                 const baseUrl = getApiBaseUrl();
-                return baseUrl ? `${baseUrl}${trimmed}` : trimmed;
+                candidateUrl = baseUrl ? `${baseUrl}${trimmed}` : trimmed;
+              } else {
+                candidateUrl = trimmed;
               }
-              return trimmed;
-            }
-            if (activeOrder.id) {
+            } else if (activeOrder.id) {
+              // Fallback endpoint specific to this verified order
               const baseUrl = getApiBaseUrl();
               const endpoint = `/api/orders/${activeOrder.id}/qris-image`;
-              return baseUrl ? `${baseUrl}${endpoint}` : endpoint;
+              candidateUrl = baseUrl ? `${baseUrl}${endpoint}` : endpoint;
             }
-            return null;
+
+            if (!candidateUrl) return null;
+
+            // Apply cache-buster ONLY upon explicit user retry
+            if (qrisRetryTimestamp) {
+              const sep = candidateUrl.includes('?') ? '&' : '?';
+              return `${candidateUrl}${sep}retry=${qrisRetryTimestamp}`;
+            }
+            return candidateUrl;
           };
 
           const qrisImageUrl = resolveQrisSource();
+
+          const handleQrisImageError = () => {
+            console.warn(`[TumpangFood QRIS] Image failed at stage "${qrisImageStage}" (Order: ${activeOrder.id}, Merchant: ${activeOrder.merchantName})`);
+            // If primary failed, automatically try order-specific fallback endpoint
+            if (qrisImageStage === 'primary' && activeOrder.id) {
+              console.log('[TumpangFood QRIS] Trying order-specific fallback endpoint...');
+              setQrisImageStage('fallback');
+              setQrisLoading(true);
+              return;
+            }
+            // If fallback also failed or retries exhausted
+            setQrisLoading(false);
+            setQrisLoadFailed(true);
+          };
+
+          const handleQrisImageLoad = () => {
+            setQrisLoading(false);
+            setQrisLoadFailed(false);
+          };
+
+          const handleRetryQris = () => {
+            if (qrisRetryCount >= 3) {
+              alert('Batas maksimal muat ulang (3x) tercapai. Silakan periksa koneksi internet Anda atau hubungi Bantuan WhatsApp Admin.');
+              return;
+            }
+            setQrisRetryCount(prev => prev + 1);
+            setQrisRetryTimestamp(Date.now());
+            setQrisImageStage('primary');
+            setQrisLoadFailed(false);
+            setQrisLoading(true);
+          };
           const isPaid = activeOrder.status === OrderStatus.PAYMENT_VERIFIED || activeOrder.paymentStatus === PaymentStatus.PAID;
           const isWaitingVerification = activeOrder.status === OrderStatus.WAITING_PAYMENT_VERIFICATION || activeOrder.paymentStatus === PaymentStatus.WAITING_VERIFICATION;
           const isRejected = activeOrder.status === OrderStatus.PAYMENT_REJECTED || activeOrder.paymentStatus === PaymentStatus.REJECTED;
@@ -3810,7 +3864,7 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
               )}
 
               {/* MERCHANT STATIC QRIS CONTAINER */}
-              {qrisImageUrl ? (
+              {qrisImageUrl && !qrisLoadFailed ? (
                 <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-xs flex flex-col items-center">
                   <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-slate-100 text-slate-700 text-[11px] font-bold mb-3">
                     <Store className="w-3.5 h-3.5 text-rose-600" />
@@ -3818,15 +3872,24 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
                   </div>
 
                   {/* QRIS Image Frame */}
-                  <div className="w-full max-w-[320px] sm:max-w-[360px] bg-slate-50 border-2 border-slate-200 rounded-2xl p-3 sm:p-4 flex flex-col items-center justify-center relative shadow-sm group">
+                  <div className="w-full max-w-[320px] sm:max-w-[360px] bg-slate-50 border-2 border-slate-200 rounded-2xl p-3 sm:p-4 flex flex-col items-center justify-center relative shadow-sm group min-h-[300px]">
+                    {qrisLoading && (
+                      <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-slate-50/90 backdrop-blur-xs rounded-xl">
+                        <RefreshCw className="w-6 h-6 text-rose-600 animate-spin mb-2" />
+                        <span className="text-xs font-semibold text-slate-600">Memuat gambar QRIS...</span>
+                        {qrisImageStage === 'fallback' && (
+                          <span className="text-[10px] text-slate-400 mt-1">Menggunakan jalur cadangan...</span>
+                        )}
+                      </div>
+                    )}
                     <img 
+                      key={`${qrisImageUrl}_${qrisImageStage}`}
                       src={qrisImageUrl} 
                       alt={`QRIS ${activeOrder.merchantName}`}
-                      className="w-full h-auto max-h-[460px] object-contain rounded-xl cursor-pointer transition-transform group-hover:scale-[1.01] bg-white border border-slate-100 shadow-xs"
+                      className={`w-full h-auto max-h-[460px] object-contain rounded-xl cursor-pointer transition-transform group-hover:scale-[1.01] bg-white border border-slate-100 shadow-xs ${qrisLoading ? 'opacity-0' : 'opacity-100'}`}
                       onClick={() => setProofZoomModalImage(qrisImageUrl)}
-                      onError={() => {
-                        setQrisImageError(true);
-                      }}
+                      onLoad={handleQrisImageLoad}
+                      onError={handleQrisImageError}
                     />
                     <div className="flex items-center gap-2 mt-3 w-full justify-center">
                       <button
@@ -3874,31 +3937,29 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
                     <AlertCircle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
                     <div className="space-y-1">
                       <h4 className="font-extrabold text-sm text-amber-900">
-                        {qrisImageError ? 'Gambar QRIS Gagal Dimuat' : 'Pembayaran QRIS Toko Belum Tersedia'}
+                        {qrisLoadFailed ? 'Gambar QRIS Gagal Dimuat' : 'Pembayaran QRIS Toko Belum Tersedia'}
                       </h4>
                       <p className="text-[11px] text-amber-800 leading-relaxed">
-                        {qrisImageError 
+                        {qrisLoadFailed 
                           ? <>Gambar QRIS resmi untuk merchant <strong>{activeOrder.merchantName}</strong> mengalami kendala jaringan saat dimuat dari server. Demi keamanan transaksi Anda, sistem TumpangGo <strong>tidak menampilkan QRIS palsu/tiruan atau QRIS milik merchant lain</strong>.</>
                           : <>Merchant <strong>{activeOrder.merchantName}</strong> belum mengunggah gambar QRIS statis resminya. Demi keamanan transaksi dan perlindungan data Anda, sistem TumpangGo <strong>tidak menampilkan QRIS palsu/tiruan atau QRIS milik merchant lain</strong>.</>
                         }
                       </p>
                       <p className="text-[11px] text-amber-700 mt-1">
-                        Silakan hubungi WhatsApp Bantuan Admin TumpangGo untuk konfirmasi atau batalkan pesanan untuk memilih merchant kuliner yang sudah siap menerima QRIS.
+                        Silakan coba muat ulang atau hubungi WhatsApp Bantuan Admin TumpangGo untuk konfirmasi pembayaran.
                       </p>
                     </div>
                   </div>
 
                   <div className="flex flex-col sm:flex-row gap-2 pt-2 border-t border-amber-200">
-                    {qrisImageError && (
-                      <button
-                        type="button"
-                        onClick={() => setQrisImageError(false)}
-                        className="flex-1 py-2.5 px-3 bg-amber-700 hover:bg-amber-800 text-white font-bold rounded-xl text-xs flex items-center justify-center gap-1.5 transition-colors cursor-pointer text-center"
-                      >
-                        <RefreshCw className="w-3.5 h-3.5" />
-                        <span>Coba Muat Ulang QRIS</span>
-                      </button>
-                    )}
+                    <button
+                      type="button"
+                      onClick={handleRetryQris}
+                      className="flex-1 py-2.5 px-3 bg-amber-700 hover:bg-amber-800 text-white font-bold rounded-xl text-xs flex items-center justify-center gap-1.5 transition-colors cursor-pointer text-center"
+                    >
+                      <RefreshCw className="w-3.5 h-3.5" />
+                      <span>Coba Muat Ulang QRIS {qrisRetryCount > 0 ? `(${qrisRetryCount}/3)` : ''}</span>
+                    </button>
                     <a
                       href={`https://wa.me/6281234567891?text=${encodeURIComponent(`Halo Admin TumpangGo, saya ingin bertanya mengenai pembayaran QRIS untuk pesanan #${activeOrder.id} pada toko ${activeOrder.merchantName}.`)}`}
                       target="_blank"

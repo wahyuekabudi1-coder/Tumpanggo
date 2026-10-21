@@ -74,12 +74,18 @@ let runtimeMasterAdminEmail = (process.env.MASTER_ADMIN_EMAIL || 'tumpanggo@gmai
 let runtimeMasterAdminPassword = cleanEnvSecret(process.env.MASTER_ADMIN_PASSWORD || process.env.FOOD_ADMIN_PASSWORD, isProductionRuntime ? '' : 'TumpangGoAdmin#2026');
 
 function resolveServerPort(): number {
-  if (process.env.PORT) {
-    const parsed = parseInt(process.env.PORT, 10);
-    if (!isNaN(parsed) && parsed > 0) return parsed;
+  for (let i = 0; i < process.argv.length; i++) {
+    if ((process.argv[i] === '--port' || process.argv[i] === '-p') && process.argv[i + 1]) {
+      const parsed = parseInt(process.argv[i + 1], 10);
+      if (!isNaN(parsed) && parsed > 0) return parsed;
+    }
   }
   if (process.env.FOOD_PORT) {
     const parsed = parseInt(process.env.FOOD_PORT, 10);
+    if (!isNaN(parsed) && parsed > 0) return parsed;
+  }
+  if (process.env.PORT && process.env.PORT !== '8080') {
+    const parsed = parseInt(process.env.PORT, 10);
     if (!isNaN(parsed) && parsed > 0) return parsed;
   }
   return 3000;
