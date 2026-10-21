@@ -199,6 +199,15 @@ export interface Settlement {
   paidAt?: string;
 }
 
+export enum Role {
+  CUSTOMER = 'CUSTOMER',
+  MERCHANT = 'MERCHANT',
+  DRIVER = 'DRIVER',
+  ADMIN = 'ADMIN',
+  SHOP_ADMIN = 'SHOP_ADMIN',
+  MASTER_ADMIN = 'MASTER_ADMIN'
+}
+
 export type AppRole = 'ADMIN' | 'MERCHANT' | 'DRIVER' | 'SYSTEM' | 'CUSTOMER' | 'SHOP_ADMIN' | 'MASTER_ADMIN';
 
 export interface AuditLog {

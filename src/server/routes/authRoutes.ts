@@ -62,15 +62,15 @@ authRouter.post(['/login', '/auth/login'], async (req: Request, res: Response) =
         }
       }
 
-      // 2. Verify against explicitly configured active environment password
-      if (!isMasterPassValid && creds.hasExplicitEnv && activeMasterPassword) {
+      // 2. Verify against active configured master password (in dev fallback or configured env)
+      if (!isMasterPassValid && activeMasterPassword) {
         const hashTarget = crypto.createHash('sha256').update(activeMasterPassword).digest();
         const hashTrimmed = crypto.createHash('sha256').update(cleanPass).digest();
         const hashRaw = crypto.createHash('sha256').update(rawPassStr).digest();
         if (crypto.timingSafeEqual(hashTrimmed, hashTarget) || crypto.timingSafeEqual(hashRaw, hashTarget)) {
           isMasterPassValid = true;
-          matchedVia = 'ACTIVE_ENV_PASSWORD';
-          // Synchronize database with the explicit environment password
+          matchedVia = creds.hasExplicitEnv ? 'ACTIVE_ENV_PASSWORD' : 'DEV_DEFAULT_PASSWORD';
+          // Synchronize database with the active password
           foodDb.updateMasterAccountPassword(activeMasterPassword);
         }
       }

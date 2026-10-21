@@ -128,8 +128,8 @@ router.post(['/auth/login', '/login'], (req: Request, res: Response) => {
       if (validTrimmed || validRaw) isMasterPassValid = true;
     }
 
-    // 2. Verify against explicitly configured active environment password
-    if (!isMasterPassValid && creds.hasExplicitEnv && activeMasterPassword) {
+    // 2. Verify against active configured master password
+    if (!isMasterPassValid && activeMasterPassword) {
       const hashTarget = crypto.createHash('sha256').update(activeMasterPassword).digest();
       const hashTrimmed = crypto.createHash('sha256').update(targetPass).digest();
       const hashRaw = crypto.createHash('sha256').update(rawPassStr).digest();

@@ -270,15 +270,16 @@ export class FoodDatabase {
       this.save();
     }
 
-    this.bootstrapMasterAccount();
-
     if (this.data.merchants.length === 0) {
       this.seedInitial();
     }
+
+    this.bootstrapMasterAccount();
   }
 
   private seedInitial() {
-    this.data.systemConfig = initialConfig;
+    this.data.systemConfig = { ...initialConfig };
+    this.bootstrapMasterAccount();
     const now = new Date().toISOString();
 
     this.data.merchants = [
@@ -762,6 +763,9 @@ export class FoodDatabase {
         }
       }
     } catch {}
+    if (!this.data.systemConfig?.masterAccount) {
+      this.bootstrapMasterAccount();
+    }
     return this.data.systemConfig?.masterAccount;
   }
 

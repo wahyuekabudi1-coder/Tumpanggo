@@ -4,6 +4,7 @@
  * 
  * Tumpang Food Administrative Routes
  * Manages system parameters, partner onboarding, payouts, and licenses.
+ * Endpoints: /merchants (via merchantRouter), /drivers (via driverRouter), and /partner-registrations.
  * Strictly protected with Admin-only RBAC middleware.
  */
 
