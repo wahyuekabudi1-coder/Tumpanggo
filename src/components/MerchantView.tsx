@@ -30,7 +30,8 @@ import { useSEO } from '../hooks/useSEO.ts';
 import { 
   calculateRemainingCooking, 
   ALLOWED_COOKING_DURATIONS,
-  CookingDurationMinutes
+  CookingDurationMinutes,
+  formatWibTime
 } from '../utils/cookingTimer.ts';
 import { useCookingTicker } from '../hooks/useCookingCountdown.ts';
 
@@ -83,7 +84,7 @@ function MerchantCookingCard({
               }`} />
               {timer.isExpired ? 'Estimasi Selesai (Perlu Konfirmasi)' : 'Sedang Dimasak di Dapur'}
             </span>
-            <span className="text-[10px] font-bold text-slate-500">
+            <span className="text-[10px] font-bold text-slate-500 font-mono">
               Target: {timer.estimatedEndTime}
             </span>
           </div>
@@ -94,9 +95,16 @@ function MerchantCookingCard({
             }`}>
               {timer.formattedRemaining}
             </div>
-            <span className="text-[11px] text-slate-500 font-medium">
-              {timer.isExpired ? 'Waktu estimasi habis' : 'sisa estimasi'}
-            </span>
+            <div className="text-right">
+              <span className="text-[11px] text-slate-500 font-medium block">
+                {timer.isExpired ? 'Waktu estimasi habis' : 'sisa estimasi'}
+              </span>
+              {order.cookingStartedAt && (
+                <span className="text-[10px] text-slate-400 font-mono">
+                  Mulai: {formatWibTime(order.cookingStartedAt)}
+                </span>
+              )}
+            </div>
           </div>
 
           {/* Progress Bar */}
@@ -110,9 +118,9 @@ function MerchantCookingCard({
           </div>
 
           {timer.isExpired && (
-            <div className="mt-2 text-[11px] text-amber-800 font-medium bg-amber-50 rounded-lg p-2 border border-amber-200/70 flex items-start gap-1.5">
+            <div className="mt-2 text-[11px] text-amber-800 font-medium bg-amber-50 rounded-lg p-2.5 border border-amber-200/70 flex items-start gap-1.5">
               <AlertTriangle className="w-3.5 h-3.5 text-amber-600 shrink-0 mt-0.5" />
-              <span>Waktu estimasi telah tercapai. Jika pesanan sudah siap dan dikemas, klik tombol di bawah untuk memanggil kurir penjemput.</span>
+              <span>Waktu estimasi telah tercapai. Jika pesanan sudah siap dan dikemas, klik tombol <strong>"Makanan Siap Diambil"</strong> di bawah untuk memanggil kurir penjemput.</span>
             </div>
           )}
         </div>
@@ -167,7 +175,7 @@ function MerchantCookingCard({
           } disabled:opacity-50`}
         >
           <PackageCheck className="w-4 h-4" />
-          <span>{isCompleting ? 'Memperbarui...' : 'Pesanan Siap Diambil Kurir'}</span>
+          <span>{isCompleting ? 'Memperbarui...' : 'Makanan Siap Diambil'}</span>
         </button>
       </div>
     </div>
@@ -957,28 +965,45 @@ export default function MerchantView({ merchantId: rawMerchantId, onLogout, onSe
                       </div>
                     </div>
 
-                    {/* Actions: Konfirmasi & Mulai Memasak + Tolak */}
-                    <div className="p-4 bg-slate-50 border-t border-slate-100 space-y-2.5">
-                      <div className="flex items-center gap-2">
-                        <label className="text-[11px] text-slate-500 font-semibold shrink-0">Estimasi Masak:</label>
-                        <select
-                          value={cookEstimateInput[order.id] || 15}
-                          onChange={(e) => setCookEstimateInput({ ...cookEstimateInput, [order.id]: Number(e.target.value) })}
-                          disabled={actionLoadingOrderId === order.id}
-                          className="flex-1 py-1 px-2 bg-white border border-slate-200 rounded-lg text-xs font-bold text-slate-800 focus:outline-none focus:border-emerald-500 cursor-pointer disabled:opacity-50"
-                        >
-                          <option value={15}>15 Menit</option>
-                          <option value={30}>30 Menit</option>
-                          <option value={45}>45 Menit</option>
-                          <option value={60}>60 Menit</option>
-                        </select>
+                    {/* Actions: Pilihan Estimasi Memasak (15, 30, 45, 60 menit) & Konfirmasi */}
+                    <div className="p-4 bg-slate-50 border-t border-slate-100 space-y-3">
+                      <div>
+                        <div className="flex items-center justify-between mb-1.5">
+                          <label className="text-[11px] font-bold text-slate-700 flex items-center gap-1.5">
+                            <Clock className="w-3.5 h-3.5 text-emerald-600" />
+                            <span>Pilih Estimasi Waktu Memasak:</span>
+                          </label>
+                          <span className="text-[10px] font-extrabold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">
+                            {cookEstimateInput[order.id] || 15} Menit
+                          </span>
+                        </div>
+                        <div className="grid grid-cols-4 gap-1.5">
+                          {ALLOWED_COOKING_DURATIONS.map((dur) => {
+                            const isSelected = (cookEstimateInput[order.id] || 15) === dur;
+                            return (
+                              <button
+                                key={dur}
+                                type="button"
+                                disabled={actionLoadingOrderId === order.id}
+                                onClick={() => setCookEstimateInput(prev => ({ ...prev, [order.id]: dur }))}
+                                className={`py-1.5 px-1 rounded-xl text-xs font-bold transition-all cursor-pointer text-center border ${
+                                  isSelected
+                                    ? 'bg-emerald-600 border-emerald-600 text-white shadow-xs font-extrabold scale-[1.02]'
+                                    : 'bg-white border-slate-200 text-slate-700 hover:border-slate-300 hover:bg-slate-50'
+                                } disabled:opacity-50`}
+                              >
+                                {dur} mnt
+                              </button>
+                            );
+                          })}
+                        </div>
                       </div>
 
-                      <div className="flex gap-2">
+                      <div className="flex gap-2 pt-1">
                         <button
                           onClick={() => acceptOrder(order.id)}
                           disabled={actionLoadingOrderId === order.id}
-                          className="flex-1 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs flex items-center justify-center gap-1.5 shadow-xs cursor-pointer transition-colors disabled:opacity-50"
+                          className="flex-1 py-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-xs cursor-pointer transition-colors disabled:opacity-50"
                         >
                           <ChefHat className={`w-4 h-4 ${actionLoadingOrderId === order.id ? 'animate-spin' : ''}`} />
                           <span>{actionLoadingOrderId === order.id ? 'Menyimpan...' : 'Konfirmasi & Mulai Memasak'}</span>
@@ -986,7 +1011,7 @@ export default function MerchantView({ merchantId: rawMerchantId, onLogout, onSe
                         <button
                           onClick={() => setRejectModal({ orderId: order.id, visible: true, reason: '' })}
                           disabled={actionLoadingOrderId === order.id}
-                          className="py-2.5 px-3 rounded-xl border border-rose-200 bg-white text-rose-600 font-bold text-xs hover:bg-rose-50 cursor-pointer transition-colors disabled:opacity-50"
+                          className="py-3 px-3.5 rounded-xl border border-rose-200 bg-white text-rose-600 font-bold text-xs hover:bg-rose-50 cursor-pointer transition-colors disabled:opacity-50"
                           title="Tolak Pesanan jika bahan habis"
                         >
                           Tolak

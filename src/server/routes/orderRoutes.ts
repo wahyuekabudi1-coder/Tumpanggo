@@ -581,8 +581,8 @@ orderRouter.post('/', async (req: Request, res: Response) => {
   }
 });
 
-// Order status/details update
-orderRouter.put('/:id', async (req: Request, res: Response) => {
+// Order status/details update handler (supports both PUT and PATCH)
+const handleOrderUpdate = async (req: Request, res: Response) => {
   const user = req.user;
   const currentOrder = await foodDb.findOrder(req.params.id);
   if (!currentOrder) {
@@ -725,6 +725,45 @@ orderRouter.put('/:id', async (req: Request, res: Response) => {
     }
   }
 
+  // 2b. ADMIN & MASTER_ADMIN COOKING HANDLING
+  if (user.role === 'ADMIN' || user.role === 'MASTER_ADMIN') {
+    const rawDuration = updates.cookingDurationMinutes ?? updates.cookingTimeMinutes;
+    if (rawDuration !== undefined && rawDuration !== null) {
+      const numDuration = Number(rawDuration);
+      if (![15, 30, 45, 60].includes(numDuration)) {
+        return res.status(400).json({
+          error: 'Pilihan estimasi waktu memasak tidak valid. Pilihan yang diizinkan: 15, 30, 45, atau 60 menit.'
+        });
+      }
+      updates.cookingDurationMinutes = numDuration;
+      updates.cookingTimeMinutes = numDuration;
+    }
+
+    if (updates.status === OrderStatus.COOKING) {
+      const duration = updates.cookingDurationMinutes || updates.cookingTimeMinutes || currentOrder.cookingDurationMinutes || currentOrder.cookingTimeMinutes || 15;
+      const isAlreadyCooking = currentOrder.status === OrderStatus.COOKING && Boolean(currentOrder.cookingStartedAt && currentOrder.cookingEndsAt);
+      const currentDuration = currentOrder.cookingDurationMinutes || currentOrder.cookingTimeMinutes;
+      const durationChanged = Boolean(currentDuration && currentDuration !== duration);
+
+      if (!isAlreadyCooking || durationChanged) {
+        const now = new Date();
+        const startedAt = (isAlreadyCooking && currentOrder.cookingStartedAt) ? currentOrder.cookingStartedAt : now.toISOString();
+        const startMs = new Date(startedAt).getTime();
+        const endsAt = new Date(startMs + duration * 60 * 1000).toISOString();
+
+        updates.cookingDurationMinutes = duration;
+        updates.cookingTimeMinutes = duration;
+        updates.cookingStartedAt = startedAt;
+        updates.cookingEndsAt = endsAt;
+      } else {
+        updates.cookingDurationMinutes = currentOrder.cookingDurationMinutes || duration;
+        updates.cookingTimeMinutes = currentOrder.cookingTimeMinutes || duration;
+        updates.cookingStartedAt = currentOrder.cookingStartedAt;
+        updates.cookingEndsAt = currentOrder.cookingEndsAt;
+      }
+    }
+  }
+
   // 3. DRIVER ROLE ENFORCEMENT
   if (user.role === 'DRIVER') {
     const isAssigned = currentOrder.driverId === user.entityId || currentOrder.driverId === user.userId;
@@ -809,7 +848,10 @@ orderRouter.put('/:id', async (req: Request, res: Response) => {
   } catch (e: any) {
     res.status(400).json({ error: e.message });
   }
-});
+};
+
+orderRouter.put('/:id', handleOrderUpdate);
+orderRouter.patch('/:id', handleOrderUpdate);
 
 // Admin manual driver assignment
 orderRouter.post('/:id/assign-driver', requireRole(['ADMIN']), async (req: Request, res: Response) => {

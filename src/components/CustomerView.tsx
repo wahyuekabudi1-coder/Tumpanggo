@@ -26,6 +26,8 @@ import {
   BookOpen, HelpCircle, ChevronDown, ChevronUp, Receipt, Copy
 } from 'lucide-react';
 import EReceiptModal from './EReceiptModal.tsx';
+import { calculateRemainingCooking, formatWibTime } from '../utils/cookingTimer.ts';
+import { useCookingTicker } from '../hooks/useCookingCountdown.ts';
 
 interface CustomerViewProps {
   onSwitchView?: (view: string) => void;
@@ -49,6 +51,7 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
   // Navigation / Tab state: 'home' | 'merchant-detail' | 'cart' | 'checkout' | 'payment' | 'tracking' | 'history' | 'partner-register' | 'edukasi'
   const [activeTab, setActiveTab] = useState<string>(initialTab || 'home');
   const [openFaqIndex, setOpenFaqIndex] = useState<number | null>(null);
+  const cookingTickerNow = useCookingTicker();
 
   useEffect(() => {
     if (initialTab) {
@@ -4784,8 +4787,18 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
                       }`} />
                       <span className="text-xs font-bold text-slate-800">Diproses Toko</span>
                       <p className="text-[11px] text-slate-500 mt-0.5">
-                        {activeOrder.status === OrderStatus.COOKING 
-                          ? `Toko sedang memasak. Estimasi waktu: ${activeOrder.cookingTimeMinutes || 30} menit.` 
+                        {activeOrder.status === OrderStatus.COOKING ? (() => {
+                          const c = calculateRemainingCooking(activeOrder, cookingTickerNow);
+                          return (
+                            <span>
+                              Toko sedang memasak (Estimasi: {c.durationMinutes} menit).{' '}
+                              <strong className="font-mono text-slate-800">
+                                {c.isExpired ? 'Waktu estimasi tercapai' : `Sisa ${c.formattedRemaining}`}
+                              </strong>
+                              .{' '}Target selesai pukul {c.estimatedEndTime}.
+                            </span>
+                          );
+                        })()
                           : [OrderStatus.PAYMENT_VERIFIED].includes(activeOrder.status)
                             ? 'Pesanan diteruskan ke toko, menunggu respon...'
                             : [OrderStatus.WAITING_PAYMENT, OrderStatus.WAITING_PAYMENT_VERIFICATION].includes(activeOrder.status)

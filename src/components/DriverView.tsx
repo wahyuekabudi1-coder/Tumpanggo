@@ -7,7 +7,7 @@ import {
   Navigation, ShoppingBag, Eye, Phone, MapPin, ClipboardList, 
   User, LogOut, Check, ChevronRight, X, Image, RefreshCw, AlertCircle,
   Clock, CheckCircle2, MessageSquare, ExternalLink, ShieldCheck, Bike,
-  DollarSign
+  DollarSign, ChefHat, AlertTriangle
 } from 'lucide-react';
 import { useHiddenTrigger } from '../hooks/useHiddenTrigger.ts';
 import HiddenPortalBar from './HiddenPortalBar.tsx';
@@ -15,6 +15,12 @@ import { useSEO } from '../hooks/useSEO.ts';
 import { PWAInstallButton } from './PWAInstallButton.tsx';
 import { OfflineIndicator } from './OfflineIndicator.tsx';
 import { useOnlineStatus } from '../hooks/useOnlineStatus.ts';
+import { 
+  calculateRemainingCooking, 
+  formatCookingTime, 
+  formatWibTime 
+} from '../utils/cookingTimer.ts';
+import { useCookingTicker } from '../hooks/useCookingCountdown.ts';
 
 interface DriverViewProps {
   driverId: string;
@@ -48,6 +54,7 @@ export default function DriverView({ driverId, onLogout, onSelectRole }: DriverV
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
   const [toastMessage, setToastMessage] = useState<{ text: string; type: 'success' | 'error' | 'info' } | null>(null);
+  const cookingNow = useCookingTicker();
 
   // References for zero-flicker state & async race condition prevention
   const selectedOrderIdRef = useRef<string | null>(null);
@@ -591,6 +598,100 @@ export default function DriverView({ driverId, onLogout, onSelectRole }: DriverV
                     </span>
                   </div>
 
+                  {/* Live Cooking Status & Countdown Banner for Driver */}
+                  {selectedOrderDetail.status === OrderStatus.COOKING && (() => {
+                    const detailCooking = calculateRemainingCooking(selectedOrderDetail, cookingNow);
+                    return (
+                      <div className={`p-4 rounded-2xl border-2 flex flex-col gap-2.5 transition-all shadow-xs ${
+                        detailCooking.isExpired 
+                          ? 'bg-amber-50/90 border-amber-300 ring-2 ring-amber-100' 
+                          : 'bg-gradient-to-br from-blue-50/90 via-indigo-50/50 to-white border-blue-200'
+                      }`}>
+                        <div className="flex items-center justify-between border-b border-slate-100/80 pb-2">
+                          <div className="flex items-center gap-2">
+                            <ChefHat className={`w-4 h-4 ${detailCooking.isExpired ? 'text-amber-600' : 'text-blue-600 animate-pulse'}`} />
+                            <span className={`text-xs font-extrabold uppercase tracking-wider ${
+                              detailCooking.isExpired ? 'text-amber-800' : 'text-blue-800'
+                            }`}>
+                              {detailCooking.isExpired ? 'Estimasi Memasak Selesai' : 'Merchant Sedang Memasak'}
+                            </span>
+                          </div>
+                          <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-full bg-slate-900 text-white shadow-xs">
+                            Estimasi {detailCooking.durationMinutes} Menit
+                          </span>
+                        </div>
+
+                        <div className="flex items-baseline justify-between pt-1">
+                          <div>
+                            <span className="text-[10px] text-slate-500 font-semibold block">Waktu Memasak Tersisa:</span>
+                            <div className={`font-mono text-3xl font-black tracking-tight ${
+                              detailCooking.isExpired ? 'text-amber-700' : 'text-slate-900'
+                            }`}>
+                              {detailCooking.formattedRemaining}
+                            </div>
+                          </div>
+                          <div className="text-right">
+                            <span className="text-[10px] text-slate-500 font-semibold block">Perkiraan Selesai:</span>
+                            <span className="text-xs font-bold font-mono text-slate-800">
+                              pukul {detailCooking.estimatedEndTime}
+                            </span>
+                            {selectedOrderDetail.cookingStartedAt && (
+                              <span className="block text-[9px] text-slate-400 font-mono mt-0.5">
+                                Mulai: {formatWibTime(selectedOrderDetail.cookingStartedAt)}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Progress Bar */}
+                        <div className="w-full bg-slate-200/80 rounded-full h-1.5 overflow-hidden">
+                          <div
+                            className={`h-full transition-all duration-1000 ${
+                              detailCooking.isExpired ? 'bg-amber-500' : 'bg-blue-600'
+                            }`}
+                            style={{ width: `${detailCooking.percentElapsed}%` }}
+                          />
+                        </div>
+
+                        <div className={`text-[11px] font-medium rounded-xl p-2.5 border leading-relaxed ${
+                          detailCooking.isExpired 
+                            ? 'bg-amber-100/70 border-amber-200 text-amber-900' 
+                            : 'bg-blue-100/40 border-blue-200/60 text-blue-900'
+                        }`}>
+                          {detailCooking.isExpired ? (
+                            <div className="flex items-start gap-1.5">
+                              <AlertTriangle className="w-3.5 h-3.5 text-amber-600 shrink-0 mt-0.5" />
+                              <span>Waktu estimasi telah tercapai. Menunggu konfirmasi toko untuk pesanan siap diambil kurir.</span>
+                            </div>
+                          ) : (
+                            <div className="flex items-start gap-1.5">
+                              <Clock className="w-3.5 h-3.5 text-blue-600 shrink-0 mt-0.5" />
+                              <span>Merchant sedang memasak — estimasi {detailCooking.durationMinutes} menit. Driver dapat memperkirakan waktu penjemputan ke toko.</span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })()}
+
+                  {/* Ready for Pickup Alert */}
+                  {selectedOrderDetail.status === OrderStatus.READY_FOR_PICKUP && (
+                    <div className="p-4 rounded-2xl bg-emerald-50 border-2 border-emerald-300 flex items-center justify-between shadow-xs">
+                      <div className="flex items-center gap-2.5">
+                        <div className="w-9 h-9 rounded-xl bg-emerald-600 text-white flex items-center justify-center font-black">
+                          ✓
+                        </div>
+                        <div>
+                          <span className="text-xs font-extrabold text-emerald-900 block">Makanan Siap Diambil!</span>
+                          <span className="text-[11px] text-emerald-700">Toko telah selesai memasak &amp; mengemas pesanan. Silakan ambil pesanan.</span>
+                        </div>
+                      </div>
+                      <span className="text-[10px] font-bold px-2.5 py-1 rounded-lg bg-emerald-600 text-white shadow-xs uppercase">
+                        Siap Jemput
+                      </span>
+                    </div>
+                  )}
+
                   {/* Merchant & Customer Directions info */}
                   <div className="flex flex-col gap-3">
                     {/* Merchant Step */}
@@ -609,7 +710,7 @@ export default function DriverView({ driverId, onLogout, onSelectRole }: DriverV
                         </button>
                       </div>
                       <span className="text-xs font-bold text-slate-900">{selectedOrderDetail.merchantName}</span>
-                      <span className="text-[11px] text-slate-500">Estimasi Memasak: {selectedOrderDetail.cookingTimeMinutes || 25} menit</span>
+                      <span className="text-[11px] text-slate-500">Estimasi Memasak: {selectedOrderDetail.cookingDurationMinutes || selectedOrderDetail.cookingTimeMinutes || 15} menit</span>
                     </div>
 
                     {/* Customer Destination Step */}
@@ -700,9 +801,19 @@ export default function DriverView({ driverId, onLogout, onSelectRole }: DriverV
                     {/* CASE 2: Assigned task, waiting cooking -> Waiting indicator */}
                     {selectedOrderDetail.driverId === driver?.id && 
                      (selectedOrderDetail.status === OrderStatus.COOKING || selectedOrderDetail.status === OrderStatus.PAYMENT_VERIFIED) && (
-                      <div className="bg-amber-50 border border-amber-200 text-amber-900 p-3 rounded-xl text-xs flex items-center justify-center gap-2 text-center font-bold">
-                        <Clock className="w-4 h-4 text-amber-600 animate-spin" />
-                        <span>Menunggu Makanan Selesai Dimasak oleh Toko...</span>
+                      <div className="bg-amber-50 border border-amber-200 text-amber-900 p-3.5 rounded-xl text-xs flex flex-col items-center justify-center gap-1.5 text-center font-bold">
+                        <div className="flex items-center gap-2">
+                          <Clock className="w-4 h-4 text-amber-600 animate-spin" />
+                          <span>Menunggu Makanan Selesai Dimasak oleh Toko...</span>
+                        </div>
+                        {selectedOrderDetail.status === OrderStatus.COOKING && (() => {
+                          const c = calculateRemainingCooking(selectedOrderDetail, cookingNow);
+                          return (
+                            <span className="text-[11px] font-medium text-amber-800">
+                              Waktu memasak tersisa: <strong className="font-mono font-bold text-amber-900">{c.formattedRemaining}</strong> (Target selesai pukul {c.estimatedEndTime})
+                            </span>
+                          );
+                        })()}
                       </div>
                     )}
 
@@ -850,6 +961,7 @@ export default function DriverView({ driverId, onLogout, onSelectRole }: DriverV
                   <div className="flex flex-col gap-2.5">
                     {displayedActiveOrders.map(order => {
                       const isAssignedToMe = order.driverId === driver?.id;
+                      const cardCooking = calculateRemainingCooking(order, cookingNow);
                       return (
                         <div
                           key={order.id}
@@ -866,16 +978,18 @@ export default function DriverView({ driverId, onLogout, onSelectRole }: DriverV
 
                             <div className="flex items-center gap-1.5">
                               {isAssignedToMe ? (
-                                <span className={`text-[9px] font-extrabold px-2 py-0.5 rounded-md border uppercase ${
+                                <span className={`text-[9px] font-extrabold px-2 py-0.5 rounded-md border uppercase flex items-center gap-1 ${
                                   order.status === OrderStatus.READY_FOR_PICKUP 
                                     ? 'bg-indigo-50 text-indigo-700 border-indigo-200' 
                                     : order.status === OrderStatus.ORDER_PICKED_UP
                                       ? 'bg-sky-50 text-sky-700 border-sky-200'
-                                      : 'bg-amber-50 text-amber-800 border-amber-200'
+                                      : cardCooking.isExpired
+                                        ? 'bg-amber-100 text-amber-900 border-amber-300'
+                                        : 'bg-amber-50 text-amber-800 border-amber-200'
                                 }`}>
                                   {order.status === OrderStatus.READY_FOR_PICKUP ? 'SIAP JEMPUT 🔔' :
                                    order.status === OrderStatus.ORDER_PICKED_UP ? 'DIANTAR 🛵' :
-                                   order.status === OrderStatus.COOKING ? 'DIMASAK ⏳' : order.status}
+                                   order.status === OrderStatus.COOKING ? (cardCooking.isExpired ? 'EST. SELESAI ⚠️' : `DIMASAK ${cardCooking.formattedRemaining} ⏳`) : order.status}
                                 </span>
                               ) : (
                                 <span className="text-[9px] font-extrabold px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200 uppercase">
@@ -902,6 +1016,42 @@ export default function DriverView({ driverId, onLogout, onSelectRole }: DriverV
                               Rp {(order.deliveryFee || 5000).toLocaleString('id-ID')}
                             </span>
                           </div>
+
+                          {/* Live Cooking Status Information Strip for Driver */}
+                          {order.status === OrderStatus.COOKING && (
+                            <div className={`p-2.5 rounded-xl border text-[11px] flex flex-col gap-1 ${
+                              cardCooking.isExpired 
+                                ? 'bg-amber-50/90 border-amber-200 text-amber-900' 
+                                : 'bg-blue-50/70 border-blue-100 text-blue-900'
+                            }`}>
+                              <div className="flex items-center justify-between font-bold">
+                                <span className="flex items-center gap-1.5">
+                                  <ChefHat className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                                  <span>Merchant sedang memasak — estimasi {cardCooking.durationMinutes} menit</span>
+                                </span>
+                                <span className="font-mono text-xs font-black">
+                                  {cardCooking.formattedRemaining}
+                                </span>
+                              </div>
+                              <div className="flex items-center justify-between text-[10px] text-slate-600 font-medium pt-0.5">
+                                <span>{cardCooking.isExpired ? 'Waktu memasak selesai (menunggu konfirmasi siap)' : `Waktu memasak tersisa ${cardCooking.formattedRemaining}`}</span>
+                                <span className="font-semibold text-slate-800">Perkiraan selesai pukul {cardCooking.estimatedEndTime}</span>
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Food Ready Indicator for Driver */}
+                          {order.status === OrderStatus.READY_FOR_PICKUP && (
+                            <div className="p-2 rounded-xl border border-emerald-200 bg-emerald-50 text-emerald-900 text-[11px] font-bold flex items-center justify-between">
+                              <div className="flex items-center gap-1.5">
+                                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                                <span>Makanan Siap Diambil di Toko</span>
+                              </div>
+                              <span className="text-[9px] bg-emerald-600 text-white px-2 py-0.5 rounded-md font-extrabold uppercase">
+                                Siap Jemput
+                              </span>
+                            </div>
+                          )}
                         </div>
                       );
                     })}
