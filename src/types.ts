@@ -96,6 +96,7 @@ export interface OrderItem {
   name: string;
   price: number;
   quantity: number;
+  notes?: string;
 }
 
 export interface Order {

@@ -420,14 +420,19 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
         setTrackingOrderId(cleanTrackId);
         setActiveTab('tracking');
         fetch(`/api/orders/${encodeURIComponent(cleanTrackId)}`)
-          .then(res => res.ok ? res.json() : null)
+          .then(res => {
+            if (res.ok) return res.json();
+            throw new Error('Pesanan tidak ditemukan. Periksa kembali kode order Anda.');
+          })
           .then(data => {
             if (data && (data.id || data.orderNumber)) {
               setActiveOrder(normalizeOrderDeliveryFee(data));
               setTrackingOrderId(data.orderNumber || data.id);
             }
           })
-          .catch(() => {});
+          .catch((err) => {
+            setTrackingError(err.message || 'Pesanan tidak ditemukan. Periksa kembali kode order Anda.');
+          });
       }
     } catch {}
   }, []);
@@ -1293,7 +1298,7 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
     const rawTarget = typeof overrideId === 'string' ? overrideId : trackingOrderId;
     const targetId = String(rawTarget || '').trim().replace(/^#/, '');
     if (!targetId) {
-      setTrackingError('Mohon masukkan nomor pesanan Anda.');
+      setTrackingError('Masukkan kode order terlebih dahulu.');
       return;
     }
     setTrackingLoading(true);
@@ -1307,11 +1312,15 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
         setTrackingError(null);
       } else {
         const errData = await res.json().catch(() => null);
-        setTrackingError(errData?.error || `Pesanan dengan nomor "${targetId}" tidak ditemukan. Pastikan nomor order Anda benar.`);
+        if (res.status === 404) {
+          setTrackingError('Pesanan tidak ditemukan. Periksa kembali kode order Anda.');
+        } else {
+          setTrackingError(errData?.error || 'Pesanan tidak ditemukan. Periksa kembali kode order Anda.');
+        }
       }
     } catch (e) {
       console.error('Error refreshing order:', e);
-      setTrackingError('Gagal memuat status pesanan. Silakan periksa koneksi internet Anda.');
+      setTrackingError('Terjadi gangguan pada server. Silakan coba beberapa saat lagi.');
     } finally {
       setTrackingLoading(false);
     }
@@ -4269,49 +4278,78 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
 
             {/* Manual Refresh / Tracker input if no active order */}
             {!activeOrder ? (
-              <form 
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  refreshActiveOrder();
-                }}
-                className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm flex flex-col gap-3"
-              >
-                <div>
-                  <h4 className="font-bold text-sm text-slate-800">Lacak Status Pesanan Makanan</h4>
-                  <p className="text-slate-500 text-xs leading-relaxed mt-0.5">
-                    Masukkan Nomor Pesanan kanonis Anda (contoh: <span className="font-mono font-bold text-slate-700">TF-20261021-001</span> atau ID pesanan yang diterima saat pemesanan).
-                  </p>
-                </div>
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    value={trackingOrderId}
-                    onChange={(e) => {
-                      setTrackingOrderId(e.target.value);
-                      if (trackingError) setTrackingError(null);
-                    }}
-                    placeholder="Contoh: TF-20261021-001 atau ord_xxxxx"
-                    className="flex-1 bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs font-mono focus:outline-none focus:border-rose-500 focus:bg-white transition-colors"
-                  />
+              <div className="flex flex-col gap-4">
+                <form 
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    refreshActiveOrder();
+                  }}
+                  className="bg-white border border-slate-200 rounded-2xl p-5 sm:p-6 shadow-sm flex flex-col gap-4"
+                >
+                  <div>
+                    <h4 className="font-display font-bold text-base text-slate-800">Lacak Status Pesanan Makanan</h4>
+                    <p className="text-slate-500 text-xs leading-relaxed mt-1">
+                      Pantau proses memasak dan pengantaran pesanan secara langsung dengan memasukkan kode order Anda.
+                    </p>
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <label htmlFor="input-order-code" className="text-xs font-bold text-slate-700">
+                      Masukkan Kode Order
+                    </label>
+                    <div className="flex flex-col sm:flex-row gap-2">
+                      <input
+                        id="input-order-code"
+                        type="text"
+                        value={trackingOrderId}
+                        onChange={(e) => {
+                          setTrackingOrderId(e.target.value);
+                          if (trackingError) setTrackingError(null);
+                        }}
+                        placeholder="Contoh: TF-20261021-001"
+                        className="flex-1 bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs font-mono uppercase focus:outline-none focus:border-rose-500 focus:bg-white transition-colors"
+                      />
+                      <button
+                        type="submit"
+                        disabled={trackingLoading}
+                        className="px-5 py-3 bg-rose-600 hover:bg-rose-700 disabled:opacity-50 text-white font-bold rounded-xl text-xs flex items-center justify-center gap-2 cursor-pointer shadow-xs transition-colors shrink-0"
+                      >
+                        {trackingLoading ? (
+                          <>
+                            <RefreshCw className="w-4 h-4 animate-spin" />
+                            <span>Memeriksa...</span>
+                          </>
+                        ) : (
+                          <>
+                            <Search className="w-4 h-4" />
+                            <span>Lacak Pesanan</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  </div>
+                  {trackingError && (
+                    <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-rose-700 text-xs flex items-center gap-2">
+                      <AlertCircle className="w-4 h-4 shrink-0 text-rose-600" />
+                      <span className="font-medium">{trackingError}</span>
+                    </div>
+                  )}
+                </form>
+
+                {/* Secondary Option: Cari via WhatsApp */}
+                <div className="bg-slate-50 border border-slate-200/80 rounded-2xl p-4 flex flex-col sm:flex-row items-center justify-between gap-3 text-center sm:text-left">
+                  <div>
+                    <span className="text-xs font-bold text-slate-700 block">Lupa atau belum memiliki kode order?</span>
+                    <span className="text-[11px] text-slate-500">Anda dapat mencari daftar pesanan menggunakan nomor WhatsApp saat checkout.</span>
+                  </div>
                   <button
-                    type="submit"
-                    disabled={trackingLoading}
-                    className="px-5 py-3 bg-rose-600 hover:bg-rose-700 disabled:opacity-50 text-white font-bold rounded-xl text-xs flex items-center justify-center gap-1.5 cursor-pointer shadow-xs transition-colors shrink-0"
+                    type="button"
+                    onClick={() => setActiveTab('history')}
+                    className="px-3.5 py-2 bg-white hover:bg-slate-100 border border-slate-200 text-slate-700 text-xs font-bold rounded-xl shadow-xs transition-colors cursor-pointer shrink-0"
                   >
-                    {trackingLoading ? (
-                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                    ) : (
-                      'Lacak'
-                    )}
+                    Cari via WhatsApp
                   </button>
                 </div>
-                {trackingError && (
-                  <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-rose-700 text-xs flex items-center gap-2">
-                    <AlertCircle className="w-4 h-4 shrink-0 text-rose-600" />
-                    <span>{trackingError}</span>
-                  </div>
-                )}
-              </form>
+              </div>
             ) : (
               <div className="flex flex-col gap-4">
                 {/* Active Info Header */}
@@ -4360,7 +4398,18 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
                           )}
                         </button>
                       </div>
+
+                      {/* Tanggal Pemesanan */}
+                      <div className="mt-2 text-xs text-slate-500 flex items-center gap-1.5">
+                        <Calendar className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                        <span>
+                          Tanggal Pemesanan: <strong className="text-slate-800 font-semibold">
+                            {new Date(activeOrder.createdAt).toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'short', year: 'numeric' })} • {new Date(activeOrder.createdAt).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })} WIB
+                          </strong>
+                        </span>
+                      </div>
                     </div>
+
                     <div className="flex items-center gap-1.5">
                       <button
                         type="button"
@@ -4385,24 +4434,207 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
                       </button>
                     </div>
                   </div>
+                </div>
 
-                  {/* Order Core Info */}
-                  <div className="grid grid-cols-2 gap-3 mt-3.5 text-xs text-slate-600">
+                {/* Status Pembayaran Card (Terpisah dari Status Proses) */}
+                <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm flex flex-col gap-2.5">
+                  <div className="flex justify-between items-center border-b border-slate-100 pb-2.5">
+                    <div className="flex items-center gap-2">
+                      <CreditCard className="w-4 h-4 text-slate-500" />
+                      <span className="text-xs font-bold text-slate-800 uppercase tracking-wider">Status Pembayaran</span>
+                    </div>
+                    <span className={`px-2.5 py-1 rounded-full text-[11px] font-bold ${
+                      activeOrder.paymentStatus === PaymentStatus.PAID || [OrderStatus.PAYMENT_VERIFIED, OrderStatus.COOKING, OrderStatus.READY_FOR_PICKUP, OrderStatus.ORDER_PICKED_UP, OrderStatus.DELIVERED, OrderStatus.COMPLETED].includes(activeOrder.status)
+                        ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                        : activeOrder.status === OrderStatus.WAITING_PAYMENT_VERIFICATION
+                          ? 'bg-amber-50 text-amber-700 border border-amber-200 animate-pulse'
+                          : activeOrder.status === OrderStatus.PAYMENT_REJECTED
+                            ? 'bg-rose-50 text-rose-700 border border-rose-200'
+                            : 'bg-rose-50 text-rose-700 border border-rose-200'
+                    }`}>
+                      {activeOrder.paymentStatus === PaymentStatus.PAID || [OrderStatus.PAYMENT_VERIFIED, OrderStatus.COOKING, OrderStatus.READY_FOR_PICKUP, OrderStatus.ORDER_PICKED_UP, OrderStatus.DELIVERED, OrderStatus.COMPLETED].includes(activeOrder.status)
+                        ? '✓ LUNAS / TERVERIFIKASI'
+                        : activeOrder.status === OrderStatus.WAITING_PAYMENT_VERIFICATION
+                          ? '⏳ MENUNGGU VERIFIKASI ADMIN'
+                          : activeOrder.status === OrderStatus.PAYMENT_REJECTED
+                            ? '❌ BUKTI DITOLAK'
+                            : '⏳ MENUNGGU PEMBAYARAN QRIS'}
+                    </span>
+                  </div>
+
+                  <div className="flex justify-between items-center text-xs">
+                    <span className="text-slate-500">
+                      {activeOrder.paymentStatus === PaymentStatus.PAID || [OrderStatus.PAYMENT_VERIFIED, OrderStatus.COOKING, OrderStatus.READY_FOR_PICKUP, OrderStatus.ORDER_PICKED_UP, OrderStatus.DELIVERED, OrderStatus.COMPLETED].includes(activeOrder.status)
+                        ? 'Pembayaran QRIS telah diverifikasi sah oleh Admin.'
+                        : activeOrder.status === OrderStatus.WAITING_PAYMENT_VERIFICATION
+                          ? 'Bukti transfer sedang diperiksa oleh tim Admin.'
+                          : activeOrder.status === OrderStatus.PAYMENT_REJECTED
+                            ? 'Bukti pembayaran ditolak. Silakan unggah bukti transfer yang sesuai.'
+                            : 'Silakan selesaikan pembayaran QRIS dan unggah bukti transfer.'}
+                    </span>
+                    <div className="text-right shrink-0 ml-3">
+                      <span className="text-[10px] text-slate-400 block">Total Tagihan:</span>
+                      <span className="font-mono font-extrabold text-sm text-slate-900">
+                        Rp {activeOrder.total.toLocaleString('id-ID')}
+                      </span>
+                    </div>
+                  </div>
+
+                  {([OrderStatus.WAITING_PAYMENT, OrderStatus.WAITING_PAYMENT_VERIFICATION, OrderStatus.PAYMENT_REJECTED].includes(activeOrder.status) && activeOrder.paymentStatus !== PaymentStatus.PAID) && (
+                    <button
+                      type="button"
+                      onClick={() => setActiveTab('payment')}
+                      className="mt-1 w-full py-2.5 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-xl text-xs flex items-center justify-center gap-1.5 transition-colors cursor-pointer shadow-xs"
+                    >
+                      <QrCode className="w-3.5 h-3.5" />
+                      <span>Buka Halaman Pembayaran QRIS & Bukti</span>
+                    </button>
+                  )}
+                </div>
+
+                {/* Status Proses Pesanan & Estimasi Card (Terpisah dari Status Pembayaran) */}
+                <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm flex flex-col gap-3">
+                  <div className="flex justify-between items-center border-b border-slate-100 pb-2.5">
+                    <div className="flex items-center gap-2">
+                      <Utensils className="w-4 h-4 text-slate-500" />
+                      <span className="text-xs font-bold text-slate-800 uppercase tracking-wider">Status Proses Pesanan</span>
+                    </div>
+                    <span className={`px-2.5 py-1 rounded-full text-[11px] font-bold ${
+                      activeOrder.status === OrderStatus.COOKING
+                        ? 'bg-amber-50 text-amber-700 border border-amber-200'
+                        : activeOrder.status === OrderStatus.READY_FOR_PICKUP
+                          ? 'bg-blue-50 text-blue-700 border border-blue-200'
+                          : activeOrder.status === OrderStatus.ORDER_PICKED_UP
+                            ? 'bg-purple-50 text-purple-700 border border-purple-200'
+                            : [OrderStatus.DELIVERED, OrderStatus.COMPLETED].includes(activeOrder.status)
+                              ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                              : activeOrder.status === OrderStatus.CANCELLED
+                                ? 'bg-red-50 text-red-700 border border-red-200'
+                                : 'bg-slate-100 text-slate-700 border border-slate-200'
+                    }`}>
+                      {activeOrder.status === OrderStatus.COOKING
+                        ? '👨‍🍳 SEDANG DIMASAK'
+                        : activeOrder.status === OrderStatus.READY_FOR_PICKUP
+                          ? '📦 MAKANAN SIAP DIJEMPUT'
+                          : activeOrder.status === OrderStatus.ORDER_PICKED_UP
+                            ? '🛵 DALAM PENGANTARAN'
+                            : [OrderStatus.DELIVERED, OrderStatus.COMPLETED].includes(activeOrder.status)
+                              ? '🎉 PESANAN SELESAI'
+                              : activeOrder.status === OrderStatus.CANCELLED
+                                ? '❌ DIBATALKAN'
+                                : '📝 PESANAN DITERIMA'}
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3 text-xs text-slate-600">
                     <div>
-                      <span className="text-slate-400 font-medium">Toko Kuliner:</span>
+                      <span className="text-slate-400 font-medium block">Toko Kuliner:</span>
                       <p className="font-semibold text-slate-800 mt-0.5">{activeOrder.merchantName}</p>
                     </div>
                     <div>
-                      <span className="text-slate-400 font-medium">Penerima:</span>
-                      <p className="font-semibold text-slate-800 mt-0.5">{activeOrder.customerName}</p>
+                      <span className="text-slate-400 font-medium block">Estimasi Waktu Memasak:</span>
+                      <p className="font-semibold text-amber-700 mt-0.5 flex items-center gap-1">
+                        <Clock className="w-3.5 h-3.5" />
+                        {activeOrder.cookingTimeMinutes ? `${activeOrder.cookingTimeMinutes} menit` : '15-25 menit'}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Status Pengantaran Card */}
+                <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm flex flex-col gap-3">
+                  <div className="flex justify-between items-center border-b border-slate-100 pb-2.5">
+                    <div className="flex items-center gap-2">
+                      <Bike className="w-4 h-4 text-slate-500" />
+                      <span className="text-xs font-bold text-slate-800 uppercase tracking-wider">Status Pengantaran</span>
+                    </div>
+                    <span className="text-xs font-semibold text-emerald-700 flex items-center gap-1">
+                      {activeOrder.driverName ? `Kurir: ${activeOrder.driverName}` : 'Menunggu Kurir'}
+                    </span>
+                  </div>
+
+                  <div className="flex flex-col gap-2.5 text-xs text-slate-600">
+                    <div>
+                      <span className="text-slate-400 font-medium block">Kondisi Pengantaran:</span>
+                      <p className="font-semibold text-slate-800 mt-0.5">
+                        {activeOrder.status === OrderStatus.ORDER_PICKED_UP
+                          ? `Kurir (${activeOrder.driverName || 'Kurir'}) sedang dalam perjalanan membawa pesanan ke alamat Anda.`
+                          : activeOrder.status === OrderStatus.READY_FOR_PICKUP
+                            ? `Makanan telah siap. Kurir (${activeOrder.driverName || 'Kurir'}) dalam perjalanan menjemput ke toko.`
+                            : [OrderStatus.DELIVERED, OrderStatus.COMPLETED].includes(activeOrder.status)
+                              ? 'Pesanan telah berhasil diantar ke alamat Anda.'
+                              : 'Kurir akan ditugaskan segera setelah toko selesai memasak.'}
+                      </p>
                     </div>
                     <div>
-                      <span className="text-slate-400 font-medium">No WhatsApp:</span>
-                      <p className="font-semibold text-slate-800 mt-0.5">{activeOrder.customerPhone}</p>
+                      <span className="text-slate-400 font-medium block">Alamat Tujuan:</span>
+                      <p className="font-semibold text-slate-800 mt-0.5">{activeOrder.deliveryAddress}</p>
+                      {(activeOrder.landmark || activeOrder.deliveryDetails) && (
+                        <p className="text-[11px] text-slate-500 mt-0.5 italic">
+                          Patokan: {activeOrder.landmark || activeOrder.deliveryDetails}
+                        </p>
+                      )}
                     </div>
-                    <div>
-                      <span className="text-slate-400 font-medium">Driver:</span>
-                      <p className="font-semibold text-emerald-600 mt-0.5">{activeOrder.driverName || 'Menunggu penugasan...'}</p>
+                    <div className="grid grid-cols-2 gap-2 pt-1.5 border-t border-slate-50 text-[11px]">
+                      <div>
+                        <span className="text-slate-400">Penerima:</span>
+                        <span className="font-semibold text-slate-800 ml-1">{activeOrder.customerName}</span>
+                      </div>
+                      <div>
+                        <span className="text-slate-400">No WhatsApp:</span>
+                        <span className="font-semibold text-slate-800 ml-1">
+                          {activeOrder.customerPhone ? activeOrder.customerPhone.substring(0, 4) + '****' + activeOrder.customerPhone.slice(-3) : '-'}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Ringkasan Item Pesanan Card */}
+                <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm flex flex-col gap-3">
+                  <div className="flex items-center gap-2 border-b border-slate-100 pb-2.5">
+                    <ShoppingBag className="w-4 h-4 text-slate-500" />
+                    <span className="text-xs font-bold text-slate-800 uppercase tracking-wider">Ringkasan Item Pesanan</span>
+                  </div>
+
+                  <div className="flex flex-col divide-y divide-slate-100">
+                    {activeOrder.items?.map((item, idx) => (
+                      <div key={idx} className="py-2 flex justify-between items-start text-xs">
+                        <div className="flex flex-col">
+                          <span className="font-semibold text-slate-800">{item.quantity}x {item.name}</span>
+                          {item.notes && (
+                            <span className="text-[11px] text-slate-400 italic mt-0.5">Catatan: {item.notes}</span>
+                          )}
+                        </div>
+                        <span className="font-mono font-bold text-slate-700 ml-3 shrink-0">
+                          Rp {(item.price * item.quantity).toLocaleString('id-ID')}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="pt-2 border-t border-slate-100 flex flex-col gap-1.5 text-xs">
+                    <div className="flex justify-between text-slate-500">
+                      <span>Subtotal Menu</span>
+                      <span className="font-mono">Rp {activeOrder.subtotal.toLocaleString('id-ID')}</span>
+                    </div>
+                    <div className="flex justify-between text-slate-500">
+                      <span>Ongkir Flat (Kec. Tumpang)</span>
+                      <span className="font-mono">Rp {activeOrder.deliveryFee.toLocaleString('id-ID')}</span>
+                    </div>
+                    <div className="flex justify-between text-slate-500">
+                      <span>Biaya Layanan</span>
+                      <span className="font-mono">Rp {activeOrder.serviceFee.toLocaleString('id-ID')}</span>
+                    </div>
+                    {Boolean(activeOrder.uniqueCode) && (
+                      <div className="flex justify-between text-slate-500">
+                        <span>Kode Unik</span>
+                        <span className="font-mono">Rp {activeOrder.uniqueCode}</span>
+                      </div>
+                    )}
+                    <div className="flex justify-between text-sm font-extrabold text-slate-900 pt-1.5 border-t border-slate-200">
+                      <span>Total Pembayaran</span>
+                      <span className="font-mono text-rose-600">Rp {activeOrder.total.toLocaleString('id-ID')}</span>
                     </div>
                   </div>
                 </div>
@@ -4718,7 +4950,7 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
               >
                 <ArrowLeft className="w-5 h-5 text-slate-700" />
               </button>
-              <h3 className="font-display font-extrabold text-lg text-slate-800 tracking-tight">Kemitraan Tumpang Food</h3>
+              <h3 className="font-display font-extrabold text-lg text-slate-800 tracking-tight">Kemitraan Mitra Tumpang Go</h3>
             </div>
 
             {checkingRegistration ? (
@@ -5799,16 +6031,14 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
             </span>
           </button>
 
-          {/* Riwayat Pesanan Layanan */}
+          {/* Lacak Order Layanan */}
           <button 
+            id="nav-track-order"
             onClick={() => {
-              setHistorySearched(false);
-              setHistoryPhone('');
-              setHistoryOrders([]);
-              setActiveTab('history');
+              setActiveTab('tracking');
             }}
             className={`flex flex-col items-center gap-1.5 flex-1 py-1 cursor-pointer transition-all ${
-              (activeTab === 'history' || activeTab === 'tracking' || activeTab === 'payment')
+              (activeTab === 'tracking' || activeTab === 'history' || activeTab === 'payment')
                 ? homeSubView === 'food' ? 'text-[#EE2737] font-extrabold scale-105' 
                   : homeSubView === 'shop' ? 'text-[#0F82FF] font-extrabold scale-105' 
                   : homeSubView === 'taxi' ? 'text-amber-500 font-extrabold scale-105' 
@@ -5817,9 +6047,9 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
                 : 'text-slate-400 hover:text-slate-600 font-semibold'
             }`}
           >
-            <ClipboardList className="w-5 h-5" />
+            <Search className="w-5 h-5" />
             <span className="text-[10px] tracking-tight">
-              {homeSubView === 'food' ? 'Riwayat Food' : homeSubView === 'shop' ? 'Riwayat Niaga' : homeSubView === 'taxi' ? 'Riwayat Taxi' : homeSubView === 'pay' ? 'Riwayat Pay' : 'Riwayat'}
+              {homeSubView === 'food' ? 'Lacak Order' : homeSubView === 'shop' ? 'Lacak Pesanan' : 'Lacak Order'}
             </span>
           </button>
 
@@ -5841,7 +6071,7 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
           >
             <UserPlus className="w-5 h-5" />
             <span className="text-[10px] tracking-tight">
-              {homeSubView === 'food' ? 'Mitra Food' : homeSubView === 'shop' ? 'Mitra Niaga' : homeSubView === 'taxi' ? 'Driver Taxi' : 'Kemitraan'}
+              {homeSubView === 'food' ? 'Mitra Tumpang Go' : homeSubView === 'shop' ? 'Mitra Niaga' : homeSubView === 'taxi' ? 'Driver Taxi' : 'Mitra Tumpang Go'}
             </span>
           </button>
 

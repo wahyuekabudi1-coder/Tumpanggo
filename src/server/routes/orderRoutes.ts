@@ -162,7 +162,7 @@ orderRouter.get('/:id/receipt', async (req: Request, res: Response) => {
 // Single order tracking (Public tracking with ID)
 orderRouter.get('/:id', async (req: Request, res: Response) => {
   const o = await foodDb.findOrder(req.params.id);
-  if (!o) return res.status(404).json({ error: 'Pesanan tidak ditemukan.' });
+  if (!o) return res.status(404).json({ error: 'Pesanan tidak ditemukan. Periksa kembali kode order Anda.' });
   res.json(o);
 });
 
