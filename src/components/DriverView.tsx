@@ -157,9 +157,7 @@ export default function DriverView({ driverId, onLogout, onSelectRole }: DriverV
         } else {
           // If not in lists (e.g. claimed by another driver or status changed), query single order
           try {
-            const singleRes = await fetch(`/api/orders/${currentSelectedId}`, {
-              headers: { 'x-driver-id': driverId }
-            });
+            const singleRes = await fetch(`/api/orders/${currentSelectedId}`);
             if (singleRes.ok && fetchId === latestFetchIdRef.current) {
               const freshOrder: Order = await singleRes.json();
               setSelectedOrderDetail(prev => {

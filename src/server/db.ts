@@ -845,12 +845,25 @@ export class FoodDatabase {
     return true;
   }
 
+  // --- PRODUCTION PERSISTENCE SAFEGUARD ---
+  public async ensureProductionCloudReady(actionName: string): Promise<void> {
+    if (!foodConfig.isProduction) return;
+    if (!isFirestoreAdminConfigured()) {
+      throw new Error(`[Produksi] Cloud Firestore belum dikonfigurasi. Operasi "${actionName}" dibatalkan demi integritas data.`);
+    }
+    const probe = await testFirestoreConnection();
+    if (!probe.connected) {
+      throw new Error(`[Produksi] Koneksi cloud Firestore tidak tersedia (${probe.diagnosticReason}). Operasi "${actionName}" dibatalkan demi integritas data.`);
+    }
+  }
+
   // --- CONFIG ---
   public getConfig(): SystemConfig {
     return this.data.systemConfig;
   }
 
   public async updateConfig(userId: string, updates: Partial<SystemConfig>): Promise<SystemConfig> {
+    await this.ensureProductionCloudReady('Pembaruan Konfigurasi');
     const prevConfig = { ...this.data.systemConfig };
     this.data.systemConfig = { ...this.data.systemConfig, ...updates };
     this.save();
@@ -928,6 +941,7 @@ export class FoodDatabase {
   }
 
   public async createMerchant(userId: string, merchantData: Omit<Merchant, 'id' | 'createdAt' | 'updatedAt' | 'rating'>): Promise<Merchant> {
+    await this.ensureProductionCloudReady('Pendaftaran Merchant');
     const newMerchant: Merchant = {
       ...merchantData,
       id: 'm_' + Math.random().toString(36).substring(2, 9),
@@ -956,6 +970,7 @@ export class FoodDatabase {
   }
 
   public async updateMerchant(userId: string, id: string, updates: Partial<Merchant>, role: 'ADMIN' | 'MERCHANT' = 'MERCHANT'): Promise<Merchant> {
+    await this.ensureProductionCloudReady('Pembaruan Merchant');
     const index = this.data.merchants.findIndex(m => m.id === id);
     if (index === -1) throw new Error('Merchant not found');
 
@@ -991,6 +1006,7 @@ export class FoodDatabase {
   }
 
   public async deleteMerchant(userId: string, id: string): Promise<boolean> {
+    await this.ensureProductionCloudReady('Penghapusan Merchant');
     const index = this.data.merchants.findIndex(m => m.id === id);
     if (index === -1) return false;
 
@@ -1243,6 +1259,7 @@ export class FoodDatabase {
   }
 
   public async createDriver(userId: string, driverData: Omit<Driver, 'id' | 'createdAt' | 'updatedAt'>): Promise<Driver> {
+    await this.ensureProductionCloudReady('Pendaftaran Driver');
     const newDriver: Driver = {
       ...driverData,
       id: 'd_' + Math.random().toString(36).substring(2, 9),
@@ -1266,6 +1283,7 @@ export class FoodDatabase {
   }
 
   public async updateDriver(userId: string, id: string, updates: Partial<Driver>, role: 'ADMIN' | 'DRIVER' = 'DRIVER'): Promise<Driver> {
+    await this.ensureProductionCloudReady('Pembaruan Driver');
     const index = this.data.drivers.findIndex(d => d.id === id);
     if (index === -1) throw new Error('Driver not found');
 
@@ -1292,6 +1310,7 @@ export class FoodDatabase {
   }
 
   public async deleteDriver(userId: string, id: string): Promise<boolean> {
+    await this.ensureProductionCloudReady('Penghapusan Driver');
     const index = this.data.drivers.findIndex(d => d.id === id);
     if (index === -1) return false;
 
@@ -1598,6 +1617,7 @@ export class FoodDatabase {
   }
 
   public async createOrder(rawInput: any): Promise<Order> {
+    await this.ensureProductionCloudReady('Pembuatan Pesanan');
     const merchant = this.getMerchantById(rawInput.merchantId);
     if (!merchant) throw new Error('Toko / Merchant tidak ditemukan.');
 
@@ -1652,26 +1672,23 @@ export class FoodDatabase {
       updatedAt: now.toISOString()
     });
 
+    if (foodConfig.isProduction) {
+      const persisted = await safeFirestoreSetDoc('orders', newOrder.id, newOrder);
+      if (!persisted) {
+        throw new Error('[Produksi] Gagal menyimpan pesanan ke cloud Firestore. Transaksi dibatalkan secara aman demi mencegah kehilangan data atau transaksi ganda.');
+      }
+    }
+
     this.data.orders.unshift(newOrder);
     this.save();
     this.log('CUSTOMER', `Created order ${newOrder.orderNumber} (ID: ${newOrder.id}) Total: Rp ${newOrder.total.toLocaleString()} (UniqueCode: ${newOrder.uniqueCode})`, 'CUSTOMER');
 
-    if (isFirestoreAdminConfigured()) {
-      const probe = await testFirestoreConnection();
-      if (probe.connected) {
-        const persisted = await safeFirestoreSetDoc('orders', newOrder.id, newOrder);
-        if (!persisted) {
-          this.data.orders.shift();
-          this.save();
-          throw new Error('Gagal menyimpan pesanan ke cloud Firestore. Transaksi dibatalkan secara aman demi mencegah kehilangan data atau transaksi ganda.');
-        }
-      } else if (foodConfig.isProduction) {
-        this.data.orders.shift();
-        this.save();
-        throw new Error(`Koneksi cloud Firestore tidak terhubung (${probe.diagnosticReason}: ${probe.error || probe.diagnosticDetail}). Transaksi dibatalkan secara aman.`);
+    if (!foodConfig.isProduction) {
+      if (isFirestoreAdminConfigured()) {
+        safeFirestoreSetDoc('orders', newOrder.id, newOrder).catch(() => {});
+      } else {
+        console.warn('[TumpangFood DB] Variabel FIREBASE_SERVICE_ACCOUNT_KEY belum dikonfigurasi di Environment Variables Vercel. Pesanan disimpan pada penyimpanan lokal resilien.');
       }
-    } else {
-      console.warn('[TumpangFood DB] Variabel FIREBASE_SERVICE_ACCOUNT_KEY belum dikonfigurasi di Environment Variables Vercel. Pesanan disimpan pada penyimpanan lokal resilien.');
     }
     return newOrder;
   }
@@ -1782,20 +1799,20 @@ export class FoodDatabase {
       this.log(userId, `Updated order ${currentOrder.id} details`, role);
     }
 
-    if (isFirestoreAdminConfigured()) {
-      const probe = await testFirestoreConnection();
-      if (probe.connected) {
-        const persisted = await safeFirestoreSetDoc('orders', currentOrder.id, this.data.orders[index]);
-        if (!persisted) {
-          this.data.orders[index] = currentOrder;
-          this.save();
-          throw new Error('Gagal memperbarui status pesanan pada cloud Firestore. Perubahan status dibatalkan demi integritas data.');
-        }
-      } else if (foodConfig.isProduction) {
-        console.warn(`[TumpangFood DB] Firestore offline saat updateOrder (${probe.diagnosticReason}). Perubahan disimpan pada snapshot lokal resilien.`);
+    if (foodConfig.isProduction) {
+      await this.ensureProductionCloudReady('Pembaruan Pesanan');
+      const persisted = await safeFirestoreSetDoc('orders', currentOrder.id, this.data.orders[index]);
+      if (!persisted) {
+        this.data.orders[index] = currentOrder;
+        this.save();
+        throw new Error('Gagal memperbarui status pesanan pada cloud Firestore. Perubahan status dibatalkan demi integritas data.');
       }
     } else {
-      console.warn('[TumpangFood DB] Variabel FIREBASE_SERVICE_ACCOUNT_KEY belum dikonfigurasi. Perubahan status disimpan pada penyimpanan lokal.');
+      if (isFirestoreAdminConfigured()) {
+        safeFirestoreSetDoc('orders', currentOrder.id, this.data.orders[index]).catch(() => {});
+      } else {
+        console.warn('[TumpangFood DB] Variabel FIREBASE_SERVICE_ACCOUNT_KEY belum dikonfigurasi. Perubahan status disimpan pada penyimpanan lokal.');
+      }
     }
     return this.data.orders[index];
   }
@@ -2121,6 +2138,7 @@ export class FoodDatabase {
   }
 
   public async updateSettlement(userId: string, id: string, updates: Partial<Settlement>): Promise<Settlement> {
+    await this.ensureProductionCloudReady('Pembaruan Settlement');
     const index = this.data.settlements.findIndex(s => s.id === id);
     if (index === -1) throw new Error('Settlement not found');
 

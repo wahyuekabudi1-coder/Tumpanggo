@@ -9,13 +9,39 @@
 
 import path from 'path';
 import fs from 'fs';
+import crypto from 'crypto';
 import { Router, Request, Response } from 'express';
 import sharp from 'sharp';
 import { foodDb } from '../db';
+import { foodConfig } from '../config';
 import { OrderStatus, PaymentStatus } from '../../types';
 import { requireRole } from '../auth';
 
 export const orderRouter = Router();
+
+/**
+ * Generates an HMAC-SHA256 order proof authorization token for verified customer access
+ */
+export function generateOrderProofToken(orderId: string): string {
+  const secret = foodConfig.jwtSecret || 'tumpanggo_secure_proof_token_secret_min32';
+  return crypto.createHmac('sha256', secret).update(`proof:${orderId}`).digest('hex');
+}
+
+/**
+ * Validates whether an order proof authorization token is authentic
+ */
+export function verifyOrderProofToken(orderId: string, token?: string): boolean {
+  if (!token || typeof token !== 'string') return false;
+  const expected = generateOrderProofToken(orderId);
+  try {
+    const a = Buffer.from(token);
+    const b = Buffer.from(expected);
+    if (a.length !== b.length) return false;
+    return crypto.timingSafeEqual(a, b);
+  } catch {
+    return false;
+  }
+}
 
 // Order list - Protected by RBAC
 orderRouter.get('/', async (req: Request, res: Response) => {
@@ -162,8 +188,8 @@ orderRouter.get('/:id/receipt', async (req: Request, res: Response) => {
 /**
  * Strict allowlist serializer for public order tracking (Lacak Order).
  * Protects customer privacy by masking phone numbers across the network,
- * stripping raw GPS coordinates, omitting raw payment proof image payloads,
- * and stripping internal settlement/accounting fields.
+ * omitting full names, home addresses, landmarks, private delivery details,
+ * stripping raw GPS coordinates, and omitting paymentProofUrl and internal settlement fields.
  */
 export function serializePublicOrderTracking(order: any) {
   if (!order) return null;
@@ -205,12 +231,7 @@ export function serializePublicOrderTracking(order: any) {
     merchantName: order.merchantName,
     cookingTimeMinutes: typeof order.cookingTimeMinutes === 'number' ? order.cookingTimeMinutes : null,
     driverName: order.driverName || null,
-    customerName: order.customerName,
-    customerPhone: maskedPhone,
     customerPhoneMasked: maskedPhone,
-    deliveryAddress: order.deliveryAddress,
-    landmark: order.landmark || null,
-    deliveryDetails: order.deliveryDetails || null,
     items: sanitizedItems,
     subtotal: Number(order.subtotal) || 0,
     deliveryFee: Number(order.deliveryFee) || 0,
@@ -229,7 +250,6 @@ export function serializePublicOrderTracking(order: any) {
     cancelReason: order.cancelReason || null,
     paymentRejectionReason: order.paymentRejectionReason || null,
     hasPaymentProof: Boolean(order.paymentProof && String(order.paymentProof).trim().length > 10),
-    paymentProofUrl: order.paymentProof ? `/api/orders/${order.id}/payment-proof` : null,
     isPublicTracking: true
   };
 }
@@ -255,22 +275,12 @@ orderRouter.get('/:id', async (req: Request, res: Response) => {
     if (merchantId && o.merchantId === merchantId) {
       return res.json(o);
     }
+    return res.status(403).json({ error: 'Akses ditolak: Anda tidak memiliki izin untuk melihat rincian pesanan toko lain.' });
   }
 
-  // 3. Authenticated DRIVER (via JWT or verified x-driver-id header):
-  // Full operational access if assigned to this delivery or eligible for pickup broadcast
-  const headerDriverId = (req.headers['x-driver-id'] as string) || (req.query.driverId as string);
-  let verifiedDriverId = '';
+  // 3. Authenticated DRIVER (STRICT: via verified JWT token only, NEVER via x-driver-id header or query param)
   if (user && user.role === 'DRIVER') {
-    verifiedDriverId = user.entityId || user.userId;
-  } else if (headerDriverId && typeof headerDriverId === 'string') {
-    const d = foodDb.getDriverById(headerDriverId.trim());
-    if (d) {
-      verifiedDriverId = d.id;
-    }
-  }
-
-  if (verifiedDriverId) {
+    const verifiedDriverId = user.entityId || user.userId;
     const isAssigned = o.driverId === verifiedDriverId;
     const isAvailableBroadcast = !o.driverId && [
       OrderStatus.READY_FOR_PICKUP,
@@ -281,6 +291,10 @@ orderRouter.get('/:id', async (req: Request, res: Response) => {
     if (isAssigned || isAvailableBroadcast) {
       return res.json(o);
     }
+    // Driver cannot read orders assigned to another driver or not in broadcast
+    return res.status(403).json({
+      error: 'Akses ditolak: Anda tidak memiliki izin untuk melihat rincian pesanan driver lain.'
+    });
   }
 
   // 4. Default for Customer / Public Tracking:
@@ -308,9 +322,52 @@ orderRouter.get('/:id/qris', async (req: Request, res: Response) => {
   } catch (err: any) {
     res.status(500).json({ error: err.message || 'Gagal memuat status QRIS pesanan.' });
   }
-});
+// Dedicated endpoint to get official electronic receipt for verified orders
+orderRouter.get('/:id/receipt', async (req: Request, res: Response) => {
+  try {
+    const order = await foodDb.findOrder(req.params.id);
+    if (!order) return res.status(404).json({ error: 'Pesanan tidak ditemukan.' });
 
-// Dedicated endpoint to stream order QRIS image binary directly
+    const canonicalCode = order.orderNumber || order.id;
+    const cleanRef = String(canonicalCode).replace(/^ord_/, '').replace(/^TF-/, '').toUpperCase();
+    const receiptNumber = order.receiptNumber || order.receipt?.receiptNumber || `TG-RCP-${cleanRef}`;
+
+    if (order.receipt) {
+      return res.json({
+        ...order.receipt,
+        orderId: order.id,
+        orderNumber: canonicalCode,
+        receiptNumber
+      });
+    }
+
+    // If order is paid/verified but receipt object not populated yet
+    if (order.paymentStatus === PaymentStatus.PAID || [OrderStatus.PAYMENT_VERIFIED, OrderStatus.COOKING, OrderStatus.READY_FOR_PICKUP, OrderStatus.ORDER_PICKED_UP, OrderStatus.DELIVERED, OrderStatus.COMPLETED].includes(order.status)) {
+      const issuedAt = order.paymentVerifiedAt || order.updatedAt || order.createdAt;
+      return res.json({
+        receiptNumber,
+        orderId: order.id,
+        orderNumber: canonicalCode,
+        issuedAt,
+        confirmedBy: order.paymentVerifiedBy || 'Admin TumpangGo',
+        paymentMethod: order.paymentMethod || 'MERCHANT_QRIS',
+        transactionRef: order.artopayPaymentId || `QRIS-TG-${cleanRef}`,
+        subtotal: order.subtotal,
+        deliveryFee: order.deliveryFee,
+        serviceFee: order.serviceFee,
+        uniqueCode: order.uniqueCode || 0,
+        total: order.total,
+        customerName: order.customerName,
+        merchantName: order.merchantName,
+        status: 'PAID'
+      });
+    }
+
+    return res.status(404).json({ error: 'Kuitansi elektronik (E-Receipt) hanya tersedia untuk pesanan yang telah terverifikasi lunas.' });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Gagal memuat kuitansi elektronik.' });
+  }
+});
 orderRouter.get('/:id/qris-image', async (req: Request, res: Response) => {
   try {
     const order = await foodDb.findOrder(req.params.id);
@@ -364,13 +421,59 @@ orderRouter.get('/:id/qris-image', async (req: Request, res: Response) => {
 });
 
 // Dedicated endpoint to stream uploaded payment proof image binary directly
+// Protected: Only Admin, Order Merchant, Assigned Driver, or verified Customer with proof token can access
 orderRouter.get('/:id/payment-proof', async (req: Request, res: Response) => {
   try {
     const order = await foodDb.findOrder(req.params.id);
     if (!order) return res.status(404).json({ error: 'Pesanan tidak ditemukan.' });
+
     const proof = order.paymentProof;
     if (!proof || typeof proof !== 'string' || proof.trim().length < 10) {
       return res.status(404).json({ error: 'Bukti pembayaran belum diunggah untuk pesanan ini.' });
+    }
+
+    // Role-based authorization & proof token verification
+    const user = req.user;
+    const proofToken = (req.query.proofToken as string) || (req.query.token as string) || (req.headers['x-order-token'] as string);
+    const hasValidProofToken = Boolean(proofToken && verifyOrderProofToken(order.id, proofToken));
+
+    if (!user && !hasValidProofToken) {
+      return res.status(401).json({
+        error: 'Akses ditolak: Autentikasi server diperlukan untuk melihat bukti pembayaran.'
+      });
+    }
+
+    if (user) {
+      if (user.role === 'ADMIN' || user.role === 'MASTER_ADMIN') {
+        // Allowed: Administrators
+      } else if (user.role === 'MERCHANT') {
+        const merchantId = user.entityId || user.userId;
+        if (merchantId !== order.merchantId) {
+          return res.status(403).json({
+            error: 'Akses ditolak: Anda tidak memiliki izin untuk melihat bukti pembayaran pesanan toko lain.'
+          });
+        }
+      } else if (user.role === 'DRIVER') {
+        const driverId = user.entityId || user.userId;
+        if (!order.driverId || order.driverId !== driverId) {
+          return res.status(403).json({
+            error: 'Akses ditolak: Anda bukan kurir yang ditugaskan untuk pesanan ini.'
+          });
+        }
+      } else if (user.role === 'CUSTOMER') {
+        const customerId = user.userId;
+        const customerPhone = user.email || user.entityId;
+        const normOrderPhone = String(order.customerPhone || '').replace(/\D/g, '');
+        const normUserPhone = String(customerPhone || '').replace(/\D/g, '');
+        const isOwner = customerId === (order as any).customerId || (normUserPhone.length >= 8 && normOrderPhone.endsWith(normUserPhone));
+        if (!isOwner && !hasValidProofToken) {
+          return res.status(403).json({
+            error: 'Akses ditolak: Anda bukan pemilik pesanan ini.'
+          });
+        }
+      } else {
+        return res.status(403).json({ error: 'Akses ditolak.' });
+      }
     }
 
     const cleanProof = proof.trim();
@@ -393,9 +496,55 @@ orderRouter.get('/:id/payment-proof', async (req: Request, res: Response) => {
   }
 });
 
-// Customer order history by phone number - returns allowlisted, privacy-sanitized order list
+// In-memory sliding window rate limiter for customer history queries
+const customerHistoryRateLimiter = new Map<string, { count: number; resetAt: number }>();
+export function checkCustomerHistoryRateLimit(key: string, limit = 5, windowMs = 60000): { allowed: boolean; retryAfter: number } {
+  const now = Date.now();
+  const entry = customerHistoryRateLimiter.get(key);
+  if (!entry || now > entry.resetAt) {
+    customerHistoryRateLimiter.set(key, { count: 1, resetAt: now + windowMs });
+    return { allowed: true, retryAfter: 0 };
+  }
+  if (entry.count >= limit) {
+    return { allowed: false, retryAfter: Math.ceil((entry.resetAt - now) / 1000) };
+  }
+  entry.count++;
+  return { allowed: true, retryAfter: 0 };
+}
+
+// Customer order history by phone number
+// Protected: Rate limited and restricted to authenticated Admins or verified Customers
 orderRouter.get('/customer/:phone', (req: Request, res: Response) => {
-  const orders = foodDb.getOrdersByCustomerPhone(req.params.phone);
+  const rawPhone = String(req.params.phone || '').trim();
+  const clientIp = String(req.ip || req.headers['x-forwarded-for'] || 'client');
+
+  // Rate Limiting Guard: Max 5 requests per minute per IP
+  const rateKey = `hist_${clientIp}`;
+  const rateCheck = checkCustomerHistoryRateLimit(rateKey, 5, 60000);
+  if (!rateCheck.allowed) {
+    res.setHeader('Retry-After', String(rateCheck.retryAfter));
+    return res.status(429).json({
+      error: 'Terlalu banyak permintaan riwayat pesanan. Silakan coba kembali dalam beberapa saat.',
+      retryAfter: rateCheck.retryAfter
+    });
+  }
+
+  const user = req.user;
+  const isPrivileged = user && (user.role === 'ADMIN' || user.role === 'MASTER_ADMIN');
+  const normParam = rawPhone.replace(/\D/g, '');
+  const isVerifiedCustomer = user && user.role === 'CUSTOMER' && (
+    (user.email && user.email.replace(/\D/g, '') === normParam) ||
+    (user.entityId && user.entityId.replace(/\D/g, '') === normParam)
+  );
+
+  if (!isPrivileged && !isVerifiedCustomer) {
+    return res.status(403).json({
+      error: 'Akses ditolak: Akses riwayat pesanan berdasarkan nomor telepon tanpa verifikasi kepemilikan dinonaktifkan demi privasi pelanggan. Silakan gunakan fitur Lacak Order dengan kode pesanan resmi Anda.',
+      code: 'UNVERIFIED_CUSTOMER_HISTORY_DISABLED'
+    });
+  }
+
+  const orders = foodDb.getOrdersByCustomerPhone(rawPhone);
   const sanitized = orders.map(o => serializePublicOrderTracking(o));
   res.json(sanitized);
 });
@@ -658,9 +807,14 @@ orderRouter.post('/:id/assign-driver', requireRole(['ADMIN']), async (req: Reque
   }
 });
 
-// Driver accepts an unassigned order task atomically
+// Driver accepts an unassigned order task atomically (Strict: driver ID derived from verified token)
 orderRouter.post('/:id/accept-task', requireRole(['DRIVER', 'ADMIN', 'MASTER_ADMIN']), async (req: Request, res: Response) => {
-  const driverId = req.user?.entityId || req.user?.userId || req.body?.driverId;
+  let driverId = '';
+  if (req.user?.role === 'DRIVER') {
+    driverId = req.user.entityId || req.user.userId;
+  } else if (req.user?.role === 'ADMIN' || req.user?.role === 'MASTER_ADMIN') {
+    driverId = req.body?.driverId || req.user.entityId || req.user.userId;
+  }
   if (!driverId) {
     return res.status(400).json({ error: 'Identitas driver tidak valid atau belum terautentikasi.' });
   }
@@ -762,7 +916,10 @@ orderRouter.post('/:id/upload-payment', async (req: Request, res: Response) => {
       },
       'CUSTOMER'
     );
-    res.json(updated);
+    res.json({
+      ...updated,
+      proofToken: generateOrderProofToken(updated.id)
+    });
   } catch (e: any) {
     res.status(400).json({ error: e.message || 'Gagal menyimpan bukti pembayaran.' });
   }

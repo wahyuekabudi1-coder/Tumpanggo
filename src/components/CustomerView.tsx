@@ -698,6 +698,17 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
   useEffect(() => {
     if (activeTab === 'partner-register') {
       checkMyPartnerRegistration();
+    } else if (activeTab === 'history') {
+      try {
+        const localHistoryRaw = safeStorage.getItem('tumpang_local_order_history');
+        if (localHistoryRaw) {
+          const list: Order[] = JSON.parse(localHistoryRaw);
+          if (Array.isArray(list) && list.length > 0) {
+            setHistoryOrders(list.map(o => normalizeOrderDeliveryFee(o)));
+            setHistorySearched(true);
+          }
+        }
+      } catch {}
     }
   }, [activeTab]);
 
@@ -1180,6 +1191,13 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
         setActiveOrder(normalized);
         setTrackingOrderId(normalized.id);
         setCheckoutErrorMsg(null);
+        // Save to on-device order history (client-side device convenience)
+        try {
+          const localHistoryRaw = safeStorage.getItem('tumpang_local_order_history');
+          const localHistory: any[] = localHistoryRaw ? JSON.parse(localHistoryRaw) : [];
+          const updatedHistory = [normalized, ...localHistory.filter(o => o.id !== normalized.id)].slice(0, 50);
+          safeStorage.setItem('tumpang_local_order_history', JSON.stringify(updatedHistory));
+        } catch {}
         // Clear cart
         setCart([]);
         setCartMerchantId(null);
@@ -1221,12 +1239,22 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
       });
       const updatedOrder = await res.json();
       if (res.ok) {
-        setActiveOrder(normalizeOrderDeliveryFee(updatedOrder));
+        const normalized = normalizeOrderDeliveryFee(updatedOrder);
+        setActiveOrder(normalized);
         setProofUploadSuccess('Bukti pembayaran berhasil diunggah! Menunggu verifikasi admin.');
         setProofUploadError(null);
         setPaymentProofFile(null);
         setPaymentProofFileName(null);
         setPaymentProofFileSize(null);
+        // Update on-device order history
+        try {
+          const localHistoryRaw = safeStorage.getItem('tumpang_local_order_history');
+          if (localHistoryRaw) {
+            const localHistory: any[] = JSON.parse(localHistoryRaw);
+            const updatedHistory = localHistory.map(o => o.id === normalized.id ? { ...o, ...normalized } : o);
+            safeStorage.setItem('tumpang_local_order_history', JSON.stringify(updatedHistory));
+          }
+        } catch {}
         if (fileInputRef.current) {
           fileInputRef.current.value = '';
         }
@@ -1328,24 +1356,44 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
   };
 
 
-  // Search History
+  // Search History (Local Device Convenience + Protected Server Endpoint)
   const searchHistory = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!historyPhone) return;
     setHistoryLoading(true);
     try {
-      const res = await fetch(`/api/orders/customer/${historyPhone}`);
-      if (!res.ok) {
-        const errJson = await res.json().catch(() => null);
-        throw new Error(errJson?.error || `Gagal memuat riwayat pesanan (HTTP ${res.status})`);
+      const res = await fetch(`/api/orders/customer/${encodeURIComponent(historyPhone)}`);
+      if (res.ok) {
+        const data = await res.json();
+        const list = extractArrayResponse<Order>(data, 'orders');
+        setHistoryOrders(list.map(o => normalizeOrderDeliveryFee(o)));
+        setHistorySearched(true);
+      } else {
+        // Fallback gracefully to device local storage convenience
+        const localHistoryRaw = safeStorage.getItem('tumpang_local_order_history');
+        const localOrders: Order[] = localHistoryRaw ? JSON.parse(localHistoryRaw) : [];
+        const cleanPhone = historyPhone.trim().replace(/[^0-9]/g, '');
+        const matched = localOrders.filter(o => {
+          const oPhone = (o.customerPhone || '').replace(/[^0-9]/g, '');
+          return oPhone === cleanPhone || (cleanPhone.length >= 8 && oPhone.includes(cleanPhone));
+        });
+        setHistoryOrders(matched.map(o => normalizeOrderDeliveryFee(o)));
+        setHistorySearched(true);
       }
-      const data = await res.json();
-      const list = extractArrayResponse<Order>(data, 'orders');
-      setHistoryOrders(list.map(o => normalizeOrderDeliveryFee(o)));
-      setHistorySearched(true);
     } catch (err) {
       console.error('History fetch error:', err);
-      setHistoryOrders([]);
+      try {
+        const localHistoryRaw = safeStorage.getItem('tumpang_local_order_history');
+        const localOrders: Order[] = localHistoryRaw ? JSON.parse(localHistoryRaw) : [];
+        const cleanPhone = historyPhone.trim().replace(/[^0-9]/g, '');
+        const matched = localOrders.filter(o => {
+          const oPhone = (o.customerPhone || '').replace(/[^0-9]/g, '');
+          return oPhone === cleanPhone || (cleanPhone.length >= 8 && oPhone.includes(cleanPhone));
+        });
+        setHistoryOrders(matched.map(o => normalizeOrderDeliveryFee(o)));
+      } catch {
+        setHistoryOrders([]);
+      }
       setHistorySearched(true);
     } finally {
       setHistoryLoading(false);
@@ -4889,7 +4937,10 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
             {/* History Results */}
             {historySearched && (
               <div className="flex flex-col gap-3 mt-2">
-                <h4 className="font-display font-semibold text-sm text-slate-700">Ditemukan ({historyOrders.length}) Pesanan</h4>
+                <div className="flex flex-col gap-0.5">
+                  <h4 className="font-display font-semibold text-sm text-slate-700">Ditemukan ({historyOrders.length}) Pesanan</h4>
+                  <p className="text-[11px] text-slate-400">Riwayat tersimpan pada perangkat ini demi menjaga privasi data Anda.</p>
+                </div>
                 
                 {historyOrders.length === 0 ? (
                   <div className="text-center py-8 bg-white border border-slate-200 rounded-xl">
