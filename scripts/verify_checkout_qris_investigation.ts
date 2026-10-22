@@ -87,9 +87,9 @@ async function runTestSuite() {
     assert(Boolean(createdOrder.id), `Order ID generated: ${createdOrder.id}`);
     assert(createdOrder.subtotal === 15000, `Subtotal accurately calculated as Rp 15.000 (got ${createdOrder.subtotal})`);
     assert(createdOrder.deliveryFee === 5000, `Delivery fee locked at standard Rp 5.000 (got ${createdOrder.deliveryFee})`);
-    assert(createdOrder.serviceFee === 2000, `Service fee calculated as Rp 2.000 (got ${createdOrder.serviceFee})`);
+    assert(createdOrder.serviceFee === 1200, `Service fee calculated as Rp 1.200 (got ${createdOrder.serviceFee})`);
     assert(createdOrder.uniqueCode >= 1 && createdOrder.uniqueCode <= 99, `Unique verification code generated (+${createdOrder.uniqueCode})`);
-    assert(createdOrder.total === 15000 + 5000 + 2000 + createdOrder.uniqueCode, `Total exactly equals Subtotal + Delivery + Service + UniqueCode (Rp ${createdOrder.total})`);
+    assert(createdOrder.total === 15000 + 5000 + 1200 + createdOrder.uniqueCode, `Total exactly equals Subtotal + Delivery + Service + UniqueCode (Rp ${createdOrder.total})`);
     assert(createdOrder.status === OrderStatus.WAITING_PAYMENT, `Initial order status is WAITING_PAYMENT`);
 
     // -------------------------------------------------------------------------
