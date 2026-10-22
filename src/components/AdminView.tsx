@@ -704,51 +704,177 @@ export default function AdminView({ onLogout, systemConfig, onUpdateConfig, onSe
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-800 font-sans pb-16">
-      {/* Top Header */}
-      <header className="bg-white border-b border-slate-200 sticky top-0 z-30 shadow-xs">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3.5 flex flex-wrap items-center justify-between gap-4">
+    <div className="min-h-screen bg-slate-50 text-slate-800 font-sans flex flex-col md:flex-row">
+      {/* Desktop Left Sidebar Navigation */}
+      <aside className="hidden md:flex md:flex-col md:w-64 lg:w-72 md:shrink-0 bg-white border-r border-slate-200 min-h-screen sticky top-0 h-screen z-20 shadow-xs">
+        {/* Brand Header */}
+        <div className="p-4 lg:p-5 border-b border-slate-200/80">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-600 to-emerald-800 text-white flex items-center justify-center shadow-sm font-display font-extrabold text-lg">
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-600 to-emerald-800 text-white flex items-center justify-center shadow-sm font-display font-extrabold text-lg shrink-0">
               tG
             </div>
-            <div>
+            <div className="min-w-0">
               <div className="flex items-center gap-2">
-                <h1 className="font-display font-bold text-base sm:text-lg text-slate-900 tracking-tight">Admin Portal</h1>
-                <span className="bg-emerald-100 text-emerald-800 text-[10px] font-bold px-2 py-0.5 rounded-full border border-emerald-200">
+                <h1 className="font-display font-bold text-base text-slate-900 tracking-tight truncate">Admin Portal</h1>
+                <span className="bg-emerald-100 text-emerald-800 text-[10px] font-bold px-2 py-0.5 rounded-full border border-emerald-200 shrink-0">
                   TumpangGo
                 </span>
               </div>
-              <p className="text-xs text-slate-500">Pusat Kendali Operasional & Keuangan</p>
+              <p className="text-[11px] text-slate-500 truncate">Pusat Kendali Operasional</p>
             </div>
-          </div>
-
-          <div className="flex items-center gap-2.5">
-            <button
-              onClick={fetchAdminData}
-              disabled={loading}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-700 text-xs font-semibold transition-all cursor-pointer shadow-xs"
-              title="Perbarui data"
-            >
-              <RefreshCw className={`w-3.5 h-3.5 text-slate-500 ${loading ? 'animate-spin' : ''}`} />
-              <span className="hidden sm:inline">Refresh</span>
-            </button>
-
-            <button
-              onClick={onLogout}
-              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold transition-all cursor-pointer shadow-xs"
-            >
-              <LogOut className="w-3.5 h-3.5" />
-              Keluar
-            </button>
           </div>
         </div>
 
+        {/* Sidebar Navigation Menu Items */}
+        <div className="flex-1 overflow-y-auto px-3 py-4 space-y-1 scrollbar-thin">
+          <div className="px-2 pb-2 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+            Menu Utama
+          </div>
+          {[
+            { id: 'verify', label: 'Verifikasi Pembayaran', count: pendingVerificationOrders.length, icon: CheckSquare },
+            { id: 'orders', label: 'Kelola Pesanan', count: orders.length, icon: ClipboardList },
+            { id: 'merchants', label: 'Mitra Merchant', count: merchants.length, icon: Store },
+            { id: 'drivers', label: 'Mitra Driver', count: drivers.length, icon: Users },
+            { id: 'partners', label: 'Pendaftaran Mitra', count: pendingPartnerRegs.length, icon: UserPlus },
+            { id: 'settlements', label: 'Settlement & Payout', count: settlements.length, icon: DollarSign },
+            { id: 'testimonials', label: 'Review Pengguna', count: testimonials.filter(t => t.status === 'pending' || t.status === 'draft').length, icon: Quote },
+            { id: 'settings', label: 'Pengaturan Sistem', icon: Settings },
+          ].map(tab => {
+            const Icon = tab.icon;
+            const isActive = activeTab === tab.id;
+            return (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id as any)}
+                className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                  isActive 
+                    ? 'bg-emerald-600 text-white shadow-xs' 
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                }`}
+              >
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <Icon className={`w-4 h-4 shrink-0 ${isActive ? 'text-white' : 'text-slate-400'}`} />
+                  <span className="truncate">{tab.label}</span>
+                </div>
+                {tab.count !== undefined && tab.count > 0 && (
+                  <span className={`text-[10px] font-extrabold px-1.5 py-0.5 rounded-full shrink-0 ml-1.5 ${
+                    isActive ? 'bg-white text-emerald-800' : 'bg-slate-200 text-slate-700'
+                  }`}>
+                    {tab.count}
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Sidebar Footer Controls */}
+        <div className="p-3 border-t border-slate-200 bg-slate-50/60 space-y-2 shrink-0">
+          <button
+            onClick={fetchAdminData}
+            disabled={loading}
+            className="w-full inline-flex items-center justify-center gap-2 px-3 py-2 rounded-xl border border-slate-200 bg-white hover:bg-slate-100 text-slate-700 text-xs font-semibold transition-all cursor-pointer shadow-2xs"
+            title="Perbarui data"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 text-slate-500 ${loading ? 'animate-spin' : ''}`} />
+            <span>{loading ? 'Memperbarui...' : 'Refresh Data'}</span>
+          </button>
+
+          <button
+            onClick={onLogout}
+            className="w-full inline-flex items-center justify-center gap-2 px-3.5 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold transition-all cursor-pointer shadow-xs"
+          >
+            <LogOut className="w-3.5 h-3.5" />
+            <span>Keluar</span>
+          </button>
+        </div>
+      </aside>
+
+      {/* Right Column: Mobile Header + KPI Strip + Main Content */}
+      <div className="flex-1 min-w-0 flex flex-col pb-16">
+        {/* Mobile Header */}
+        <header className="md:hidden bg-white border-b border-slate-200 sticky top-0 z-30 shadow-xs">
+          <div className="px-4 py-3 flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-emerald-600 to-emerald-800 text-white flex items-center justify-center font-display font-extrabold text-sm shadow-xs shrink-0">
+                tG
+              </div>
+              <div>
+                <div className="flex items-center gap-1.5">
+                  <h1 className="font-display font-bold text-sm text-slate-900 tracking-tight">Admin Portal</h1>
+                  <span className="bg-emerald-100 text-emerald-800 text-[9px] font-bold px-1.5 py-0.2 rounded-full border border-emerald-200">
+                    TumpangGo
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button
+                onClick={fetchAdminData}
+                disabled={loading}
+                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-700 text-xs font-semibold cursor-pointer shadow-xs"
+                title="Perbarui data"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 text-slate-500 ${loading ? 'animate-spin' : ''}`} />
+              </button>
+
+              <button
+                onClick={onLogout}
+                className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold cursor-pointer shadow-xs"
+              >
+                <LogOut className="w-3.5 h-3.5" />
+                <span>Keluar</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Mobile Horizontal Scrollable Tab Bar */}
+          <div className="px-3 border-t border-slate-100">
+            <nav className="flex space-x-1 overflow-x-auto py-2 scrollbar-none" aria-label="Tabs">
+              {[
+                { id: 'verify', label: 'Verifikasi Pembayaran', count: pendingVerificationOrders.length, icon: CheckSquare },
+                { id: 'orders', label: 'Kelola Pesanan', count: orders.length, icon: ClipboardList },
+                { id: 'merchants', label: 'Mitra Merchant', count: merchants.length, icon: Store },
+                { id: 'drivers', label: 'Mitra Driver', count: drivers.length, icon: Users },
+                { id: 'partners', label: 'Pendaftaran Mitra', count: pendingPartnerRegs.length, icon: UserPlus },
+                { id: 'settlements', label: 'Settlement & Payout', count: settlements.length, icon: DollarSign },
+                { id: 'testimonials', label: 'Review Pengguna', count: testimonials.filter(t => t.status === 'pending' || t.status === 'draft').length, icon: Quote },
+                { id: 'settings', label: 'Pengaturan Sistem', icon: Settings },
+              ].map(tab => {
+                const Icon = tab.icon;
+                const isActive = activeTab === tab.id;
+                return (
+                  <button
+                    key={tab.id}
+                    onClick={() => setActiveTab(tab.id as any)}
+                    className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap cursor-pointer ${
+                      isActive 
+                        ? 'bg-emerald-600 text-white shadow-xs' 
+                        : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                    }`}
+                  >
+                    <Icon className={`w-3.5 h-3.5 ${isActive ? 'text-white' : 'text-slate-400'}`} />
+                    <span>{tab.label}</span>
+                    {tab.count !== undefined && tab.count > 0 && (
+                      <span className={`text-[10px] font-extrabold px-1.5 py-0.2 rounded-full ${
+                        isActive ? 'bg-white text-emerald-800' : 'bg-slate-200 text-slate-700'
+                      }`}>
+                        {tab.count}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </nav>
+          </div>
+        </header>
+
         {/* KPI Summary Strip */}
-        <div className="border-t border-slate-100 bg-emerald-950 text-white">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3">
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 divide-y md:divide-y-0 md:divide-x divide-emerald-900/60">
-              <div className="flex items-center gap-3 pt-2 md:pt-0">
+        <div className="border-b border-slate-200/80 bg-emerald-950 text-white shadow-xs">
+          <div className="px-4 sm:px-6 lg:px-8 py-3">
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 divide-y sm:divide-y-0 sm:divide-x divide-emerald-900/60">
+              <div className="flex items-center gap-3 pt-2 sm:pt-0">
                 <div className="w-9 h-9 rounded-lg bg-emerald-900/80 border border-emerald-700/50 flex items-center justify-center text-emerald-300">
                   <CheckSquare className="w-4 h-4" />
                 </div>
@@ -763,7 +889,7 @@ export default function AdminView({ onLogout, systemConfig, onUpdateConfig, onSe
                 </div>
               </div>
 
-              <div className="flex items-center gap-3 pt-2 md:pt-0 md:pl-4">
+              <div className="flex items-center gap-3 pt-2 sm:pt-0 sm:pl-4">
                 <div className="w-9 h-9 rounded-lg bg-emerald-900/80 border border-emerald-700/50 flex items-center justify-center text-emerald-300">
                   <Truck className="w-4 h-4" />
                 </div>
@@ -773,7 +899,7 @@ export default function AdminView({ onLogout, systemConfig, onUpdateConfig, onSe
                 </div>
               </div>
 
-              <div className="flex items-center gap-3 pt-2 md:pt-0 md:pl-4">
+              <div className="flex items-center gap-3 pt-2 sm:pt-0 sm:pl-4">
                 <div className="w-9 h-9 rounded-lg bg-emerald-900/80 border border-emerald-700/50 flex items-center justify-center text-emerald-300">
                   <DollarSign className="w-4 h-4" />
                 </div>
@@ -783,7 +909,7 @@ export default function AdminView({ onLogout, systemConfig, onUpdateConfig, onSe
                 </div>
               </div>
 
-              <div className="flex items-center gap-3 pt-2 md:pt-0 md:pl-4">
+              <div className="flex items-center gap-3 pt-2 sm:pt-0 sm:pl-4">
                 <div className="w-9 h-9 rounded-lg bg-emerald-900/80 border border-emerald-700/50 flex items-center justify-center text-emerald-300">
                   <Wallet className="w-4 h-4" />
                 </div>
@@ -796,49 +922,8 @@ export default function AdminView({ onLogout, systemConfig, onUpdateConfig, onSe
           </div>
         </div>
 
-        {/* Tab Navigation Navigation */}
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <nav className="flex space-x-1 sm:space-x-2 overflow-x-auto py-2.5 scrollbar-none" aria-label="Tabs">
-            {[
-              { id: 'verify', label: 'Verifikasi Pembayaran', count: pendingVerificationOrders.length, icon: CheckSquare },
-              { id: 'orders', label: 'Kelola Pesanan', count: orders.length, icon: ClipboardList },
-              { id: 'merchants', label: 'Mitra Merchant', count: merchants.length, icon: Store },
-              { id: 'drivers', label: 'Mitra Driver', count: drivers.length, icon: Users },
-              { id: 'partners', label: 'Pendaftaran Mitra', count: pendingPartnerRegs.length, icon: UserPlus },
-              { id: 'settlements', label: 'Settlement & Payout', count: settlements.length, icon: DollarSign },
-              { id: 'testimonials', label: 'Review Pengguna', count: testimonials.filter(t => t.status === 'pending' || t.status === 'draft').length, icon: Quote },
-              { id: 'settings', label: 'Pengaturan Sistem', icon: Settings },
-            ].map(tab => {
-              const Icon = tab.icon;
-              const isActive = activeTab === tab.id;
-              return (
-                <button
-                  key={tab.id}
-                  onClick={() => setActiveTab(tab.id as any)}
-                  className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap cursor-pointer ${
-                    isActive 
-                      ? 'bg-emerald-600 text-white shadow-xs' 
-                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-                  }`}
-                >
-                  <Icon className={`w-4 h-4 ${isActive ? 'text-white' : 'text-slate-400'}`} />
-                  <span>{tab.label}</span>
-                  {tab.count !== undefined && tab.count > 0 && (
-                    <span className={`text-[10px] font-extrabold px-1.5 py-0.2 rounded-full ${
-                      isActive ? 'bg-white text-emerald-800' : 'bg-slate-200 text-slate-700'
-                    }`}>
-                      {tab.count}
-                    </span>
-                  )}
-                </button>
-              );
-            })}
-          </nav>
-        </div>
-      </header>
-
-      {/* Main Container */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-6">
+        {/* Main Content Area */}
+        <main className="flex-1 px-4 sm:px-6 lg:px-8 py-6 max-w-7xl w-full mx-auto">
 
         {/* 1. TAB: VERIFIKASI PEMBAYARAN */}
         {activeTab === 'verify' && (
@@ -2264,6 +2349,7 @@ export default function AdminView({ onLogout, systemConfig, onUpdateConfig, onSe
         </footer>
 
       </main>
+      </div>
 
       {/* Reject Payment Modal */}
       {paymentRejectModal && (
