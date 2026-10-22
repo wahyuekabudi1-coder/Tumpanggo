@@ -74,6 +74,14 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
   // Home layout sub-view: 'main' (GoFood/ShopeeFood style landing) | 'food' (existing food view) | 'taxi' (Taksi Lokal view) | 'shop' (Tumpang Shop view) | 'pay' (Tumpang Pay view) | 'bike' (Tumpang Bike coming soon)
   const [homeSubView, setHomeSubView] = useState<'main' | 'food' | 'taxi' | 'shop' | 'pay' | 'bike'>('main');
 
+  // Menentukan apakah pengguna sedang berada di dalam alur / layout layanan Tumpang Food
+  const isTumpangFoodFlow = 
+    homeSubView === 'food' || 
+    activeTab === 'merchant-detail' || 
+    activeTab === 'cart' || 
+    activeTab === 'checkout' || 
+    activeTab === 'payment';
+
   // Waitlist / Coming Soon Notifications states
   const [notifyBikePhone, setNotifyBikePhone] = useState<string>('');
   const [notifyBikeSubmitted, setNotifyBikeSubmitted] = useState<boolean>(false);
@@ -1601,7 +1609,7 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
   return (
     <div 
       className={`max-w-md mx-auto bg-slate-50 min-h-screen shadow-xl relative font-sans transition-all duration-300 ${
-        homeSubView === 'main' ? 'pb-3' : 'pb-20'
+        isTumpangFoodFlow ? 'pb-20' : 'pb-3'
       }`}
       style={activeThemeStyles}
     >
@@ -5064,44 +5072,49 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
         )}
       </main>
 
-      {/* Sticky Bottom Navigation Footer */}
-      <nav className="fixed bottom-0 left-0 right-0 max-w-md mx-auto bg-white border-t border-slate-100 px-6 py-2.5 flex justify-between items-center z-[90] shadow-[0_-4px_12px_rgba(0,0,0,0.06)] rounded-t-3xl transition-all duration-300">
-          {/* Beranda Layanan */}
+      {/* Sticky Bottom Navigation Footer: Khusus Layanan Tumpang Food */}
+      {isTumpangFoodFlow && (
+        <nav 
+          id="tumpang-food-bottom-nav"
+          aria-label="Navigasi Layanan Tumpang Food"
+          className="fixed bottom-0 left-0 right-0 max-w-md mx-auto bg-white border-t border-slate-100 px-6 py-2.5 flex justify-between items-center z-[90] shadow-[0_-4px_12px_rgba(0,0,0,0.06)] rounded-t-3xl transition-all duration-300"
+        >
+          {/* 1. Beranda Layanan Tumpang Food */}
           <button 
+            id="nav-home"
             onClick={() => {
               setSelectedMerchant(null);
+              setHomeSubView('food');
               setActiveTab('home');
+              if (typeof window !== 'undefined') {
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+              }
             }}
             className={`flex flex-col items-center gap-1.5 flex-1 py-1 cursor-pointer transition-all ${
               (activeTab === 'home' || activeTab === 'merchant-detail' || activeTab === 'cart' || activeTab === 'checkout')
-                ? homeSubView === 'food' ? 'text-[#EE2737] font-extrabold scale-105' 
-                  : homeSubView === 'shop' ? 'text-[#0F82FF] font-extrabold scale-105' 
-                  : homeSubView === 'taxi' ? 'text-amber-500 font-extrabold scale-105' 
-                  : homeSubView === 'pay' ? 'text-purple-600 font-extrabold scale-105' 
-                  : 'text-emerald-700 font-extrabold scale-105'
+                ? 'text-[#EE2737] font-extrabold scale-105' 
                 : 'text-slate-400 hover:text-slate-600 font-semibold'
             }`}
           >
             <Home className="w-5 h-5" />
             <span className="text-[10px] tracking-tight">
-              {homeSubView === 'food' ? 'Beranda Food' : homeSubView === 'shop' ? 'Beranda Niaga' : homeSubView === 'taxi' ? 'Beranda Taxi' : homeSubView === 'pay' ? 'Beranda Pay' : 'Beranda'}
+              Beranda
             </span>
           </button>
 
-          {/* Lacak Order Layanan */}
+          {/* 2. Lacak Order Layanan Tumpang Food */}
           <button 
             id="nav-track-order"
             onClick={() => {
               setActiveTab('tracking');
               if (trackingError) setTrackingError(null);
+              if (typeof window !== 'undefined') {
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+              }
             }}
             className={`flex flex-col items-center gap-1.5 flex-1 py-1 cursor-pointer transition-all ${
               (activeTab === 'tracking' || activeTab === 'history' || activeTab === 'payment')
-                ? homeSubView === 'food' ? 'text-[#EE2737] font-extrabold scale-105' 
-                  : homeSubView === 'shop' ? 'text-[#0F82FF] font-extrabold scale-105' 
-                  : homeSubView === 'taxi' ? 'text-amber-500 font-extrabold scale-105' 
-                  : homeSubView === 'pay' ? 'text-purple-600 font-extrabold scale-105' 
-                  : 'text-emerald-700 font-extrabold scale-105'
+                ? 'text-[#EE2737] font-extrabold scale-105' 
                 : 'text-slate-400 hover:text-slate-600 font-semibold'
             }`}
           >
@@ -5111,19 +5124,18 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
             </span>
           </button>
 
-          {/* Pendaftaran Kemitraan Layanan */}
+          {/* 3. Pendaftaran Kemitraan Layanan Tumpang Food */}
           <button 
             id="nav-partner-register"
             onClick={() => {
               setActiveTab('partner-register');
+              if (typeof window !== 'undefined') {
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+              }
             }}
             className={`flex flex-col items-center gap-1.5 flex-1 py-1 cursor-pointer transition-all ${
               activeTab === 'partner-register' 
-                ? homeSubView === 'food' ? 'text-[#EE2737] font-extrabold scale-105' 
-                  : homeSubView === 'shop' ? 'text-[#0F82FF] font-extrabold scale-105' 
-                  : homeSubView === 'taxi' ? 'text-amber-500 font-extrabold scale-105' 
-                  : homeSubView === 'pay' ? 'text-purple-600 font-extrabold scale-105' 
-                  : 'text-emerald-700 font-extrabold scale-105'
+                ? 'text-[#EE2737] font-extrabold scale-105' 
                 : 'text-slate-400 hover:text-slate-600 font-semibold'
             }`}
           >
@@ -5134,7 +5146,7 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
             <span className="sr-only">Mitra Tumpang Go</span>
           </button>
 
-          {/* Pusat Bantuan Layanan */}
+          {/* 4. Pusat Bantuan Layanan Tumpang Food */}
           <button 
             id="nav-help-center"
             onClick={() => {
@@ -5145,7 +5157,7 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
             }}
             className={`flex flex-col items-center gap-1.5 flex-1 py-1 cursor-pointer transition-all ${
               activeTab === 'help' 
-                ? 'text-emerald-700 font-extrabold scale-105'
+                ? 'text-[#EE2737] font-extrabold scale-105' 
                 : 'text-slate-400 hover:text-slate-600 font-semibold'
             }`}
           >
@@ -5167,17 +5179,20 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
             </button>
           )}
         </nav>
+      )}
 
       {/* FLOATING PUSAT BANTUAN BUTTON */}
-      <button
-        type="button"
-        onClick={handleOpenHelpCenter}
-        className="fixed bottom-20 right-4 sm:right-6 z-[95] w-12 h-12 sm:w-14 sm:h-14 rounded-full bg-emerald-600 hover:bg-emerald-700 text-white flex items-center justify-center shadow-lg shadow-emerald-700/30 transition-all hover:scale-110 active:scale-95 group cursor-pointer"
-        title="Pusat Bantuan TumpangGo"
-        aria-label="Pusat Bantuan TumpangGo"
-      >
-        <HelpCircle className="w-6 h-6 sm:w-7 sm:h-7 text-white" />
-      </button>
+      {!isTumpangFoodFlow && activeTab !== 'help' && (
+        <button
+          type="button"
+          onClick={handleOpenHelpCenter}
+          className="fixed bottom-5 right-4 sm:right-6 z-[95] w-12 h-12 sm:w-14 sm:h-14 rounded-full bg-emerald-600 hover:bg-emerald-700 text-white flex items-center justify-center shadow-lg shadow-emerald-700/30 transition-all hover:scale-110 active:scale-95 group cursor-pointer"
+          title="Pusat Bantuan TumpangGo"
+          aria-label="Pusat Bantuan TumpangGo"
+        >
+          <HelpCircle className="w-6 h-6 sm:w-7 sm:h-7 text-white" />
+        </button>
+      )}
 
       {/* Lightbox Zoom Modal for QRIS and Payment Proof */}
       {proofZoomModalImage && (

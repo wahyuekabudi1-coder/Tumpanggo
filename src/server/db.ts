@@ -806,6 +806,10 @@ export class FoodDatabase {
     return this.data.systemConfig;
   }
 
+  public getSystemConfig(): SystemConfig {
+    return this.getConfig();
+  }
+
   public async updateConfig(userId: string, updates: Partial<SystemConfig>): Promise<SystemConfig> {
     await this.ensureProductionCloudReady('Pembaruan Konfigurasi');
     const prevConfig = { ...this.data.systemConfig };

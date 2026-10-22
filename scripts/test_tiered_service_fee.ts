@@ -234,6 +234,38 @@ async function run() {
     assert(orderC.serviceFee === 3000, 'Biaya layanan Order C (subtotal Rp 105.000) tepat Rp 3.000', `Got ${orderC.serviceFee}`);
     assert(orderC.total === 105000 + 5000 + 3000 + orderC.uniqueCode, `Total Order C akurat (Rp ${orderC.total})`);
 
+    // Skenario D: Subtotal Rp 250.000 (Tier 4: Rp 4.000)
+    // 10x Paket Ayam (250k)
+    const orderD = await foodDb.createOrder({
+      merchantId: testMerchant.id,
+      customerName: 'Pelanggan Tier 4',
+      customerPhone: '081234567004',
+      deliveryAddress: 'Jl. Slamet No. 4, Kec. Tumpang, Malang',
+      items: [
+        { menuItemId: testItemMedium.id, quantity: 10 }
+      ]
+    });
+
+    assert(orderD.subtotal === 250000, 'Subtotal Order D tepat Rp 250.000', `Got ${orderD.subtotal}`);
+    assert(orderD.serviceFee === 4000, 'Biaya layanan Order D (subtotal Rp 250.000) tepat Rp 4.000', `Got ${orderD.serviceFee}`);
+    assert(orderD.total === 250000 + 5000 + 4000 + orderD.uniqueCode, `Total Order D akurat (Rp ${orderD.total})`);
+
+    // Skenario E: Subtotal Rp 350.000 (Tier 5: Rp 5.000)
+    // 14x Paket Ayam (350k)
+    const orderE = await foodDb.createOrder({
+      merchantId: testMerchant.id,
+      customerName: 'Pelanggan Tier 5',
+      customerPhone: '081234567005',
+      deliveryAddress: 'Jl. Benjor No. 5, Kec. Tumpang, Malang',
+      items: [
+        { menuItemId: testItemMedium.id, quantity: 14 }
+      ]
+    });
+
+    assert(orderE.subtotal === 350000, 'Subtotal Order E tepat Rp 350.000', `Got ${orderE.subtotal}`);
+    assert(orderE.serviceFee === 5000, 'Biaya layanan Order E (subtotal Rp 350.000) tepat Rp 5.000', `Got ${orderE.serviceFee}`);
+    assert(orderE.total === 350000 + 5000 + 5000 + orderE.uniqueCode, `Total Order E akurat (Rp ${orderE.total})`);
+
     // ----------------------------------------------------------------
     // 5. UJI KOMISI MERCHANT (TETAP 10%) & ISOLASI SETTLEMENT
     // ----------------------------------------------------------------

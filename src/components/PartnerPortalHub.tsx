@@ -2,8 +2,10 @@ import React, { useState } from 'react';
 import { 
   Store, Bike, ArrowRight, ArrowLeft, Lock, UserPlus, Eye, EyeOff, 
   CheckCircle2, AlertCircle, Loader2, ShieldCheck, Camera, Check,
-  ChevronRight, Sparkles, Building2, User
+  ChevronRight, Sparkles, Building2, User, Mail, Phone, MapPin, 
+  Car, FileText, CheckCircle
 } from 'lucide-react';
+import Logo from './Logo.tsx';
 import { safeStorage } from '../utils/safeStorage.ts';
 import { apiFetch as fetch } from '../utils/apiClient.ts';
 import { compressImage } from '../utils/imageCompressor.ts';
@@ -233,7 +235,7 @@ export default function PartnerPortalHub({
       setRegisterSuccess(
         `Pendaftaran Toko "${mStoreName.trim()}" Berhasil Dikirim! Akun Anda kini berstatus Menunggu Persetujuan Admin TumpangGo.`
       );
-      // Pre-fill login email for convenience
+      // Pre-fill login identifier for convenience
       setLoginIdentifier(mEmail.trim() || mPhone.trim());
       setLoginPassword(mPassword);
     } catch (err: any) {
@@ -319,20 +321,24 @@ export default function PartnerPortalHub({
   // =============================================================
   if (step === 'role_selection' || !selectedRole) {
     return (
-      <div className="flex flex-col gap-5 pb-6">
-        {/* Header Portal */}
-        <div className="bg-gradient-to-br from-emerald-800 via-emerald-700 to-teal-800 text-white rounded-3xl p-5 sm:p-6 shadow-md relative overflow-hidden">
-          <div className="flex items-center gap-2 mb-2">
-            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-white/15 backdrop-blur-md text-emerald-100 text-[11px] font-bold">
-              <Sparkles className="w-3.5 h-3.5 text-amber-300" />
-              Portal Kemitraan Resmi
-            </span>
+      <div className="flex flex-col gap-5 pb-6 animate-fadeIn">
+        {/* Header Hero Portal */}
+        <div className="bg-white border border-slate-200/90 rounded-3xl p-6 sm:p-7 shadow-sm relative overflow-hidden flex flex-col items-center text-center">
+          <div className="mb-3">
+            <Logo size={56} mode="full" />
           </div>
-          <h2 className="font-display font-extrabold text-xl sm:text-2xl text-white tracking-tight">
+
+          <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-50 text-emerald-800 text-[11px] font-bold border border-emerald-200/80 mb-2.5">
+            <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
+            <span>Portal Kemitraan Resmi TumpangGo</span>
+          </div>
+
+          <h1 className="font-display font-black text-2xl sm:text-3xl text-slate-900 tracking-tight">
             Portal Mitra TumpangGo
-          </h2>
-          <p className="text-xs sm:text-sm text-emerald-100/90 leading-relaxed mt-1.5 max-w-md">
-            Pusat akses mitra lokal Kecamatan Tumpang. Pilih jenis kemitraan Anda untuk mendaftar akun baru atau masuk ke dashboard operasional.
+          </h1>
+
+          <p className="text-xs sm:text-sm text-slate-500 leading-relaxed mt-2 max-w-md">
+            Pusat akses terintegrasi bagi mitra pemilik toko kuliner dan mitra pengemudi kurir lokal di seluruh wilayah Kecamatan Tumpang.
           </p>
         </div>
 
@@ -342,41 +348,48 @@ export default function PartnerPortalHub({
           <div
             id="portal-select-merchant"
             onClick={() => handleSelectRole('MERCHANT')}
-            className="bg-white border-2 border-slate-200/90 hover:border-emerald-600 rounded-3xl p-5 shadow-sm hover:shadow-md transition-all cursor-pointer group flex flex-col justify-between"
+            className="bg-white border-2 border-slate-200/90 hover:border-amber-500 rounded-3xl p-5 sm:p-6 shadow-sm hover:shadow-md transition-all duration-200 cursor-pointer group flex flex-col justify-between"
           >
-            <div className="flex items-start gap-4">
-              <div className="w-14 h-14 rounded-2xl bg-amber-50 border border-amber-200/80 flex items-center justify-center text-amber-700 shrink-0 group-hover:scale-105 transition-transform shadow-xs">
-                <Store className="w-7 h-7 text-amber-600" />
+            <div>
+              <div className="flex items-start gap-4">
+                <div className="w-14 h-14 rounded-2xl bg-amber-50 border border-amber-200/80 flex items-center justify-center text-amber-700 shrink-0 group-hover:scale-105 transition-transform shadow-xs">
+                  <Store className="w-7 h-7 text-amber-600" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center justify-between gap-2">
+                    <h2 className="font-display font-extrabold text-base sm:text-lg text-slate-900 group-hover:text-amber-800 transition-colors">
+                      Mitra Toko (Merchant)
+                    </h2>
+                    <span className="text-[10px] font-extrabold px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-200/60 shrink-0">
+                      UMKM Kuliner
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-500 mt-1.5 leading-relaxed">
+                    Untuk pemilik warung, depot makan, kafe, dan usaha kuliner lokal yang ingin menerima dan mengelola pesanan digital.
+                  </p>
+                </div>
               </div>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center justify-between">
-                  <h3 className="font-display font-extrabold text-base sm:text-lg text-slate-900 group-hover:text-emerald-700 transition-colors">
-                    Mitra Toko (Merchant)
-                  </h3>
-                  <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-800">
-                    UMKM Kuliner
-                  </span>
-                </div>
-                <p className="text-xs text-slate-500 mt-1 leading-relaxed">
-                  Untuk pemilik warung, depot makan, kafe, dan usaha kuliner lokal di Kecamatan Tumpang.
-                </p>
-                <div className="mt-3 flex items-center gap-2 text-[11px] font-semibold text-slate-600">
-                  <span className="inline-flex items-center gap-1 bg-slate-100 px-2 py-0.5 rounded-md">
-                    Kelola Menu
-                  </span>
-                  <span className="inline-flex items-center gap-1 bg-slate-100 px-2 py-0.5 rounded-md">
-                    Terima Order
-                  </span>
-                  <span className="inline-flex items-center gap-1 bg-slate-100 px-2 py-0.5 rounded-md">
-                    QRIS Toko
-                  </span>
-                </div>
+
+              {/* Feature Chips */}
+              <div className="mt-4 flex flex-wrap gap-2 text-[11px] font-semibold text-slate-600">
+                <span className="inline-flex items-center gap-1.5 bg-slate-50 border border-slate-200/80 px-2.5 py-1 rounded-lg">
+                  <Check className="w-3.5 h-3.5 text-amber-600" />
+                  Kelola Menu & Stok
+                </span>
+                <span className="inline-flex items-center gap-1.5 bg-slate-50 border border-slate-200/80 px-2.5 py-1 rounded-lg">
+                  <Check className="w-3.5 h-3.5 text-amber-600" />
+                  Terima Order Digital
+                </span>
+                <span className="inline-flex items-center gap-1.5 bg-slate-50 border border-slate-200/80 px-2.5 py-1 rounded-lg">
+                  <Check className="w-3.5 h-3.5 text-amber-600" />
+                  QRIS Toko & E-Receipt
+                </span>
               </div>
             </div>
 
-            <div className="mt-4 pt-3.5 border-t border-slate-100 flex items-center justify-between text-xs font-extrabold text-emerald-700 group-hover:text-emerald-800">
-              <span>Masuk atau Daftar Mitra Toko</span>
-              <div className="w-7 h-7 rounded-full bg-emerald-50 group-hover:bg-emerald-600 group-hover:text-white flex items-center justify-center transition-colors">
+            <div className="mt-5 pt-4 border-t border-slate-100 flex items-center justify-between text-xs font-black text-amber-700 group-hover:text-amber-800">
+              <span className="uppercase tracking-wider">Buka Akses Mitra Toko</span>
+              <div className="w-8 h-8 rounded-full bg-amber-50 group-hover:bg-amber-600 group-hover:text-white flex items-center justify-center transition-colors">
                 <ChevronRight className="w-4 h-4" />
               </div>
             </div>
@@ -386,44 +399,67 @@ export default function PartnerPortalHub({
           <div
             id="portal-select-driver"
             onClick={() => handleSelectRole('DRIVER')}
-            className="bg-white border-2 border-slate-200/90 hover:border-emerald-600 rounded-3xl p-5 shadow-sm hover:shadow-md transition-all cursor-pointer group flex flex-col justify-between"
+            className="bg-white border-2 border-slate-200/90 hover:border-emerald-500 rounded-3xl p-5 sm:p-6 shadow-sm hover:shadow-md transition-all duration-200 cursor-pointer group flex flex-col justify-between"
           >
-            <div className="flex items-start gap-4">
-              <div className="w-14 h-14 rounded-2xl bg-emerald-50 border border-emerald-200/80 flex items-center justify-center text-emerald-700 shrink-0 group-hover:scale-105 transition-transform shadow-xs">
-                <Bike className="w-7 h-7 text-emerald-600" />
+            <div>
+              <div className="flex items-start gap-4">
+                <div className="w-14 h-14 rounded-2xl bg-emerald-50 border border-emerald-200/80 flex items-center justify-center text-emerald-700 shrink-0 group-hover:scale-105 transition-transform shadow-xs">
+                  <Bike className="w-7 h-7 text-emerald-600" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center justify-between gap-2">
+                    <h2 className="font-display font-extrabold text-base sm:text-lg text-slate-900 group-hover:text-emerald-800 transition-colors">
+                      Mitra Kurir (Driver)
+                    </h2>
+                    <span className="text-[10px] font-extrabold px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200/60 shrink-0">
+                      Armada Kurir
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-500 mt-1.5 leading-relaxed">
+                    Untuk pengemudi kurir pengantaran pesanan makanan dan barang di seluruh wilayah Kecamatan Tumpang.
+                  </p>
+                </div>
               </div>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center justify-between">
-                  <h3 className="font-display font-extrabold text-base sm:text-lg text-slate-900 group-hover:text-emerald-700 transition-colors">
-                    Mitra Kurir (Driver)
-                  </h3>
-                  <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800">
-                    Armada Kurir
-                  </span>
-                </div>
-                <p className="text-xs text-slate-500 mt-1 leading-relaxed">
-                  Untuk pengemudi kurir pengantaran pesanan makanan dan barang di seluruh wilayah Kecamatan Tumpang.
-                </p>
-                <div className="mt-3 flex items-center gap-2 text-[11px] font-semibold text-slate-600">
-                  <span className="inline-flex items-center gap-1 bg-slate-100 px-2 py-0.5 rounded-md">
-                    Antar Pesanan
-                  </span>
-                  <span className="inline-flex items-center gap-1 bg-slate-100 px-2 py-0.5 rounded-md">
-                    Ongkir Flat Rp 5rb
-                  </span>
-                  <span className="inline-flex items-center gap-1 bg-slate-100 px-2 py-0.5 rounded-md">
-                    Kerja Fleksibel
-                  </span>
-                </div>
+
+              {/* Feature Chips */}
+              <div className="mt-4 flex flex-wrap gap-2 text-[11px] font-semibold text-slate-600">
+                <span className="inline-flex items-center gap-1.5 bg-slate-50 border border-slate-200/80 px-2.5 py-1 rounded-lg">
+                  <Check className="w-3.5 h-3.5 text-emerald-600" />
+                  Antar Pesanan Lokal
+                </span>
+                <span className="inline-flex items-center gap-1.5 bg-slate-50 border border-slate-200/80 px-2.5 py-1 rounded-lg">
+                  <Check className="w-3.5 h-3.5 text-emerald-600" />
+                  Ongkir Flat Rp 5.000
+                </span>
+                <span className="inline-flex items-center gap-1.5 bg-slate-50 border border-slate-200/80 px-2.5 py-1 rounded-lg">
+                  <Check className="w-3.5 h-3.5 text-emerald-600" />
+                  Jam Kerja Fleksibel
+                </span>
               </div>
             </div>
 
-            <div className="mt-4 pt-3.5 border-t border-slate-100 flex items-center justify-between text-xs font-extrabold text-emerald-700 group-hover:text-emerald-800">
-              <span>Masuk atau Daftar Mitra Kurir</span>
-              <div className="w-7 h-7 rounded-full bg-emerald-50 group-hover:bg-emerald-600 group-hover:text-white flex items-center justify-center transition-colors">
+            <div className="mt-5 pt-4 border-t border-slate-100 flex items-center justify-between text-xs font-black text-emerald-700 group-hover:text-emerald-800">
+              <span className="uppercase tracking-wider">Buka Akses Mitra Kurir</span>
+              <div className="w-8 h-8 rounded-full bg-emerald-50 group-hover:bg-emerald-600 group-hover:text-white flex items-center justify-center transition-colors">
                 <ChevronRight className="w-4 h-4" />
               </div>
             </div>
+          </div>
+        </div>
+
+        {/* Value Proposition Highlights */}
+        <div className="grid grid-cols-3 gap-2.5 text-center">
+          <div className="bg-white border border-slate-200/80 rounded-2xl p-3 shadow-xs">
+            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Komisi Bersahabat</span>
+            <span className="font-display font-extrabold text-xs sm:text-sm text-slate-800 mt-0.5 block">10% Bersih</span>
+          </div>
+          <div className="bg-white border border-slate-200/80 rounded-2xl p-3 shadow-xs">
+            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Ongkir Flat</span>
+            <span className="font-display font-extrabold text-xs sm:text-sm text-emerald-700 mt-0.5 block">Rp 5.000</span>
+          </div>
+          <div className="bg-white border border-slate-200/80 rounded-2xl p-3 shadow-xs">
+            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Pendaftaran</span>
+            <span className="font-display font-extrabold text-xs sm:text-sm text-amber-700 mt-0.5 block">100% Gratis</span>
           </div>
         </div>
 
@@ -431,7 +467,7 @@ export default function PartnerPortalHub({
         <button
           type="button"
           onClick={onBackToHome}
-          className="w-full py-3 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-2xl text-xs transition-colors flex items-center justify-center gap-2 cursor-pointer"
+          className="w-full py-3.5 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-2xl text-xs transition-colors flex items-center justify-center gap-2 cursor-pointer"
         >
           <ArrowLeft className="w-4 h-4" />
           <span>Kembali ke Beranda Utama</span>
@@ -441,67 +477,116 @@ export default function PartnerPortalHub({
   }
 
   // =============================================================
-  // RENDER LEVEL 2: ACTION SELECTION (DAFTAR vs LOGIN)
+  // RENDER LEVEL 2 & 3: ROLE ACCESS (ACTION_SELECTION, LOGIN, REGISTER)
   // =============================================================
+  const isMerchant = selectedRole === 'MERCHANT';
+
+  // Common Header Card for Role Portal
+  const renderRoleHeader = () => (
+    <div className="bg-white border border-slate-200/90 rounded-3xl p-5 sm:p-6 shadow-sm relative overflow-hidden flex flex-col items-center text-center">
+      <div className="mb-2">
+        <Logo size={48} mode="full" />
+      </div>
+
+      <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-bold border mb-2"
+        style={{
+          backgroundColor: isMerchant ? '#fffbeb' : '#ecfdf5',
+          borderColor: isMerchant ? '#fde68a' : '#a7f3d0',
+          color: isMerchant ? '#b45309' : '#047857'
+        }}
+      >
+        {isMerchant ? (
+          <>
+            <Store className="w-3.5 h-3.5 text-amber-600" />
+            <span>Portal Mitra Toko (Merchant)</span>
+          </>
+        ) : (
+          <>
+            <Bike className="w-3.5 h-3.5 text-emerald-600" />
+            <span>Portal Mitra Kurir (Driver)</span>
+          </>
+        )}
+      </div>
+
+      <h1 className="font-display font-extrabold text-xl sm:text-2xl text-slate-900 tracking-tight">
+        {isMerchant ? 'Akses Mitra Toko Kuliner' : 'Akses Mitra Kurir Pengantaran'}
+      </h1>
+
+      <p className="text-xs text-slate-500 mt-1 max-w-sm leading-relaxed">
+        {isMerchant
+          ? 'Masuk ke dashboard untuk mengelola menu dan pesanan toko Anda, atau daftar sebagai mitra kuliner baru.'
+          : 'Masuk ke dashboard untuk mengantar pesanan pelanggan, atau daftar sebagai mitra pengemudi resmi.'}
+      </p>
+
+      {/* Segmented Control / Tab Switcher: Login vs Daftar */}
+      <div className="w-full max-w-xs mt-4 p-1 bg-slate-100 rounded-2xl flex border border-slate-200/80">
+        <button
+          type="button"
+          onClick={() => {
+            setStep('login');
+            setLoginError('');
+            setPendingNotice(null);
+          }}
+          className={`flex-1 py-2 px-3 rounded-xl text-xs font-extrabold transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+            step === 'login' || step === 'action_selection'
+              ? 'bg-white text-slate-900 shadow-xs border border-slate-200/60'
+              : 'text-slate-500 hover:text-slate-800'
+          }`}
+        >
+          <Lock className="w-3.5 h-3.5" />
+          <span>Masuk / Login</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => {
+            setStep('register');
+            setRegisterError('');
+            setRegisterSuccess(null);
+          }}
+          className={`flex-1 py-2 px-3 rounded-xl text-xs font-extrabold transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+            step === 'register'
+              ? 'bg-white text-slate-900 shadow-xs border border-slate-200/60'
+              : 'text-slate-500 hover:text-slate-800'
+          }`}
+        >
+          <UserPlus className="w-3.5 h-3.5" />
+          <span>Daftar Sekarang</span>
+        </button>
+      </div>
+    </div>
+  );
+
+  // Common Top Navigation Bar
+  const renderTopNav = (backAction: () => void, label: string) => (
+    <div className="flex items-center justify-between">
+      <button
+        type="button"
+        onClick={backAction}
+        className="inline-flex items-center gap-1.5 py-2 px-3 rounded-xl bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 text-xs font-bold transition-colors cursor-pointer shadow-2xs"
+      >
+        <ArrowLeft className="w-4 h-4 text-slate-500" />
+        <span>{label}</span>
+      </button>
+
+      <span className="text-[11px] font-black uppercase tracking-wider text-slate-400">
+        {isMerchant ? 'UMKM Toko' : 'Armada Driver'}
+      </span>
+    </div>
+  );
+
+  // -------------------------------------------------------------
+  // LEVEL 2: ACTION SELECTION (DUAL CHOICE PANEL)
+  // -------------------------------------------------------------
   if (step === 'action_selection') {
-    const isMerchant = selectedRole === 'MERCHANT';
-
     return (
-      <div className="flex flex-col gap-5 pb-6 animate-fadeIn">
-        {/* Role Header Banner */}
-        <div className={`text-white rounded-3xl p-5 sm:p-6 shadow-md relative overflow-hidden ${
-          isMerchant ? 'bg-gradient-to-br from-emerald-800 to-amber-700' : 'bg-gradient-to-br from-emerald-800 to-teal-800'
-        }`}>
-          <div className="flex items-center gap-2 mb-2">
-            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-white/20 text-white text-[10px] font-black uppercase tracking-wider">
-              {isMerchant ? '🍲 Portal Mitra Toko (Merchant)' : '🏍️ Portal Mitra Kurir (Driver)'}
-            </span>
-          </div>
-          <h2 className="font-display font-extrabold text-xl text-white">
-            {isMerchant ? 'Akses Mitra Toko Kuliner' : 'Akses Mitra Kurir Pengantaran'}
-          </h2>
-          <p className="text-xs text-white/90 leading-relaxed mt-1 max-w-sm">
-            Silakan pilih apakah Anda ingin mendaftar sebagai mitra baru atau masuk ke akun yang sudah terdaftar.
-          </p>
-        </div>
+      <div className="flex flex-col gap-4 pb-6 animate-fadeIn">
+        {renderTopNav(() => setStep('role_selection'), 'Kembali ke Pemilihan Jenis Mitra')}
+        {renderRoleHeader()}
 
-        {/* 2 Clear Action Choices */}
+        {/* 2 Clear Structured Panels */}
         <div className="grid grid-cols-1 gap-4">
-          {/* Aksi 1: Daftar Baru */}
-          <div
-            id="portal-action-register"
-            onClick={() => {
-              setStep('register');
-              setRegisterError('');
-              setRegisterSuccess(null);
-            }}
-            className="bg-white border-2 border-slate-200 hover:border-emerald-600 rounded-3xl p-5 shadow-sm hover:shadow-md transition-all cursor-pointer group flex items-start gap-4"
-          >
-            <div className="w-13 h-13 rounded-2xl bg-emerald-50 border border-emerald-200 flex items-center justify-center text-emerald-700 shrink-0 group-hover:scale-105 transition-transform">
-              <UserPlus className="w-6 h-6 text-emerald-600" />
-            </div>
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center justify-between">
-                <h3 className="font-display font-extrabold text-base text-slate-900 group-hover:text-emerald-700 transition-colors">
-                  Daftar
-                </h3>
-                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800">
-                  Pengguna Baru
-                </span>
-              </div>
-              <p className="text-xs text-slate-500 mt-1 leading-relaxed">
-                {isMerchant
-                  ? 'Belum punya akun toko? Isi formulir pendaftaran untuk mulai berjualan kuliner online di TumpangGo.'
-                  : 'Belum punya akun kurir? Daftarkan diri Anda sebagai pengemudi kurir pengantaran resmi TumpangGo.'}
-              </p>
-              <div className="mt-3 inline-flex items-center gap-1.5 text-xs font-extrabold text-emerald-700 group-hover:translate-x-0.5 transition-transform">
-                <span>Buka Formulir Pendaftaran</span>
-                <ArrowRight className="w-3.5 h-3.5" />
-              </div>
-            </div>
-          </div>
-
-          {/* Aksi 2: Login */}
+          {/* Action 1: Login */}
           <div
             id="portal-action-login"
             onClick={() => {
@@ -509,28 +594,92 @@ export default function PartnerPortalHub({
               setLoginError('');
               setPendingNotice(null);
             }}
-            className="bg-white border-2 border-slate-200 hover:border-emerald-600 rounded-3xl p-5 shadow-sm hover:shadow-md transition-all cursor-pointer group flex items-start gap-4"
+            className="bg-white border-2 border-slate-200/90 hover:border-slate-800 rounded-3xl p-5 sm:p-6 shadow-sm hover:shadow-md transition-all cursor-pointer group flex flex-col justify-between"
           >
-            <div className="w-13 h-13 rounded-2xl bg-slate-100 border border-slate-200 flex items-center justify-center text-slate-700 shrink-0 group-hover:scale-105 transition-transform">
-              <Lock className="w-6 h-6 text-slate-700" />
-            </div>
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center justify-between">
-                <h3 className="font-display font-extrabold text-base text-slate-900 group-hover:text-emerald-700 transition-colors">
-                  Login
-                </h3>
-                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-700">
-                  Sudah Ada Akun
-                </span>
+            <div className="flex items-start gap-4">
+              <div className="w-13 h-13 rounded-2xl bg-slate-100 border border-slate-200/80 flex items-center justify-center text-slate-700 shrink-0 group-hover:scale-105 transition-transform shadow-2xs">
+                <Lock className="w-6 h-6 text-slate-700" />
               </div>
-              <p className="text-xs text-slate-500 mt-1 leading-relaxed">
-                {isMerchant
-                  ? 'Sudah terdaftar sebagai mitra toko? Masuk untuk mengelola menu, pesanan pelanggan, dan laporan omset.'
-                  : 'Sudah terdaftar sebagai kurir? Masuk untuk mulai menerima dan mengantar pesanan makanan hari ini.'}
-              </p>
-              <div className="mt-3 inline-flex items-center gap-1.5 text-xs font-extrabold text-slate-800 group-hover:text-emerald-700 group-hover:translate-x-0.5 transition-transform">
-                <span>Masuk ke Dashboard</span>
-                <ArrowRight className="w-3.5 h-3.5" />
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center justify-between gap-2">
+                  <h3 className="font-display font-extrabold text-base text-slate-900 group-hover:text-slate-950 transition-colors">
+                    Sudah Punya Akun Mitra?
+                  </h3>
+                  <span className="text-[10px] font-extrabold px-2.5 py-0.5 rounded-full bg-slate-100 text-slate-700 border border-slate-200/70 shrink-0">
+                    Masuk Akun
+                  </span>
+                </div>
+                <p className="text-xs text-slate-500 mt-1.5 leading-relaxed">
+                  {isMerchant
+                    ? 'Masuk ke dashboard untuk mengelola menu makanan, menerima pesanan pelanggan, dan memantau omset harian.'
+                    : 'Masuk ke dashboard kurir untuk mulai menerima pesanan makanan dan mengantarkan ke alamat pemesan.'}
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-4 pt-3.5 border-t border-slate-100 flex items-center justify-between text-xs font-black text-slate-800 group-hover:text-slate-950">
+              <span className="uppercase tracking-wider">Login ke Akun Anda</span>
+              <div className="w-7 h-7 rounded-full bg-slate-100 group-hover:bg-slate-900 group-hover:text-white flex items-center justify-center transition-colors">
+                <ArrowRight className="w-4 h-4" />
+              </div>
+            </div>
+          </div>
+
+          {/* Action 2: Register */}
+          <div
+            id="portal-action-register"
+            onClick={() => {
+              setStep('register');
+              setRegisterError('');
+              setRegisterSuccess(null);
+            }}
+            className={`bg-white border-2 rounded-3xl p-5 sm:p-6 shadow-sm hover:shadow-md transition-all cursor-pointer group flex flex-col justify-between ${
+              isMerchant 
+                ? 'border-amber-200/90 hover:border-amber-500' 
+                : 'border-emerald-200/90 hover:border-emerald-500'
+            }`}
+          >
+            <div className="flex items-start gap-4">
+              <div className={`w-13 h-13 rounded-2xl flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform shadow-2xs ${
+                isMerchant 
+                  ? 'bg-amber-50 border border-amber-200/80 text-amber-700' 
+                  : 'bg-emerald-50 border border-emerald-200/80 text-emerald-700'
+              }`}>
+                <UserPlus className={`w-6 h-6 ${isMerchant ? 'text-amber-600' : 'text-emerald-600'}`} />
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center justify-between gap-2">
+                  <h3 className={`font-display font-extrabold text-base text-slate-900 transition-colors ${
+                    isMerchant ? 'group-hover:text-amber-800' : 'group-hover:text-emerald-800'
+                  }`}>
+                    Belum Terdaftar Sebagai Mitra?
+                  </h3>
+                  <span className={`text-[10px] font-extrabold px-2.5 py-0.5 rounded-full border shrink-0 ${
+                    isMerchant 
+                      ? 'bg-amber-100 text-amber-800 border-amber-200/60' 
+                      : 'bg-emerald-100 text-emerald-800 border-emerald-200/60'
+                  }`}>
+                    Daftar Baru
+                  </span>
+                </div>
+                <p className="text-xs text-slate-500 mt-1.5 leading-relaxed">
+                  {isMerchant
+                    ? 'Daftarkan usaha kuliner Anda. Nikmati kemudahan terima order online, sistem QRIS siap pakai, dan komisi bersahabat 10%.'
+                    : 'Daftarkan armada motor atau mobil Anda sebagai kurir resmi TumpangGo. Ongkir flat Rp 5.000 dengan sistem order lokal adil.'}
+                </p>
+              </div>
+            </div>
+
+            <div className={`mt-4 pt-3.5 border-t border-slate-100 flex items-center justify-between text-xs font-black ${
+              isMerchant ? 'text-amber-700 group-hover:text-amber-800' : 'text-emerald-700 group-hover:text-emerald-800'
+            }`}>
+              <span className="uppercase tracking-wider">Daftar Mitra Baru Sekarang</span>
+              <div className={`w-7 h-7 rounded-full flex items-center justify-center transition-colors ${
+                isMerchant 
+                  ? 'bg-amber-50 group-hover:bg-amber-600 group-hover:text-white' 
+                  : 'bg-emerald-50 group-hover:bg-emerald-600 group-hover:text-white'
+              }`}>
+                <ArrowRight className="w-4 h-4" />
               </div>
             </div>
           </div>
@@ -540,7 +689,7 @@ export default function PartnerPortalHub({
         <button
           type="button"
           onClick={() => setStep('role_selection')}
-          className="w-full py-3 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-2xl text-xs transition-colors flex items-center justify-center gap-2 cursor-pointer"
+          className="w-full py-3.5 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-2xl text-xs transition-colors flex items-center justify-center gap-2 cursor-pointer mt-1"
         >
           <ArrowLeft className="w-4 h-4" />
           <span>Kembali ke Pemilihan Jenis Mitra</span>
@@ -549,102 +698,103 @@ export default function PartnerPortalHub({
     );
   }
 
-  // =============================================================
-  // RENDER LEVEL 3A: ALUR LOGIN (EMAIL / WHATSAPP & PASSWORD)
-  // =============================================================
+  // -------------------------------------------------------------
+  // LEVEL 3A: LOGIN FORM
+  // -------------------------------------------------------------
   if (step === 'login') {
-    const isMerchant = selectedRole === 'MERCHANT';
-
     return (
-      <div className="flex flex-col gap-5 pb-6 animate-fadeIn">
-        {/* Header Bar */}
-        <div className="flex items-center justify-between">
-          <button
-            type="button"
-            onClick={() => setStep('action_selection')}
-            className="inline-flex items-center gap-1.5 py-1.5 px-3 rounded-xl bg-white border border-slate-200 text-slate-600 hover:text-slate-900 text-xs font-bold transition-colors cursor-pointer"
-          >
-            <ArrowLeft className="w-4 h-4" />
-            <span>Kembali</span>
-          </button>
-          <span className="text-[11px] font-black uppercase tracking-wider text-slate-500">
-            {isMerchant ? 'Portal Toko' : 'Portal Kurir'}
-          </span>
-        </div>
+      <div className="flex flex-col gap-4 pb-6 animate-fadeIn">
+        {renderTopNav(() => setStep('action_selection'), 'Kembali')}
+        {renderRoleHeader()}
 
-        <div className="bg-white border border-slate-200 rounded-3xl p-5 sm:p-6 shadow-sm flex flex-col gap-5">
-          <div className="flex items-center gap-3">
-            <div className={`w-12 h-12 rounded-2xl flex items-center justify-center text-white ${
-              isMerchant ? 'bg-amber-600' : 'bg-emerald-600'
-            }`}>
-              <Lock className="w-6 h-6" />
-            </div>
-            <div>
-              <h3 className="font-display font-extrabold text-base sm:text-lg text-slate-900">
-                {isMerchant ? 'Login Mitra Toko (Merchant)' : 'Login Mitra Kurir (Driver)'}
-              </h3>
-              <p className="text-xs text-slate-500 mt-0.5">
-                Masukkan email atau nomor WhatsApp dan kata sandi Anda.
-              </p>
-            </div>
+        <div className="bg-white border border-slate-200/90 rounded-3xl p-5 sm:p-6 shadow-sm flex flex-col gap-5">
+          {/* Form Header Title */}
+          <div className="border-b border-slate-100 pb-3">
+            <h2 className="font-display font-extrabold text-base sm:text-lg text-slate-900">
+              Selamat Datang Kembali
+            </h2>
+            <p className="text-xs text-slate-500 mt-1 leading-relaxed">
+              Masuk ke akun Mitra TumpangGo untuk melanjutkan aktivitas operasional Anda.
+            </p>
           </div>
 
           {/* Pending Approval Notice */}
           {pendingNotice && (
-            <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 text-xs text-amber-900 flex items-start gap-2.5">
+            <div className="bg-amber-50 border-2 border-amber-300 rounded-2xl p-4 text-xs text-amber-900 flex items-start gap-3 shadow-2xs">
               <AlertCircle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
               <div>
                 <p className="font-bold text-amber-950">Pendaftaran Menunggu Persetujuan</p>
-                <p className="mt-0.5 leading-relaxed text-amber-800">{pendingNotice}</p>
+                <p className="mt-1 leading-relaxed text-amber-800">{pendingNotice}</p>
               </div>
             </div>
           )}
 
           {/* Error Message */}
           {loginError && (
-            <div className="bg-rose-50 border border-rose-200 rounded-2xl p-4 text-xs text-rose-800 flex items-start gap-2.5">
+            <div className="bg-rose-50 border-2 border-rose-300 rounded-2xl p-4 text-xs text-rose-800 flex items-start gap-3 shadow-2xs">
               <AlertCircle className="w-5 h-5 text-rose-600 shrink-0 mt-0.5" />
               <div className="flex-1">
                 <p className="font-bold text-rose-950">Gagal Masuk</p>
-                <p className="mt-0.5 leading-relaxed">{loginError}</p>
+                <p className="mt-1 leading-relaxed">{loginError}</p>
               </div>
             </div>
           )}
 
           <form onSubmit={handleLoginSubmit} className="space-y-4">
             <div>
-              <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
-                Email atau No. WhatsApp
+              <label 
+                htmlFor="portal-login-identifier"
+                className="block text-[11px] font-bold text-slate-700 uppercase tracking-wider mb-1.5"
+              >
+                {isMerchant ? 'Email atau No. WhatsApp Toko' : 'Email atau No. WhatsApp Kurir'}
               </label>
-              <input
-                id="portal-login-identifier"
-                type="text"
-                required
-                value={loginIdentifier}
-                onChange={(e) => setLoginIdentifier(e.target.value)}
-                placeholder={isMerchant ? 'Contoh: warung@gmail.com atau 08123456789' : 'Contoh: driver@gmail.com atau 08123456789'}
-                className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-3 text-xs sm:text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:border-emerald-600 focus:bg-white transition-colors"
-              />
+              <div className="relative">
+                {isMerchant ? (
+                  <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                ) : (
+                  <Phone className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                )}
+                <input
+                  id="portal-login-identifier"
+                  type="text"
+                  required
+                  value={loginIdentifier}
+                  onChange={(e) => {
+                    setLoginIdentifier(e.target.value);
+                    if (loginError) setLoginError('');
+                  }}
+                  placeholder={isMerchant ? 'Contoh: warung@gmail.com atau 08123456789' : 'Contoh: driver@gmail.com atau 08123456789'}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-10 pr-4 py-3 text-xs sm:text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:border-emerald-600 focus:bg-white transition-colors"
+                />
+              </div>
             </div>
 
             <div>
-              <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
-                Kata Sandi
+              <label 
+                htmlFor="portal-login-password"
+                className="block text-[11px] font-bold text-slate-700 uppercase tracking-wider mb-1.5"
+              >
+                Kata Sandi Akun
               </label>
               <div className="relative">
+                <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                 <input
                   id="portal-login-password"
                   type={showLoginPassword ? 'text' : 'password'}
                   required
                   value={loginPassword}
-                  onChange={(e) => setLoginPassword(e.target.value)}
+                  onChange={(e) => {
+                    setLoginPassword(e.target.value);
+                    if (loginError) setLoginError('');
+                  }}
                   placeholder="Masukkan kata sandi akun Anda"
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-3.5 pr-10 py-3 text-xs sm:text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:border-emerald-600 focus:bg-white transition-colors"
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-10 pr-11 py-3 text-xs sm:text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:border-emerald-600 focus:bg-white transition-colors"
                 />
                 <button
                   type="button"
                   onClick={() => setShowLoginPassword(!showLoginPassword)}
                   className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-1 cursor-pointer"
+                  title={showLoginPassword ? 'Sembunyikan kata sandi' : 'Lihat kata sandi'}
                 >
                   {showLoginPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                 </button>
@@ -657,14 +807,14 @@ export default function PartnerPortalHub({
               disabled={loginLoading}
               className={`w-full py-3.5 text-white font-extrabold rounded-xl text-xs sm:text-sm flex items-center justify-center gap-2 shadow-md transition-all cursor-pointer ${
                 isMerchant
-                  ? 'bg-amber-600 hover:bg-amber-700 shadow-amber-600/20'
-                  : 'bg-emerald-600 hover:bg-emerald-700 shadow-emerald-600/20'
+                  ? 'bg-amber-600 hover:bg-amber-700 shadow-amber-600/20 active:bg-amber-800'
+                  : 'bg-emerald-600 hover:bg-emerald-700 shadow-emerald-600/20 active:bg-emerald-800'
               } disabled:opacity-60`}
             >
               {loginLoading ? (
                 <>
                   <Loader2 className="w-4 h-4 animate-spin" />
-                  <span>Memverifikasi Akun...</span>
+                  <span>Memverifikasi Kredensial...</span>
                 </>
               ) : (
                 <>
@@ -678,7 +828,7 @@ export default function PartnerPortalHub({
           {/* Quick Switch to Register */}
           <div className="pt-4 border-t border-slate-100 text-center">
             <p className="text-xs text-slate-500">
-              Belum memiliki akun {isMerchant ? 'toko' : 'kurir'}?{' '}
+              Belum punya akun {isMerchant ? 'mitra toko' : 'mitra kurir'}?{' '}
               <button
                 type="button"
                 onClick={() => {
@@ -688,7 +838,7 @@ export default function PartnerPortalHub({
                 }}
                 className="font-extrabold text-emerald-700 hover:underline cursor-pointer"
               >
-                Daftar Sebagai Mitra Baru
+                Daftar Sekarang
               </button>
             </p>
           </div>
@@ -697,50 +847,36 @@ export default function PartnerPortalHub({
     );
   }
 
-  // =============================================================
-  // RENDER LEVEL 3B: ALUR DAFTAR (FORMULIR PENDAFTARAN RESMI)
-  // =============================================================
-  const isMerchant = selectedRole === 'MERCHANT';
-
+  // -------------------------------------------------------------
+  // LEVEL 3B: REGISTRATION FORM
+  // -------------------------------------------------------------
   return (
-    <div className="flex flex-col gap-5 pb-6 animate-fadeIn">
-      {/* Header Bar */}
-      <div className="flex items-center justify-between">
-        <button
-          type="button"
-          onClick={() => setStep('action_selection')}
-          className="inline-flex items-center gap-1.5 py-1.5 px-3 rounded-xl bg-white border border-slate-200 text-slate-600 hover:text-slate-900 text-xs font-bold transition-colors cursor-pointer"
-        >
-          <ArrowLeft className="w-4 h-4" />
-          <span>Kembali</span>
-        </button>
-        <span className="text-[11px] font-black uppercase tracking-wider text-slate-500">
-          Formulir {isMerchant ? 'Mitra Toko' : 'Mitra Kurir'}
-        </span>
-      </div>
+    <div className="flex flex-col gap-4 pb-6 animate-fadeIn">
+      {renderTopNav(() => setStep('action_selection'), 'Kembali')}
+      {renderRoleHeader()}
 
       {/* Success Notification */}
       {registerSuccess ? (
-        <div className="bg-white border border-emerald-200 rounded-3xl p-6 text-center shadow-lg flex flex-col items-center gap-4 animate-fadeIn">
-          <div className="w-16 h-16 rounded-2xl bg-emerald-50 text-emerald-600 border border-emerald-200 flex items-center justify-center shadow-sm">
+        <div className="bg-white border border-emerald-200/90 rounded-3xl p-6 sm:p-7 text-center shadow-md flex flex-col items-center gap-4 animate-fadeIn">
+          <div className="w-16 h-16 rounded-2xl bg-emerald-50 text-emerald-600 border border-emerald-200 flex items-center justify-center shadow-xs">
             <CheckCircle2 className="w-9 h-9" />
           </div>
           <div>
-            <h3 className="font-display font-extrabold text-lg text-slate-900">
+            <h2 className="font-display font-extrabold text-lg sm:text-xl text-slate-900">
               Pendaftaran Berhasil Dikirim!
-            </h3>
-            <p className="text-xs text-slate-600 leading-relaxed max-w-sm mx-auto mt-1.5">
+            </h2>
+            <p className="text-xs text-slate-600 leading-relaxed max-w-sm mx-auto mt-2">
               {registerSuccess}
             </p>
           </div>
 
-          <div className="bg-slate-50 border border-slate-200/80 rounded-2xl p-4 text-xs text-slate-600 text-left max-w-sm w-full space-y-1.5">
+          <div className="bg-slate-50 border border-slate-200/80 rounded-2xl p-4 text-xs text-slate-600 text-left max-w-sm w-full space-y-2">
             <p className="font-bold text-slate-800 flex items-center gap-1.5">
               <ShieldCheck className="w-4 h-4 text-emerald-600" />
               Langkah Selanjutnya:
             </p>
-            <p>1. Administrator TumpangGo akan meninjau data pendaftaran Anda.</p>
-            <p>2. Setelah akun Anda disetujui, Anda dapat langsung masuk melalui tombol Login.</p>
+            <p>1. Tim Administrator TumpangGo akan memverifikasi kelayakan data pendaftaran Anda.</p>
+            <p>2. Setelah disetujui, akun langsung aktif dan Anda dapat masuk melalui menu Login.</p>
           </div>
 
           <div className="flex flex-col sm:flex-row gap-2.5 w-full max-w-sm mt-2">
@@ -750,14 +886,14 @@ export default function PartnerPortalHub({
                 setStep('login');
                 setRegisterSuccess(null);
               }}
-              className="flex-1 py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold rounded-xl text-xs shadow-md transition-colors cursor-pointer"
+              className="flex-1 py-3.5 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold rounded-xl text-xs shadow-md transition-colors cursor-pointer"
             >
               Menuju Halaman Login
             </button>
             <button
               type="button"
               onClick={onBackToHome}
-              className="py-3 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-xs transition-colors cursor-pointer"
+              className="py-3.5 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-xs transition-colors cursor-pointer"
             >
               Kembali ke Beranda
             </button>
@@ -765,26 +901,19 @@ export default function PartnerPortalHub({
         </div>
       ) : (
         /* The Actual Registration Form */
-        <div className="bg-white border border-slate-200 rounded-3xl p-5 sm:p-6 shadow-sm flex flex-col gap-5">
-          <div className="flex items-center gap-3 pb-3 border-b border-slate-100">
-            <div className={`w-12 h-12 rounded-2xl flex items-center justify-center text-white shrink-0 ${
-              isMerchant ? 'bg-amber-600' : 'bg-emerald-600'
-            }`}>
-              <UserPlus className="w-6 h-6" />
-            </div>
-            <div>
-              <h3 className="font-display font-extrabold text-base sm:text-lg text-slate-900">
-                {isMerchant ? 'Pendaftaran Mitra Toko Kuliner' : 'Pendaftaran Mitra Kurir Pengantaran'}
-              </h3>
-              <p className="text-xs text-slate-500 mt-0.5">
-                Lengkapi data di bawah ini. Akun akan ditinjau dan disetujui oleh Administrator TumpangGo.
-              </p>
-            </div>
+        <div className="bg-white border border-slate-200/90 rounded-3xl p-5 sm:p-6 shadow-sm flex flex-col gap-5">
+          <div className="border-b border-slate-100 pb-3">
+            <h2 className="font-display font-extrabold text-base sm:text-lg text-slate-900">
+              Bergabung Menjadi Mitra TumpangGo
+            </h2>
+            <p className="text-xs text-slate-500 mt-1 leading-relaxed">
+              Daftarkan {isMerchant ? 'usaha kuliner Anda' : 'diri dan armada Anda'} untuk bergabung dengan ekosistem digital TumpangGo.
+            </p>
           </div>
 
           {/* Error Message */}
           {registerError && (
-            <div className="bg-rose-50 border border-rose-200 rounded-2xl p-4 text-xs text-rose-800 flex items-start gap-2.5">
+            <div className="bg-rose-50 border-2 border-rose-300 rounded-2xl p-4 text-xs text-rose-800 flex items-start gap-2.5 shadow-2xs">
               <AlertCircle className="w-5 h-5 text-rose-600 shrink-0 mt-0.5" />
               <div className="flex-1">
                 <p className="font-bold text-rose-950">Gagal Mengirim Formulir</p>
@@ -798,75 +927,87 @@ export default function PartnerPortalHub({
             <form onSubmit={handleMerchantRegisterSubmit} className="space-y-4">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                  <label htmlFor="merchant-reg-storename" className="block text-[11px] font-bold text-slate-700 uppercase tracking-wider mb-1.5">
                     Nama Usaha / Toko Kuliner *
                   </label>
-                  <input
-                    id="merchant-reg-storename"
-                    type="text"
-                    required
-                    value={mStoreName}
-                    onChange={(e) => setMStoreName(e.target.value)}
-                    placeholder="Contoh: Warung Barokah Mak Nyus"
-                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs text-slate-800 focus:outline-none focus:border-emerald-600 focus:bg-white"
-                  />
+                  <div className="relative">
+                    <Store className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                    <input
+                      id="merchant-reg-storename"
+                      type="text"
+                      required
+                      value={mStoreName}
+                      onChange={(e) => setMStoreName(e.target.value)}
+                      placeholder="Contoh: Warung Barokah Mak Nyus"
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-10 pr-3.5 py-2.5 text-xs text-slate-800 focus:outline-none focus:border-amber-600 focus:bg-white"
+                    />
+                  </div>
                 </div>
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                  <label htmlFor="merchant-reg-ownername" className="block text-[11px] font-bold text-slate-700 uppercase tracking-wider mb-1.5">
                     Nama Lengkap Pemilik Toko *
                   </label>
-                  <input
-                    id="merchant-reg-ownername"
-                    type="text"
-                    required
-                    value={mOwnerName}
-                    onChange={(e) => setMOwnerName(e.target.value)}
-                    placeholder="Contoh: Budi Santoso"
-                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs text-slate-800 focus:outline-none focus:border-emerald-600 focus:bg-white"
-                  />
+                  <div className="relative">
+                    <User className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                    <input
+                      id="merchant-reg-ownername"
+                      type="text"
+                      required
+                      value={mOwnerName}
+                      onChange={(e) => setMOwnerName(e.target.value)}
+                      placeholder="Contoh: Budi Santoso"
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-10 pr-3.5 py-2.5 text-xs text-slate-800 focus:outline-none focus:border-amber-600 focus:bg-white"
+                    />
+                  </div>
                 </div>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                  <label htmlFor="merchant-reg-phone" className="block text-[11px] font-bold text-slate-700 uppercase tracking-wider mb-1.5">
                     Nomor WhatsApp Aktif *
                   </label>
-                  <input
-                    id="merchant-reg-phone"
-                    type="tel"
-                    required
-                    value={mPhone}
-                    onChange={(e) => setMPhone(e.target.value)}
-                    placeholder="Contoh: 081298765432"
-                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs text-slate-800 focus:outline-none focus:border-emerald-600 focus:bg-white"
-                  />
+                  <div className="relative">
+                    <Phone className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                    <input
+                      id="merchant-reg-phone"
+                      type="tel"
+                      required
+                      value={mPhone}
+                      onChange={(e) => setMPhone(e.target.value)}
+                      placeholder="Contoh: 081298765432"
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-10 pr-3.5 py-2.5 text-xs text-slate-800 focus:outline-none focus:border-amber-600 focus:bg-white"
+                    />
+                  </div>
                 </div>
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                  <label htmlFor="merchant-reg-email" className="block text-[11px] font-bold text-slate-700 uppercase tracking-wider mb-1.5">
                     Alamat Email Toko *
                   </label>
-                  <input
-                    id="merchant-reg-email"
-                    type="email"
-                    required
-                    value={mEmail}
-                    onChange={(e) => setMEmail(e.target.value)}
-                    placeholder="Contoh: warungbarokah@gmail.com"
-                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs text-slate-800 focus:outline-none focus:border-emerald-600 focus:bg-white"
-                  />
+                  <div className="relative">
+                    <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                    <input
+                      id="merchant-reg-email"
+                      type="email"
+                      required
+                      value={mEmail}
+                      onChange={(e) => setMEmail(e.target.value)}
+                      placeholder="Contoh: warungbarokah@gmail.com"
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-10 pr-3.5 py-2.5 text-xs text-slate-800 focus:outline-none focus:border-amber-600 focus:bg-white"
+                    />
+                  </div>
                 </div>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                  <label className="block text-[11px] font-bold text-slate-700 uppercase tracking-wider mb-1.5">
                     Kategori Kuliner *
                   </label>
                   <select
                     value={mCategory}
                     onChange={(e) => setMCategory(e.target.value)}
-                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs text-slate-800 focus:outline-none focus:border-emerald-600 focus:bg-white"
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs text-slate-800 focus:outline-none focus:border-amber-600 focus:bg-white"
                   >
                     <option value="Nasi & Lauk">Nasi & Lauk</option>
                     <option value="Bakso & Mie">Bakso & Mie</option>
@@ -876,28 +1017,32 @@ export default function PartnerPortalHub({
                   </select>
                 </div>
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                  <label htmlFor="merchant-reg-address" className="block text-[11px] font-bold text-slate-700 uppercase tracking-wider mb-1.5">
                     Alamat Lengkap Toko (Kecamatan Tumpang) *
                   </label>
-                  <input
-                    id="merchant-reg-address"
-                    type="text"
-                    required
-                    value={mAddress}
-                    onChange={(e) => setMAddress(e.target.value)}
-                    placeholder="Contoh: Jl. Raya Tumpang No. 45, Malang"
-                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs text-slate-800 focus:outline-none focus:border-emerald-600 focus:bg-white"
-                  />
+                  <div className="relative">
+                    <MapPin className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                    <input
+                      id="merchant-reg-address"
+                      type="text"
+                      required
+                      value={mAddress}
+                      onChange={(e) => setMAddress(e.target.value)}
+                      placeholder="Contoh: Jl. Raya Tumpang No. 45, Malang"
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-10 pr-3.5 py-2.5 text-xs text-slate-800 focus:outline-none focus:border-amber-600 focus:bg-white"
+                    />
+                  </div>
                 </div>
               </div>
 
               {/* Password */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 border-t border-slate-100 pt-3">
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                  <label htmlFor="merchant-reg-password" className="block text-[11px] font-bold text-slate-700 uppercase tracking-wider mb-1.5">
                     Kata Sandi Akun Toko *
                   </label>
                   <div className="relative">
+                    <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                     <input
                       id="merchant-reg-password"
                       type={mShowPassword ? 'text' : 'password'}
@@ -905,64 +1050,68 @@ export default function PartnerPortalHub({
                       value={mPassword}
                       onChange={(e) => setMPassword(e.target.value)}
                       placeholder="Minimal 6 karakter"
-                      className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-3.5 pr-10 py-2.5 text-xs text-slate-800 focus:outline-none focus:border-emerald-600 focus:bg-white"
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-10 pr-10 py-2.5 text-xs text-slate-800 focus:outline-none focus:border-amber-600 focus:bg-white"
                     />
                     <button
                       type="button"
                       onClick={() => setMShowPassword(!mShowPassword)}
                       className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 p-1"
+                      title={mShowPassword ? 'Sembunyikan' : 'Tampilkan'}
                     >
                       {mShowPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
                     </button>
                   </div>
                 </div>
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                  <label htmlFor="merchant-reg-confirm-password" className="block text-[11px] font-bold text-slate-700 uppercase tracking-wider mb-1.5">
                     Konfirmasi Kata Sandi *
                   </label>
-                  <input
-                    id="merchant-reg-confirm-password"
-                    type={mShowPassword ? 'text' : 'password'}
-                    required
-                    value={mConfirmPassword}
-                    onChange={(e) => setMConfirmPassword(e.target.value)}
-                    placeholder="Ketik ulang kata sandi"
-                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs text-slate-800 focus:outline-none focus:border-emerald-600 focus:bg-white"
-                  />
+                  <div className="relative">
+                    <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                    <input
+                      id="merchant-reg-confirm-password"
+                      type={mShowPassword ? 'text' : 'password'}
+                      required
+                      value={mConfirmPassword}
+                      onChange={(e) => setMConfirmPassword(e.target.value)}
+                      placeholder="Ketik ulang kata sandi"
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-10 pr-3.5 py-2.5 text-xs text-slate-800 focus:outline-none focus:border-amber-600 focus:bg-white"
+                    />
+                  </div>
                 </div>
               </div>
 
               {/* Optional Photos */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 border-t border-slate-100 pt-3">
                 <div>
-                  <span className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                  <span className="block text-[11px] font-bold text-slate-700 uppercase tracking-wider mb-1.5">
                     Foto Tempat Usaha (Opsional)
                   </span>
-                  <label className="border-2 border-dashed border-slate-200 hover:border-emerald-500 bg-slate-50 rounded-xl p-3 flex items-center gap-2.5 cursor-pointer text-xs transition-colors">
+                  <label className="border-2 border-dashed border-slate-200 hover:border-amber-500 bg-slate-50 rounded-xl p-3 flex items-center gap-2.5 cursor-pointer text-xs transition-colors">
                     <input
                       type="file"
                       accept="image/*"
                       onChange={(e) => handlePhotoUpload(e, setMBusinessPhoto)}
                       className="hidden"
                     />
-                    <Camera className="w-5 h-5 text-slate-400" />
+                    <Camera className="w-5 h-5 text-slate-400 shrink-0" />
                     <span className="truncate text-slate-600">
                       {mBusinessPhoto ? 'Foto dipilih (Klik untuk ganti)' : 'Unggah foto tempat usaha'}
                     </span>
                   </label>
                 </div>
                 <div>
-                  <span className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                  <span className="block text-[11px] font-bold text-slate-700 uppercase tracking-wider mb-1.5">
                     Foto KTP Pemilik (Opsional)
                   </span>
-                  <label className="border-2 border-dashed border-slate-200 hover:border-emerald-500 bg-slate-50 rounded-xl p-3 flex items-center gap-2.5 cursor-pointer text-xs transition-colors">
+                  <label className="border-2 border-dashed border-slate-200 hover:border-amber-500 bg-slate-50 rounded-xl p-3 flex items-center gap-2.5 cursor-pointer text-xs transition-colors">
                     <input
                       type="file"
                       accept="image/*"
                       onChange={(e) => handlePhotoUpload(e, setMIdPhoto)}
                       className="hidden"
                     />
-                    <Camera className="w-5 h-5 text-slate-400" />
+                    <Camera className="w-5 h-5 text-slate-400 shrink-0" />
                     <span className="truncate text-slate-600">
                       {mIdPhoto ? 'Foto KTP dipilih (Klik untuk ganti)' : 'Unggah foto identitas / KTP'}
                     </span>
@@ -977,7 +1126,7 @@ export default function PartnerPortalHub({
                   type="checkbox"
                   checked={mAgreeTerms}
                   onChange={(e) => setMAgreeTerms(e.target.checked)}
-                  className="w-4 h-4 mt-0.5 rounded text-emerald-600 focus:ring-emerald-500 border-slate-300 accent-emerald-600 cursor-pointer"
+                  className="w-4 h-4 mt-0.5 rounded text-amber-600 focus:ring-amber-500 border-slate-300 accent-amber-600 cursor-pointer"
                 />
                 <label htmlFor="merchant-agree-terms" className="text-xs text-slate-600 leading-relaxed cursor-pointer">
                   Saya menyatakan bahwa data yang diisi adalah benar dan menyetujui seluruh ketentuan kemitraan UMKM TumpangGo.
@@ -1008,51 +1157,60 @@ export default function PartnerPortalHub({
             <form onSubmit={handleDriverRegisterSubmit} className="space-y-4">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                  <label htmlFor="driver-reg-name" className="block text-[11px] font-bold text-slate-700 uppercase tracking-wider mb-1.5">
                     Nama Lengkap Kurir / Driver *
                   </label>
-                  <input
-                    id="driver-reg-name"
-                    type="text"
-                    required
-                    value={dName}
-                    onChange={(e) => setDName(e.target.value)}
-                    placeholder="Contoh: Rian Pratama"
-                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs text-slate-800 focus:outline-none focus:border-emerald-600 focus:bg-white"
-                  />
+                  <div className="relative">
+                    <User className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                    <input
+                      id="driver-reg-name"
+                      type="text"
+                      required
+                      value={dName}
+                      onChange={(e) => setDName(e.target.value)}
+                      placeholder="Contoh: Rian Pratama"
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-10 pr-3.5 py-2.5 text-xs text-slate-800 focus:outline-none focus:border-emerald-600 focus:bg-white"
+                    />
+                  </div>
                 </div>
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                  <label htmlFor="driver-reg-phone" className="block text-[11px] font-bold text-slate-700 uppercase tracking-wider mb-1.5">
                     Nomor WhatsApp Aktif *
                   </label>
-                  <input
-                    id="driver-reg-phone"
-                    type="tel"
-                    required
-                    value={dPhone}
-                    onChange={(e) => setDPhone(e.target.value)}
-                    placeholder="Contoh: 081298765432"
-                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs text-slate-800 focus:outline-none focus:border-emerald-600 focus:bg-white"
-                  />
+                  <div className="relative">
+                    <Phone className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                    <input
+                      id="driver-reg-phone"
+                      type="tel"
+                      required
+                      value={dPhone}
+                      onChange={(e) => setDPhone(e.target.value)}
+                      placeholder="Contoh: 081298765432"
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-10 pr-3.5 py-2.5 text-xs text-slate-800 focus:outline-none focus:border-emerald-600 focus:bg-white"
+                    />
+                  </div>
                 </div>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                  <label htmlFor="driver-reg-email" className="block text-[11px] font-bold text-slate-700 uppercase tracking-wider mb-1.5">
                     Alamat Email (Untuk Login)
                   </label>
-                  <input
-                    id="driver-reg-email"
-                    type="email"
-                    value={dEmail}
-                    onChange={(e) => setDEmail(e.target.value)}
-                    placeholder="Contoh: driver.rian@gmail.com"
-                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs text-slate-800 focus:outline-none focus:border-emerald-600 focus:bg-white"
-                  />
+                  <div className="relative">
+                    <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                    <input
+                      id="driver-reg-email"
+                      type="email"
+                      value={dEmail}
+                      onChange={(e) => setDEmail(e.target.value)}
+                      placeholder="Contoh: driver.rian@gmail.com"
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-10 pr-3.5 py-2.5 text-xs text-slate-800 focus:outline-none focus:border-emerald-600 focus:bg-white"
+                    />
+                  </div>
                 </div>
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                  <label className="block text-[11px] font-bold text-slate-700 uppercase tracking-wider mb-1.5">
                     Jenis Armada Kendaraan *
                   </label>
                   <select
@@ -1068,42 +1226,49 @@ export default function PartnerPortalHub({
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                  <label htmlFor="driver-reg-platenumber" className="block text-[11px] font-bold text-slate-700 uppercase tracking-wider mb-1.5">
                     Nomor Plat Kendaraan *
                   </label>
-                  <input
-                    id="driver-reg-platenumber"
-                    type="text"
-                    required
-                    value={dPlateNumber}
-                    onChange={(e) => setDPlateNumber(e.target.value)}
-                    placeholder="Contoh: N 5432 AB"
-                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs text-slate-800 focus:outline-none focus:border-emerald-600 focus:bg-white"
-                  />
+                  <div className="relative">
+                    <Car className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                    <input
+                      id="driver-reg-platenumber"
+                      type="text"
+                      required
+                      value={dPlateNumber}
+                      onChange={(e) => setDPlateNumber(e.target.value)}
+                      placeholder="Contoh: N 5432 AB"
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-10 pr-3.5 py-2.5 text-xs text-slate-800 focus:outline-none focus:border-emerald-600 focus:bg-white"
+                    />
+                  </div>
                 </div>
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                  <label htmlFor="driver-reg-operatingarea" className="block text-[11px] font-bold text-slate-700 uppercase tracking-wider mb-1.5">
                     Wilayah Operasional *
                   </label>
-                  <input
-                    id="driver-reg-operatingarea"
-                    type="text"
-                    required
-                    value={dOperatingArea}
-                    onChange={(e) => setDOperatingArea(e.target.value)}
-                    placeholder="Kecamatan Tumpang & Sekitarnya"
-                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs text-slate-800 focus:outline-none focus:border-emerald-600 focus:bg-white"
-                  />
+                  <div className="relative">
+                    <MapPin className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                    <input
+                      id="driver-reg-operatingarea"
+                      type="text"
+                      required
+                      value={dOperatingArea}
+                      onChange={(e) => setDOperatingArea(e.target.value)}
+                      placeholder="Kecamatan Tumpang & Sekitarnya"
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-10 pr-3.5 py-2.5 text-xs text-slate-800 focus:outline-none focus:border-emerald-600 focus:bg-white"
+                    />
+                  </div>
                 </div>
               </div>
 
               {/* Password */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 border-t border-slate-100 pt-3">
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                  <label htmlFor="driver-reg-password" className="block text-[11px] font-bold text-slate-700 uppercase tracking-wider mb-1.5">
                     Kata Sandi Akun Kurir *
                   </label>
                   <div className="relative">
+                    <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                     <input
                       id="driver-reg-password"
                       type={dShowPassword ? 'text' : 'password'}
@@ -1111,37 +1276,41 @@ export default function PartnerPortalHub({
                       value={dPassword}
                       onChange={(e) => setDPassword(e.target.value)}
                       placeholder="Minimal 6 karakter"
-                      className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-3.5 pr-10 py-2.5 text-xs text-slate-800 focus:outline-none focus:border-emerald-600 focus:bg-white"
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-10 pr-10 py-2.5 text-xs text-slate-800 focus:outline-none focus:border-emerald-600 focus:bg-white"
                     />
                     <button
                       type="button"
                       onClick={() => setDShowPassword(!dShowPassword)}
                       className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 p-1"
+                      title={dShowPassword ? 'Sembunyikan' : 'Tampilkan'}
                     >
                       {dShowPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
                     </button>
                   </div>
                 </div>
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                  <label htmlFor="driver-reg-confirm-password" className="block text-[11px] font-bold text-slate-700 uppercase tracking-wider mb-1.5">
                     Konfirmasi Kata Sandi *
                   </label>
-                  <input
-                    id="driver-reg-confirm-password"
-                    type={dShowPassword ? 'text' : 'password'}
-                    required
-                    value={dConfirmPassword}
-                    onChange={(e) => setDConfirmPassword(e.target.value)}
-                    placeholder="Ketik ulang kata sandi"
-                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs text-slate-800 focus:outline-none focus:border-emerald-600 focus:bg-white"
-                  />
+                  <div className="relative">
+                    <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                    <input
+                      id="driver-reg-confirm-password"
+                      type={dShowPassword ? 'text' : 'password'}
+                      required
+                      value={dConfirmPassword}
+                      onChange={(e) => setDConfirmPassword(e.target.value)}
+                      placeholder="Ketik ulang kata sandi"
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-10 pr-3.5 py-2.5 text-xs text-slate-800 focus:outline-none focus:border-emerald-600 focus:bg-white"
+                    />
+                  </div>
                 </div>
               </div>
 
               {/* Optional Photos */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 border-t border-slate-100 pt-3">
                 <div>
-                  <span className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                  <span className="block text-[11px] font-bold text-slate-700 uppercase tracking-wider mb-1.5">
                     Foto Kendaraan (Opsional)
                   </span>
                   <label className="border-2 border-dashed border-slate-200 hover:border-emerald-500 bg-slate-50 rounded-xl p-3 flex items-center gap-2.5 cursor-pointer text-xs transition-colors">
@@ -1151,14 +1320,14 @@ export default function PartnerPortalHub({
                       onChange={(e) => handlePhotoUpload(e, setDVehiclePhoto)}
                       className="hidden"
                     />
-                    <Camera className="w-5 h-5 text-slate-400" />
+                    <Camera className="w-5 h-5 text-slate-400 shrink-0" />
                     <span className="truncate text-slate-600">
                       {dVehiclePhoto ? 'Foto kendaraan dipilih' : 'Unggah foto kendaraan'}
                     </span>
                   </label>
                 </div>
                 <div>
-                  <span className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                  <span className="block text-[11px] font-bold text-slate-700 uppercase tracking-wider mb-1.5">
                     Foto SIM / KTP (Opsional)
                   </span>
                   <label className="border-2 border-dashed border-slate-200 hover:border-emerald-500 bg-slate-50 rounded-xl p-3 flex items-center gap-2.5 cursor-pointer text-xs transition-colors">
@@ -1168,7 +1337,7 @@ export default function PartnerPortalHub({
                       onChange={(e) => handlePhotoUpload(e, setDSimPhoto)}
                       className="hidden"
                     />
-                    <Camera className="w-5 h-5 text-slate-400" />
+                    <Camera className="w-5 h-5 text-slate-400 shrink-0" />
                     <span className="truncate text-slate-600">
                       {dSimPhoto ? 'Foto SIM dipilih' : 'Unggah foto SIM / KTP'}
                     </span>
@@ -1224,7 +1393,7 @@ export default function PartnerPortalHub({
                 }}
                 className="font-extrabold text-emerald-700 hover:underline cursor-pointer"
               >
-                Masuk ke Halaman Login
+                Login di sini
               </button>
             </p>
           </div>

@@ -1091,8 +1091,12 @@ export default function AdminView({ onLogout, systemConfig, onUpdateConfig, onSe
                               <span>Rp {order.subtotal.toLocaleString('id-ID')}</span>
                             </div>
                             <div className="flex justify-between text-slate-500 text-[11px]">
-                              <span>Ongkir + Biaya Layanan</span>
-                              <span>Rp {(order.deliveryFee + order.serviceFee).toLocaleString('id-ID')}</span>
+                              <span>Ongkir (Flat Kec. Tumpang)</span>
+                              <span>Rp {order.deliveryFee.toLocaleString('id-ID')}</span>
+                            </div>
+                            <div className="flex justify-between text-slate-500 text-[11px]">
+                              <span>Biaya Layanan</span>
+                              <span>Rp {order.serviceFee.toLocaleString('id-ID')}</span>
                             </div>
                             <div className="flex justify-between text-amber-700 font-bold text-[11px]">
                               <span>Kode Unik Verifikasi</span>
