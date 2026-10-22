@@ -172,7 +172,7 @@ async function runVerification() {
     },
     body: JSON.stringify({
       status: OrderStatus.COOKING,
-      cookingTimeMinutes: 20,
+      cookingTimeMinutes: 30,
       role: 'MERCHANT',
       userId: 'm1'
     })

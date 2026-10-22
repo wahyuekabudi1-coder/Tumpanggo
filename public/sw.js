@@ -3,15 +3,18 @@
  * SPDX-License-Identifier: Apache-2.0
  * 
  * TumpangGo Service Worker
- * Secure static asset caching & offline shell for Driver & Customer PWA.
+ * Secure static asset caching & offline shell for Customer, Merchant & Driver PWA.
+ * Includes Web Push notification handling when dashboard/app is in background.
  * Strictly bypasses API requests, authentication, and QRIS endpoints to prevent stale data.
  */
 
-const CACHE_NAME = 'tumpanggo-pwa-v10';
+const CACHE_NAME = 'tumpanggo-pwa-v11';
 const STATIC_ASSETS = [
   '/',
   '/index.html',
   '/manifest.json',
+  '/manifest-merchant.json',
+  '/manifest-driver.json',
   '/pwa-192x192.png',
   '/pwa-512x512.png',
   '/pwa-maskable-512x512.png',
@@ -104,5 +107,67 @@ self.addEventListener('fetch', (event) => {
           }
         });
       })
+  );
+});
+
+// =========================================================================
+// WEB PUSH NOTIFICATION LISTENERS (Merchant & Driver Background Alerts)
+// =========================================================================
+
+self.addEventListener('push', (event) => {
+  let data = {};
+  if (event.data) {
+    try {
+      data = event.data.json();
+    } catch {
+      data = { title: 'TumpangGo', body: event.data.text() };
+    }
+  }
+
+  const title = data.title || 'Pesanan Baru TumpangGo!';
+  const options = {
+    body: data.body || 'Ada pesanan baru yang siap diproses di dapur Anda.',
+    icon: '/pwa-192x192.png',
+    badge: '/favicon.svg',
+    tag: data.tag || 'tumpanggo-order-' + Date.now(),
+    vibrate: [300, 150, 300, 150, 450],
+    requireInteraction: true,
+    data: {
+      url: data.url || (data.role === 'DRIVER' ? '/?role=DRIVER' : '/?role=MERCHANT'),
+      timestamp: Date.now()
+    },
+    actions: [
+      { action: 'open', title: 'Buka Pesanan' },
+      { action: 'dismiss', title: 'Tutup' }
+    ]
+  };
+
+  event.waitUntil(
+    self.registration.showNotification(title, options)
+  );
+});
+
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+
+  if (event.action === 'dismiss') {
+    return;
+  }
+
+  const targetUrl = (event.notification.data && event.notification.data.url) || '/';
+
+  event.waitUntil(
+    clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
+      // If a window is already open at matching URL, focus it
+      for (const client of clientList) {
+        if (client.url && client.url.includes(targetUrl.split('?')[0]) && 'focus' in client) {
+          return client.focus();
+        }
+      }
+      // Otherwise open a new window
+      if (clients.openWindow) {
+        return clients.openWindow(targetUrl);
+      }
+    })
   );
 });

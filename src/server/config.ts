@@ -384,3 +384,23 @@ export const artopayConfig = {
   defaultExpiryMinutes: 15
 };
 
+// --- WEB PUSH VAPID CONFIGURATION ---
+// Default stable VAPID keypair for resilient development & production override
+const DEFAULT_VAPID_PUBLIC_KEY = 'BEuS1NHSG0NnOTTmUk3sW77YGpZVvPkiedLernPntUDsmgE1zGT5O1I3VjP0lgtsETjI2PgRxJvMTKTWoaxqYWM';
+const DEFAULT_VAPID_PRIVATE_KEY = 'p100JN70gOKnd9VOPRl9HaK6ntLmZXA_VwcA9IH2B5M';
+
+export const vapidConfig = {
+  get publicKey(): string {
+    return cleanEnvSecret(process.env.VAPID_PUBLIC_KEY, DEFAULT_VAPID_PUBLIC_KEY);
+  },
+  get privateKey(): string {
+    return cleanEnvSecret(process.env.VAPID_PRIVATE_KEY, DEFAULT_VAPID_PRIVATE_KEY);
+  },
+  get subject(): string {
+    return (process.env.VAPID_SUBJECT || 'mailto:admin@tumpanggo.com').trim();
+  },
+  get isConfigured(): boolean {
+    return Boolean(this.publicKey && this.privateKey);
+  }
+};
+

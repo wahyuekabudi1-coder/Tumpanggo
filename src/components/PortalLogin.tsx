@@ -8,6 +8,7 @@ import {
   CheckCircle, AlertCircle, Loader2, Phone, Bike, User, MapPin, Tag, ExternalLink,
   Eye, EyeOff, Key, X
 } from 'lucide-react';
+import { PWAInstallButton } from './PWAInstallButton.tsx';
 
 interface PortalLoginProps {
   role: 'ADMIN' | 'MERCHANT' | 'DRIVER';
@@ -703,6 +704,13 @@ export default function PortalLogin({ role, targetMerchantId, targetDriverId, in
                 </div>
               )}
             </form>
+          )}
+
+          {/* Role-Specific PWA Installation Option */}
+          {role !== 'ADMIN' && (
+            <div className="pt-2 border-t border-slate-100">
+              <PWAInstallButton role={role} />
+            </div>
           )}
 
         </div>

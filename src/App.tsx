@@ -25,6 +25,17 @@ import { useSEO } from './hooks/useSEO.ts';
 export default function App() {
   const [currentRole, setCurrentRole] = useState<'CUSTOMER' | 'MERCHANT' | 'DRIVER' | 'ADMIN' | 'SHOP_ADMIN'>(() => {
     if (typeof window !== 'undefined') {
+      const pathname = window.location.pathname.toLowerCase();
+      if (pathname === '/merchant' || pathname.startsWith('/merchant/')) {
+        return 'MERCHANT';
+      }
+      if (pathname === '/driver' || pathname.startsWith('/driver/')) {
+        return 'DRIVER';
+      }
+      if (pathname === '/admin' || pathname.startsWith('/admin/')) {
+        return 'ADMIN';
+      }
+
       const params = new URLSearchParams(window.location.search);
       const roleParam = params.get('role')?.toUpperCase();
       if (roleParam && ['CUSTOMER', 'MERCHANT', 'DRIVER', 'ADMIN', 'SHOP_ADMIN'].includes(roleParam)) {
@@ -53,6 +64,25 @@ export default function App() {
           ? 'Shop Admin – TumpangGo Internal'
           : undefined
   });
+
+  // Dynamic PWA Manifest Synchronization based on active role
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+    let link = document.querySelector<HTMLLinkElement>('link[rel="manifest"]');
+    if (!link) {
+      link = document.createElement('link');
+      link.rel = 'manifest';
+      document.head.appendChild(link);
+    }
+    const manifestHref = currentRole === 'MERCHANT'
+      ? '/manifest-merchant.json'
+      : currentRole === 'DRIVER'
+        ? '/manifest-driver.json'
+        : '/manifest.json';
+    if (link.getAttribute('href') !== manifestHref) {
+      link.setAttribute('href', manifestHref);
+    }
+  }, [currentRole]);
   const [activeMerchantId, setActiveMerchantId] = useState<string>(() => safeStorage.getItem('tumpang_active_merchant_id') || '');
   const [activeDriverId, setActiveDriverId] = useState<string>(() => safeStorage.getItem('tumpang_active_driver_id') || '');
   const [merchantPortalTab, setMerchantPortalTab] = useState<'login' | 'register'>('login');

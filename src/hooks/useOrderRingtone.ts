@@ -4,26 +4,54 @@
  * 
  * Hook for managing new incoming order ringtone alerts in TumpangGo Food Merchant.
  * Features:
- * - Deduplication: records existing order IDs on initial mount so old orders don't ring
- * - Automatically rings when a NEW order with PAYMENT_VERIFIED status arrives
+ * - Strict Deduplication:
+ *   - Seeds known order IDs on initial mount & persists them to safeStorage so refreshes do NOT ring
+ *   - Status changes or existing orders never trigger mass ringing
+ * - Automatically rings phone call cadence when a NEW order with PAYMENT_VERIFIED status arrives
  * - Automatically stops when the order is handled (moved to COOKING/READY/CANCELLED)
  * - Auto-unlocks AudioContext on user first interaction
- * - Provides dismiss/mute/unmute controls
+ * - Provides dismiss/mute/unmute and sound test controls
  */
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { Order, OrderStatus } from '../types.ts';
 import { orderRingtone } from '../utils/orderRingtone.ts';
+import { safeStorage } from '../utils/safeStorage.ts';
 
-export function useOrderRingtone(orders: Order[]) {
+const SEEN_ORDERS_STORAGE_KEY = 'tumpang_seen_order_ids';
+
+export function useOrderRingtone(orders: Order[], isLoaded: boolean = true) {
   const [isRinging, setIsRinging] = useState<boolean>(() => orderRingtone.isRinging());
   const [isMuted, setIsMuted] = useState<boolean>(() => orderRingtone.isMuted());
   const [isAudioUnlocked, setIsAudioUnlocked] = useState<boolean>(() => orderRingtone.isUnlocked());
   const [activeAlertOrderId, setActiveAlertOrderId] = useState<string | null>(null);
 
   // Set of known order IDs that have already been seen/processed
-  const knownOrderIdsRef = useRef<Set<string>>(new Set());
+  const knownOrderIdsRef = useRef<Set<string>>(
+    (() => {
+      const set = new Set<string>();
+      try {
+        const saved = safeStorage.getItem(SEEN_ORDERS_STORAGE_KEY);
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          if (Array.isArray(parsed)) {
+            parsed.forEach((id: string) => set.add(id));
+          }
+        }
+      } catch {}
+      return set;
+    })()
+  );
+  
   const isInitialLoadDoneRef = useRef<boolean>(false);
+
+  // Helper to persist known IDs (keep up to 150 latest IDs)
+  const persistKnownIds = useCallback(() => {
+    try {
+      const arr = Array.from(knownOrderIdsRef.current).slice(-150);
+      safeStorage.setItem(SEEN_ORDERS_STORAGE_KEY, JSON.stringify(arr));
+    } catch {}
+  }, []);
 
   // Subscribe to audio player state
   useEffect(() => {
@@ -50,23 +78,25 @@ export function useOrderRingtone(orders: Order[]) {
     };
   }, []);
 
-  // Monitor incoming orders
+  // Monitor incoming orders with strict deduplication
   useEffect(() => {
     if (!orders || !Array.isArray(orders)) return;
 
-    // Filter incoming orders waiting for kitchen action
+    // Do nothing until initial data fetch completes
+    if (!isLoaded) return;
+
+    // Filter incoming orders that require kitchen attention (PAYMENT_VERIFIED)
     const incomingVerifiedOrders = orders.filter(
       o => o && o.status === OrderStatus.PAYMENT_VERIFIED
     );
 
     // Initial mount: record all currently existing orders without ringing
     if (!isInitialLoadDoneRef.current) {
-      if (orders.length > 0) {
-        orders.forEach(o => {
-          if (o?.id) knownOrderIdsRef.current.add(o.id);
-        });
-        isInitialLoadDoneRef.current = true;
-      }
+      orders.forEach(o => {
+        if (o?.id) knownOrderIdsRef.current.add(o.id);
+      });
+      isInitialLoadDoneRef.current = true;
+      persistKnownIds();
       return;
     }
 
@@ -80,6 +110,7 @@ export function useOrderRingtone(orders: Order[]) {
       const targetOrder = brandNewIncomingOrders[0];
       // Mark as seen so we don't re-trigger continuously
       brandNewIncomingOrders.forEach(o => knownOrderIdsRef.current.add(o.id));
+      persistKnownIds();
       setActiveAlertOrderId(targetOrder.id);
 
       // Start ringing telephone ringtone
@@ -95,7 +126,7 @@ export function useOrderRingtone(orders: Order[]) {
         }
       }
     }
-  }, [orders, activeAlertOrderId]);
+  }, [orders, isLoaded, activeAlertOrderId, persistKnownIds]);
 
   // Dismiss / silence current ring
   const dismissAlert = useCallback(() => {

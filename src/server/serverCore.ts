@@ -41,7 +41,7 @@ export async function startServer() {
     console.log('[TumpangFood Server] Starting Vite development server middleware...');
     const vite = await createViteServer({
       server: { middlewareMode: true, hmr: false },
-      appType: 'spa',
+      appType: 'custom',
     });
     
     // Serve public static assets (including qris-merchant.png) before Vite middlewares
@@ -69,6 +69,7 @@ export async function startServer() {
         const indexPath = path.resolve(process.cwd(), 'index.html');
         let template = fs.readFileSync(indexPath, 'utf-8');
         template = await vite.transformIndexHtml(url, template);
+        
         reloadEnv();
         const pubKey = artopayConfig.publicKey || '';
         const isSandbox = artopayConfig.environment !== 'production';
@@ -85,6 +86,13 @@ export async function startServer() {
           /<script id="arto-pay-sdk-script"[^>]*><\/script>\s*<script>[\s\S]*?<\/script>/,
           clientConfigScript
         );
+
+        const cleanUrl = url.toLowerCase();
+        const isMerchant = cleanUrl.startsWith('/merchant') || cleanUrl.includes('role=merchant');
+        const isDriver = cleanUrl.startsWith('/driver') || cleanUrl.includes('role=driver');
+        const manifestHref = isMerchant ? '/manifest-merchant.json' : (isDriver ? '/manifest-driver.json' : '/manifest.json');
+        template = template.replace(/<link rel="manifest" href="[^"]*"/, `<link rel="manifest" href="${manifestHref}"`);
+
         res.status(200).set({ 'Content-Type': 'text/html; charset=utf-8' }).end(template);
       } catch (e: any) {
         vite.ssrFixStacktrace(e);
@@ -124,6 +132,13 @@ export async function startServer() {
           /<script id="arto-pay-sdk-script"[^>]*><\/script>\s*<script>[\s\S]*?<\/script>/,
           clientConfigScript
         );
+
+        const cleanUrl = req.originalUrl.toLowerCase();
+        const isMerchant = cleanUrl.startsWith('/merchant') || cleanUrl.includes('role=merchant');
+        const isDriver = cleanUrl.startsWith('/driver') || cleanUrl.includes('role=driver');
+        const manifestHref = isMerchant ? '/manifest-merchant.json' : (isDriver ? '/manifest-driver.json' : '/manifest.json');
+        template = template.replace(/<link rel="manifest" href="[^"]*"/, `<link rel="manifest" href="${manifestHref}"`);
+
         res.status(200).set({ 'Content-Type': 'text/html; charset=utf-8' }).end(template);
       } catch {
         res.sendFile(path.join(distPath, 'index.html'));

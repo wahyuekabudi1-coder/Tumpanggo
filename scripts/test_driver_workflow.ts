@@ -134,11 +134,11 @@ async function runTests() {
 
   // 4. PWA COMPLIANCE & ASSETS VERIFICATION
   console.log('\n--- 4. Testing PWA Manifest & Icons ---');
-  const manifestRaw = fs.readFileSync('public/manifest.json', 'utf-8');
+  const manifestRaw = fs.readFileSync('public/manifest-driver.json', 'utf-8');
   const manifest = JSON.parse(manifestRaw);
 
   assert(manifest.name === 'TumpangGo Driver', 'Manifest name is "TumpangGo Driver"', manifest.name);
-  assert(manifest.short_name === 'TumpangGo', 'Manifest short_name is "TumpangGo"', manifest.short_name);
+  assert(manifest.short_name === 'TG Driver', 'Manifest short_name is "TG Driver"', manifest.short_name);
   assert(manifest.short_name.length <= 12, 'Manifest short_name length <= 12 chars');
   assert(manifest.display === 'standalone', 'Manifest display is "standalone"');
   assert(manifest.start_url === '/?role=DRIVER', 'Manifest start_url is "/?role=DRIVER"');
@@ -159,7 +159,7 @@ async function runTests() {
 
   // Verify service worker file exists and has bypass rules
   const swContent = fs.readFileSync('public/sw.js', 'utf-8');
-  assert(swContent.includes("CACHE_NAME = 'tumpanggo-pwa-v10'"), 'Service worker has cache versioning');
+  assert(swContent.includes("CACHE_NAME = 'tumpanggo-pwa-v11'"), 'Service worker has cache versioning');
   assert(swContent.includes("url.includes('/api/')"), 'Service worker strictly bypasses /api/ requests to prevent stale order data');
 
   console.log(`\n=== TEST RESULTS: ${passed} PASSED, ${failed} FAILED ===\n`);

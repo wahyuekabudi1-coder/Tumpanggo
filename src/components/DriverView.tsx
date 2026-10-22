@@ -7,12 +7,13 @@ import {
   Navigation, ShoppingBag, Eye, Phone, MapPin, ClipboardList, 
   User, LogOut, Check, ChevronRight, X, Image, RefreshCw, AlertCircle,
   Clock, CheckCircle2, MessageSquare, ExternalLink, ShieldCheck, Bike,
-  DollarSign, ChefHat, AlertTriangle
+  DollarSign, ChefHat, AlertTriangle, Bell
 } from 'lucide-react';
 import { useHiddenTrigger } from '../hooks/useHiddenTrigger.ts';
 import HiddenPortalBar from './HiddenPortalBar.tsx';
 import { useSEO } from '../hooks/useSEO.ts';
 import { PWAInstallButton } from './PWAInstallButton.tsx';
+import { useWebPush } from '../hooks/useWebPush.ts';
 import { OfflineIndicator } from './OfflineIndicator.tsx';
 import { useOnlineStatus } from '../hooks/useOnlineStatus.ts';
 import { 
@@ -55,6 +56,16 @@ export default function DriverView({ driverId, onLogout, onSelectRole }: DriverV
   const [actionLoading, setActionLoading] = useState(false);
   const [toastMessage, setToastMessage] = useState<{ text: string; type: 'success' | 'error' | 'info' } | null>(null);
   const cookingNow = useCookingTicker();
+
+  const {
+    isSupported: isPushSupported,
+    isSubscribed: isPushSubscribed,
+    loading: pushLoading,
+    statusMessage: pushStatusMsg,
+    subscribe: subscribePush,
+    sendTestNotification: sendTestPush,
+    clearStatusMessage: clearPushStatusMsg
+  } = useWebPush('DRIVER', driver?.id || driverId);
 
   // References for zero-flicker state & async race condition prevention
   const selectedOrderIdRef = useRef<string | null>(null);
@@ -498,7 +509,35 @@ export default function DriverView({ driverId, onLogout, onSelectRole }: DriverV
       <main className="p-4 flex flex-col gap-4">
 
         {/* PWA Install Banner */}
-        <PWAInstallButton />
+        <PWAInstallButton role="DRIVER" />
+
+        {/* Web Push Background Notification Banner for Driver */}
+        {isPushSupported && !isPushSubscribed && (
+          <div className="bg-slate-900 text-white rounded-2xl p-3.5 flex items-center justify-between gap-2 shadow-xs">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <div className="p-2 bg-emerald-500/20 text-emerald-400 rounded-xl shrink-0">
+                <Bell className="w-4 h-4" />
+              </div>
+              <div className="flex flex-col min-w-0">
+                <span className="text-xs font-bold truncate">Pemberitahuan Tugas Antar</span>
+                <span className="text-[10px] text-slate-300">Dapatkan getar & notifikasi HP saat ada pesanan siap dijemput</span>
+              </div>
+            </div>
+            <button
+              onClick={subscribePush}
+              disabled={pushLoading}
+              className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold shrink-0 cursor-pointer transition-all"
+            >
+              {pushLoading ? '...' : 'Aktifkan'}
+            </button>
+          </div>
+        )}
+        {pushStatusMsg && (
+          <div className="bg-slate-800 text-white text-xs px-3.5 py-2 rounded-xl flex items-center justify-between shadow-xs">
+            <span>{pushStatusMsg}</span>
+            <button onClick={clearPushStatusMsg} className="text-slate-400 hover:text-white ml-2 text-xs">✕</button>
+          </div>
+        )}
 
         {/* TAB 1: DASHBOARD / TUGAS */}
         {activeTab === 'dashboard' && (

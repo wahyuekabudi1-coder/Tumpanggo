@@ -37,6 +37,22 @@ const LEGACY_DB_FILE = foodConfig.legacyDbFile;
 // Administrative Firestore set helper alias
 const safeFirestoreSetDoc = safeAdminSetDoc;
 
+export interface PushSubscriptionRecord {
+  id: string;
+  role: 'MERCHANT' | 'DRIVER' | 'CUSTOMER';
+  entityId: string;
+  subscription: {
+    endpoint: string;
+    keys: {
+      p256dh: string;
+      auth: string;
+    };
+  };
+  userAgent?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 interface DatabaseSchema {
   merchants: Merchant[];
   categories: Category[];
@@ -48,6 +64,7 @@ interface DatabaseSchema {
   systemConfig: SystemConfig;
   partnerRegistrations: PartnerRegistration[];
   testimonials: Testimonial[];
+  pushSubscriptions?: PushSubscriptionRecord[];
 }
 
 const initialConfig: SystemConfig = {
@@ -76,7 +93,8 @@ export class FoodDatabase {
       auditLogs: [],
       systemConfig: initialConfig,
       partnerRegistrations: [],
-      testimonials: []
+      testimonials: [],
+      pushSubscriptions: []
     };
     this.loadAndMigrate();
   }
@@ -241,6 +259,7 @@ export class FoodDatabase {
     if (!this.data.settlements) this.data.settlements = [];
     if (!this.data.partnerRegistrations) this.data.partnerRegistrations = [];
     if (!this.data.testimonials) this.data.testimonials = [];
+    if (!this.data.pushSubscriptions) this.data.pushSubscriptions = [];
     if (!this.data.systemConfig) {
       this.data.systemConfig = initialConfig;
     } else if (!this.data.systemConfig.qrisImage || this.data.systemConfig.qrisImage.includes('unsplash')) {
@@ -1787,6 +1806,13 @@ export class FoodDatabase {
     if (updates.status && updates.status !== prevStatus) {
       this.log(userId, `Updated order ${currentOrder.id} status from ${prevStatus} to ${updates.status}`, role);
 
+      // Trigger Web Push notification to Merchant if status transitioned to PAYMENT_VERIFIED
+      if (updates.status === OrderStatus.PAYMENT_VERIFIED) {
+        import('./services/pushService').then(m => {
+          m.pushService.notifyNewVerifiedOrder(this.data.orders[index]);
+        }).catch(() => {});
+      }
+
       // Auto-assign driver when payment is verified or ready for pickup if unassigned and configured
       if (
         (updates.status === OrderStatus.PAYMENT_VERIFIED || updates.status === OrderStatus.READY_FOR_PICKUP) &&
@@ -1797,6 +1823,13 @@ export class FoodDatabase {
       }
     } else {
       this.log(userId, `Updated order ${currentOrder.id} details`, role);
+    }
+
+    // Trigger Web Push notification to Driver if driverId was newly assigned
+    if (updates.driverId && updates.driverId !== currentOrder.driverId) {
+      import('./services/pushService').then(m => {
+        m.pushService.notifyDriverAssignedOrder(updates.driverId!, this.data.orders[index]);
+      }).catch(() => {});
     }
 
     if (foodConfig.isProduction) {
@@ -2552,6 +2585,33 @@ export class FoodDatabase {
       return true;
     }
     return false;
+  }
+
+  // --- WEB PUSH SUBSCRIPTIONS ---
+  public savePushSubscription(sub: PushSubscriptionRecord): void {
+    if (!this.data.pushSubscriptions) this.data.pushSubscriptions = [];
+    const idx = this.data.pushSubscriptions.findIndex(s => s.subscription.endpoint === sub.subscription.endpoint);
+    if (idx >= 0) {
+      this.data.pushSubscriptions[idx] = {
+        ...this.data.pushSubscriptions[idx],
+        ...sub,
+        updatedAt: new Date().toISOString()
+      };
+    } else {
+      this.data.pushSubscriptions.push(sub);
+    }
+    this.save();
+  }
+
+  public removePushSubscription(endpoint: string): void {
+    if (!this.data.pushSubscriptions) return;
+    this.data.pushSubscriptions = this.data.pushSubscriptions.filter(s => s.subscription.endpoint !== endpoint);
+    this.save();
+  }
+
+  public getPushSubscriptionsForEntity(role: 'MERCHANT' | 'DRIVER', entityId: string): PushSubscriptionRecord[] {
+    if (!this.data.pushSubscriptions) return [];
+    return this.data.pushSubscriptions.filter(s => s.role === role && s.entityId === entityId);
   }
 }
 

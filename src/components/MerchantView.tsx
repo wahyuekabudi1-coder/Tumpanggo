@@ -21,7 +21,8 @@ import {
   Settings, LogOut, Plus, Check, X, Edit, Trash2, Layers,
   Phone, MapPin, AlertCircle, ChefHat, PackageCheck, RefreshCw, Upload,
   QrCode, ZoomIn, Receipt, Search, ExternalLink, ArrowRight, ShieldCheck,
-  CheckCircle2, AlertTriangle, Eye, Calendar, Volume2, VolumeX, Bell, BellRing, BellOff
+  CheckCircle2, AlertTriangle, Eye, Calendar, Volume2, VolumeX, Bell, BellRing, BellOff,
+  Smartphone
 } from 'lucide-react';
 import { useHiddenTrigger } from '../hooks/useHiddenTrigger.ts';
 import HiddenPortalBar from './HiddenPortalBar.tsx';
@@ -35,6 +36,8 @@ import {
 } from '../utils/cookingTimer.ts';
 import { useCookingTicker } from '../hooks/useCookingCountdown.ts';
 import { useOrderRingtone } from '../hooks/useOrderRingtone.ts';
+import { PWAInstallButton } from './PWAInstallButton.tsx';
+import { useWebPush } from '../hooks/useWebPush.ts';
 
 function MerchantCookingCard({
   order,
@@ -245,7 +248,19 @@ export default function MerchantView({ merchantId: rawMerchantId, onLogout, onSe
     toggleMute,
     testRingtone,
     unlockAudio
-  } = useOrderRingtone(orders);
+  } = useOrderRingtone(orders, !loading);
+
+  const {
+    isSupported: isPushSupported,
+    permission: pushPermission,
+    isSubscribed: isPushSubscribed,
+    loading: pushLoading,
+    statusMessage: pushStatusMsg,
+    subscribe: subscribePush,
+    unsubscribe: unsubscribePush,
+    sendTestNotification: sendTestPush,
+    clearStatusMessage: clearPushStatusMsg
+  } = useWebPush('MERCHANT', effectiveMerchantId);
 
   // Menu editor states
   const [selectedMenuCategory, setSelectedMenuCategory] = useState<string>('ALL');
@@ -833,7 +848,57 @@ export default function MerchantView({ merchantId: rawMerchantId, onLogout, onSe
                 </>
               )}
             </div>
+
+            {/* Web Push Background Notification Toggle */}
+            {isPushSupported && (
+              <div className="pt-2 mt-2 border-t border-slate-200/60">
+                <div className="flex items-center justify-between text-[11px]">
+                  <span className="text-slate-600 font-semibold flex items-center gap-1">
+                    <span className={`w-1.5 h-1.5 rounded-full ${isPushSubscribed ? 'bg-emerald-500' : 'bg-slate-400'}`}></span>
+                    Push Latar Belakang:
+                  </span>
+                  <span className={`text-[10px] font-extrabold ${isPushSubscribed ? 'text-emerald-700' : 'text-slate-400'}`}>
+                    {isPushSubscribed ? 'Aktif' : 'Nonaktif'}
+                  </span>
+                </div>
+                <div className="flex items-center gap-1.5 mt-1.5">
+                  {!isPushSubscribed ? (
+                    <button
+                      type="button"
+                      onClick={subscribePush}
+                      disabled={pushLoading}
+                      className="w-full py-1 text-center font-bold text-[10px] bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg shadow-2xs cursor-pointer transition-all disabled:opacity-50"
+                    >
+                      {pushLoading ? 'Mengaktifkan...' : 'Aktifkan Notifikasi HP'}
+                    </button>
+                  ) : (
+                    <>
+                      <button
+                        type="button"
+                        onClick={sendTestPush}
+                        disabled={pushLoading}
+                        className="flex-1 py-1 text-center font-bold text-[10px] bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg cursor-pointer transition-all disabled:opacity-50"
+                      >
+                        {pushLoading ? '...' : 'Tes Push'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={unsubscribePush}
+                        disabled={pushLoading}
+                        className="py-1 px-2 text-center text-[10px] text-slate-400 hover:text-rose-600 cursor-pointer"
+                        title="Matikan notifikasi"
+                      >
+                        Matikan
+                      </button>
+                    </>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
+
+          {/* Secondary Desktop PWA Install Button */}
+          <PWAInstallButton role="MERCHANT" />
 
           {/* Navigation Menu (6 Tab Aktual) */}
           <nav className="space-y-1">
@@ -1021,6 +1086,35 @@ export default function MerchantView({ merchantId: rawMerchantId, onLogout, onSe
             </nav>
           </div>
         </header>
+
+        {/* Mobile Quick Action Banner (< md) for Web Push & PWA Installation */}
+        <div className="md:hidden px-4 pt-3 flex flex-col gap-2">
+          {isPushSupported && !isPushSubscribed && (
+            <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-2.5 flex items-center justify-between gap-2 shadow-2xs">
+              <div className="flex items-center gap-2 min-w-0">
+                <Bell className="w-4 h-4 text-emerald-700 shrink-0" />
+                <span className="text-[11px] font-bold text-emerald-950 truncate">
+                  Notifikasi saat layar HP mati
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={subscribePush}
+                disabled={pushLoading}
+                className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-[10px] font-extrabold shrink-0 cursor-pointer shadow-xs"
+              >
+                {pushLoading ? '...' : 'Aktifkan'}
+              </button>
+            </div>
+          )}
+          {pushStatusMsg && (
+            <div className="bg-slate-800 text-white text-[11px] px-3 py-1.5 rounded-xl flex items-center justify-between shadow-xs">
+              <span>{pushStatusMsg}</span>
+              <button type="button" onClick={clearPushStatusMsg} className="text-slate-400 hover:text-white ml-2 text-xs">✕</button>
+            </div>
+          )}
+          <PWAInstallButton role="MERCHANT" />
+        </div>
 
         {/* Desktop Top Bar (di atas area kanan) */}
         <header className="hidden md:flex bg-white border-b border-slate-200/80 px-6 lg:px-8 py-3.5 items-center justify-between sticky top-0 z-10 shadow-2xs">
@@ -2033,6 +2127,74 @@ export default function MerchantView({ merchantId: rawMerchantId, onLogout, onSe
 
               <div className="text-[10px] text-slate-400 pt-2 border-t border-slate-100">
                 Pencairan otomatis diproses oleh sistem TumpangGo ke rekening terdaftar.
+              </div>
+            </div>
+
+            {/* PWA & Notifikasi Push Settings Card */}
+            <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs space-y-4">
+              <div className="flex items-center gap-2.5 pb-3 border-b border-slate-100">
+                <div className="p-2 rounded-xl bg-emerald-50 text-emerald-700">
+                  <Smartphone className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="font-display font-bold text-sm text-slate-900">Aplikasi PWA & Notifikasi Toko</h3>
+                  <p className="text-[11px] text-slate-500">Pasang di layar utama HP dan aktifkan pemberitahuan pesanan masuk saat layar mati</p>
+                </div>
+              </div>
+
+              <div className="space-y-3">
+                <PWAInstallButton role="MERCHANT" />
+
+                {isPushSupported && (
+                  <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-2.5">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-slate-800 flex items-center gap-2">
+                        <Bell className="w-4 h-4 text-emerald-600" />
+                        Notifikasi Web Push (Latar Belakang)
+                      </span>
+                      <span className={`text-[10px] font-extrabold px-2 py-0.5 rounded-full ${isPushSubscribed ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-200 text-slate-600'}`}>
+                        {isPushSubscribed ? 'Aktif' : 'Nonaktif'}
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-500 leading-relaxed">
+                      Ketika aktif, Anda akan menerima getar dan pop-up notifikasi saat pesanan baru selesai diverifikasi admin, bahkan saat tab browser ini ditutup atau diminimize.
+                    </p>
+                    <div className="flex flex-wrap gap-2 pt-1">
+                      {!isPushSubscribed ? (
+                        <button
+                          type="button"
+                          onClick={subscribePush}
+                          disabled={pushLoading}
+                          className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-xs cursor-pointer"
+                        >
+                          {pushLoading ? 'Mengaktifkan...' : 'Aktifkan Notifikasi'}
+                        </button>
+                      ) : (
+                        <>
+                          <button
+                            type="button"
+                            onClick={sendTestPush}
+                            disabled={pushLoading}
+                            className="px-3.5 py-2 bg-white border border-slate-200 hover:bg-slate-100 text-slate-700 font-bold text-xs rounded-xl shadow-2xs cursor-pointer"
+                          >
+                            {pushLoading ? 'Mengirim...' : 'Kirim Tes Notifikasi'}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={unsubscribePush}
+                            disabled={pushLoading}
+                            className="px-3 py-2 bg-rose-50 text-rose-700 border border-rose-200 hover:bg-rose-100 font-bold text-xs rounded-xl cursor-pointer"
+                          >
+                            Matikan
+                          </button>
+                        </>
+                      )}
+                    </div>
+                    {pushStatusMsg && (
+                      <p className="text-xs font-semibold text-emerald-700 pt-1">{pushStatusMsg}</p>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
 

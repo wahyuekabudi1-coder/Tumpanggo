@@ -1,14 +1,14 @@
 {
-  "id": "/?role=DRIVER",
-  "name": "TumpangGo Driver",
+  "id": "/",
+  "name": "TumpangGo – Saatnya Usaha Lokal Naik Kelas",
   "short_name": "TumpangGo",
-  "description": "Aplikasi Operasional & Pengantaran Driver TumpangGo",
-  "start_url": "/?role=DRIVER",
+  "description": "Platform digital pemesanan makanan lokal dan ekosistem UMKM Kecamatan Tumpang, Kabupaten Malang.",
+  "start_url": "/",
   "scope": "/",
   "display": "standalone",
   "orientation": "portrait",
-  "theme_color": "#059669",
-  "background_color": "#ffffff",
+  "theme_color": "#15803D",
+  "background_color": "#F4F7F5",
   "icons": [
     {
       "src": "/pwa-192x192.png",
