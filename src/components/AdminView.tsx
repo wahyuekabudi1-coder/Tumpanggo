@@ -1423,8 +1423,17 @@ export default function AdminView({ onLogout, systemConfig, onUpdateConfig, onSe
               </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-              {filteredMerchants.map(m => (
+            {filteredMerchants.length === 0 ? (
+              <div className="bg-white rounded-2xl border border-dashed border-slate-300 p-12 text-center flex flex-col items-center justify-center shadow-xs">
+                <Store className="w-12 h-12 text-slate-300 mb-3" />
+                <h3 className="font-display font-bold text-base text-slate-700">Belum Ada Mitra Toko Terdaftar</h3>
+                <p className="text-xs text-slate-400 mt-1 max-w-sm">
+                  {merchantSearchQuery ? 'Tidak ada toko yang sesuai dengan kata kunci pencarian.' : 'Pendaftaran merchant baru akan muncul di sini setelah diverifikasi oleh Admin.'}
+                </p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+                {filteredMerchants.map(m => (
                 <div key={m.id} className="bg-white rounded-2xl border border-slate-200/80 shadow-xs p-4 flex flex-col justify-between hover:border-emerald-200 transition-all">
                   <div className="space-y-3">
                     <div className="flex items-start gap-3">
@@ -1541,6 +1550,7 @@ export default function AdminView({ onLogout, systemConfig, onUpdateConfig, onSe
                 </div>
               ))}
             </div>
+          )}
           </div>
         )}
 
@@ -1554,8 +1564,17 @@ export default function AdminView({ onLogout, systemConfig, onUpdateConfig, onSe
               </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-              {drivers.map(d => (
+            {drivers.length === 0 ? (
+              <div className="bg-white rounded-2xl border border-dashed border-slate-300 p-12 text-center flex flex-col items-center justify-center shadow-xs">
+                <Truck className="w-12 h-12 text-slate-300 mb-3" />
+                <h3 className="font-display font-bold text-base text-slate-700">Belum Ada Mitra Driver Terdaftar</h3>
+                <p className="text-xs text-slate-400 mt-1 max-w-sm">
+                  Pendaftaran armada driver dan kurir lokal baru akan muncul di sini setelah diverifikasi dan disetujui oleh Admin.
+                </p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+                {drivers.map(d => (
                 <div key={d.id} className="bg-white rounded-2xl border border-slate-200/80 shadow-xs p-4 flex flex-col justify-between hover:border-emerald-200 transition-all">
                   <div className="space-y-3">
                     <div className="flex items-center justify-between">
@@ -1615,6 +1634,7 @@ export default function AdminView({ onLogout, systemConfig, onUpdateConfig, onSe
                 </div>
               ))}
             </div>
+          )}
           </div>
         )}
 

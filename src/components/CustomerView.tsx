@@ -292,7 +292,12 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
       const suitableDrivers = LOCAL_TAXI_DRIVERS.filter(d => 
         taxiRideType === 'car' ? (d.vehicle.includes('Avanza') || d.vehicle.includes('Xenia')) : !d.vehicle.includes('Avanza') && !d.vehicle.includes('Xenia')
       );
-      const randomDriver = suitableDrivers[Math.floor(Math.random() * suitableDrivers.length)] || LOCAL_TAXI_DRIVERS[0];
+      if (suitableDrivers.length === 0) {
+        setTaxiBookingStatus('idle');
+        alert('Mohon maaf, saat ini armada driver untuk rute ini belum tersedia di wilayah Tumpang. Silakan coba kembali beberapa saat lagi.');
+        return;
+      }
+      const randomDriver = suitableDrivers[Math.floor(Math.random() * suitableDrivers.length)];
       
       setAssignedTaxiDriver(randomDriver);
       setTaxiBookingStatus('active');
@@ -1418,11 +1423,7 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
     if (name.includes('martabak') || name.includes('snack') || name.includes('cemilan') || name.includes('roti') || name.includes('kue')) {
       return 'Cemilan & Jajanan';
     }
-    // Fallback based on id
-    if (m.id === 'm1') return 'Bakso & Mie';
-    if (m.id === 'm2') return 'Sate & Bakaran';
-    if (m.id === 'm3') return 'Nasi & Lauk';
-    return 'Nasi & Lauk';
+    return m.category || 'Kuliner UMKM';
   };
 
   // Filter merchants by search query and category
@@ -2091,25 +2092,27 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
                                 
                                 {/* Status, Distance, Rating */}
                                 <div className="flex items-center gap-1.5 mt-1.5 text-[10px] sm:text-xs">
-                                  <span className="bg-emerald-50 text-emerald-700 font-extrabold px-1.5 py-0.5 rounded-md border border-emerald-200/50 shrink-0 text-[9px] sm:text-[10px]">
-                                    Buka
-                                  </span>
-                                  <span className="text-slate-400 font-medium shrink-0">
-                                    • {idx === 0 ? '500 m' : '700 m'}
+                                  <span className={`font-extrabold px-1.5 py-0.5 rounded-md border shrink-0 text-[9px] sm:text-[10px] ${
+                                    merchant.active !== false 
+                                      ? 'bg-emerald-50 text-emerald-700 border-emerald-200/50' 
+                                      : 'bg-slate-50 text-slate-500 border-slate-200'
+                                  }`}>
+                                    {merchant.active !== false ? 'Buka' : 'Tutup'}
                                   </span>
                                   <div className="ml-auto flex items-center gap-0.5 sm:gap-1 text-slate-800 font-extrabold">
                                     <Star className="w-3 h-3 sm:w-3.5 sm:h-3.5 fill-amber-400 text-amber-400 shrink-0" />
-                                    <span>{merchant.rating ? merchant.rating.toFixed(1) : '4.9'}</span>
-                                    <span className="text-slate-400 font-normal text-[9px] sm:text-[10px]">({idx === 0 ? '128' : '96'})</span>
+                                    <span>{merchant.rating ? merchant.rating.toFixed(1) : 'Baru'}</span>
                                   </div>
                                 </div>
                               </div>
 
                               {/* Time estimate */}
-                              <div className="mt-2.5 pt-2 border-t border-slate-100 flex items-center gap-1.5 text-[10px] sm:text-xs text-slate-500 font-medium">
-                                <Clock className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-slate-400 shrink-0" />
-                                <span>{merchant.cookTimeEstimate || (idx === 0 ? '30 - 40 menit' : '20 - 30 menit')}</span>
-                              </div>
+                              {merchant.cookTimeEstimate && (
+                                <div className="mt-2.5 pt-2 border-t border-slate-100 flex items-center gap-1.5 text-[10px] sm:text-xs text-slate-500 font-medium">
+                                  <Clock className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-slate-400 shrink-0" />
+                                  <span>{merchant.cookTimeEstimate}</span>
+                                </div>
+                              )}
                             </div>
                           </div>
                         ))}
@@ -2170,7 +2173,7 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
                             <img src={m.image} alt={m.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" referrerPolicy="no-referrer" />
                             <div className="absolute top-1.5 right-1.5 sm:top-2 sm:right-2 bg-slate-900/70 backdrop-blur-sm text-amber-400 text-[9px] sm:text-[10px] px-1.5 py-0.5 rounded-md flex items-center gap-0.5 font-bold">
                               <Star className="w-2.5 h-2.5 sm:w-3 sm:h-3 fill-amber-400 stroke-amber-400" />
-                              <span>{m.rating.toFixed(1)}</span>
+                              <span>{m.rating ? m.rating.toFixed(1) : 'Baru'}</span>
                             </div>
                           </div>
                           <div className="p-2 sm:p-3 flex-1 flex flex-col justify-between">
@@ -2529,7 +2532,7 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
                         {/* Rating */}
                         <div className="absolute bottom-3 left-3 bg-slate-900/80 backdrop-blur-sm text-amber-400 text-xs px-2 py-1 rounded-lg flex items-center gap-1 font-bold">
                           <Star className="w-3.5 h-3.5 fill-amber-400 stroke-amber-400" />
-                          <span>{merchant.rating.toFixed(1)}</span>
+                          <span>{merchant.rating ? merchant.rating.toFixed(1) : 'Baru'}</span>
                         </div>
                       </div>
 
@@ -3346,7 +3349,7 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
                   </span>
                   <span className="flex items-center gap-1">
                     <Star className="w-4 h-4 text-amber-500 fill-amber-500" />
-                    {selectedMerchant.rating.toFixed(1)} Bintang
+                    {selectedMerchant.rating ? `${selectedMerchant.rating.toFixed(1)} Bintang` : 'Mitra Baru'}
                   </span>
                   <span className="flex items-center gap-1">
                     <MapPin className="w-4 h-4 text-slate-400" />
