@@ -9,6 +9,7 @@
  */
 
 export const FLAT_TUMPANG_DELIVERY_FEE = 5000;
+export const FLAT_PAKIS_DELIVERY_FEE = 7500;
 
 /**
  * The 15 official villages (desa / kelurahan) in Kecamatan Tumpang, Kabupaten Malang, Jawa Timur.
@@ -175,6 +176,79 @@ export const TUMPANG_GEO_BOUNDS = {
 };
 
 /**
+ * The 15 official villages (desa / kelurahan) in Kecamatan Pakis, Kabupaten Malang, Jawa Timur.
+ * Includes all common naming, spacing, hyphenation, and prefix variations.
+ */
+export const PAKIS_VILLAGES = [
+  // 1. Pakisjajar
+  'pakisjajar', 'pakis jajar', 'pakis-jajar', 'desa pakisjajar', 'desa pakis jajar',
+  // 2. Pakiskembar
+  'pakiskembar', 'pakis kembar', 'pakis-kembar', 'desa pakiskembar', 'desa pakis kembar',
+  // 3. Ampeldento
+  'ampeldento', 'ampel dento', 'ampel-dento', 'desa ampeldento', 'desa ampel dento',
+  // 4. Asrikaton
+  'asrikaton', 'asri katon', 'asri-katon', 'desa asrikaton', 'desa asri katon',
+  // 5. Banjarejo
+  'banjarejo', 'banja rejo', 'banjarejo pakis', 'desa banjarejo', 'desa banja rejo',
+  // 6. Bunutwetan
+  'bunutwetan', 'bunut wetan', 'bunut-wetan', 'desa bunutwetan', 'desa bunut wetan',
+  // 7. Kedungrejo
+  'kedungrejo', 'kedung rejo', 'kedungrejo pakis', 'desa kedungrejo', 'desa kedung rejo',
+  // 8. Mangliawan
+  'mangliawan', 'desa mangliawan', 'wendit', 'wisata wendit', 'pemandian wendit',
+  // 9. Pagentan
+  'pagentan', 'desa pagentan', 'kelurahan pagentan',
+  // 10. Saptorenggo
+  'saptorenggo', 'sapto renggo', 'sapto-renggo', 'desa saptorenggo', 'desa sapto renggo',
+  // 11. Sekarpuro
+  'sekarpuro', 'sekar puro', 'sekar-puro', 'desa sekarpuro', 'desa sekar puro',
+  // 12. Sukoanyar
+  'sukoanyar', 'suko anyar', 'suko-anyar', 'desa sukoanyar', 'sukoanyar pakis',
+  // 13. Sumberkradenan
+  'sumberkradenan', 'sumber kradenan', 'sumber-kradenan', 'desa sumberkradenan', 'desa sumber kradenan',
+  // 14. Sumberpasir
+  'sumberpasir', 'sumber pasir', 'sumber-pasir', 'desa sumberpasir', 'desa sumber pasir',
+  // 15. Tumpukrenteng
+  'tumpukrenteng', 'tumpuk renteng', 'tumpuk-renteng', 'desa tumpukrenteng', 'desa tumpuk renteng'
+] as const;
+
+/**
+ * Key local hamlets, landmarks, and public places located within Kecamatan Pakis.
+ */
+export const PAKIS_LANDMARKS = [
+  'pasar pakis',
+  'terminal pakis',
+  'kantor kecamatan pakis',
+  'kantor camat pakis',
+  'kecamatan pakis',
+  'kec. pakis',
+  'kec pakis',
+  'polsek pakis',
+  'koramil pakis',
+  'puskesmas pakis',
+  'gerbang tol pakis',
+  'pintu tol pakis',
+  'exit tol pakis',
+  'tol pakis',
+  'lanud abdulrachman saleh',
+  'bandara abdulrachman saleh',
+  'abdulrachman saleh',
+  'taman wisata mendit',
+  'pemandian wendit lanang',
+  '65154' // Official Postal Code of Kecamatan Pakis
+] as const;
+
+/**
+ * Geographic bounding box for Kecamatan Pakis, Kabupaten Malang.
+ */
+export const PAKIS_GEO_BOUNDS = {
+  minLat: -8.0200,
+  maxLat: -7.8800,
+  minLng: 112.6500,
+  maxLng: 112.7500
+};
+
+/**
  * Haversine formula to compute great-circle distance between two coordinates in kilometers.
  */
 export function calculateDistanceKm(
@@ -261,8 +335,12 @@ export function isDestinationInKecamatanTumpang(loc: LocationInput): boolean {
     return true;
   }
 
-  // 2. Explicit outside district check (e.g. "Kecamatan Pakis", "Kota Malang", "Poncokusumo")
+  // 2. Explicit outside district check (e.g. "Kecamatan Pakis", Pakis villages/landmarks, "Kota Malang", "Poncokusumo")
   // Only trigger if no Tumpang keyword/village was matched
+  if (isDestinationInKecamatanPakis(loc)) {
+    return false;
+  }
+
   const hasExplicitOutsideDistrict = OUTSIDE_DISTRICT_KEYWORDS.some(kw => {
     const kwNorm = normalizeLocationText(kw);
     if (kwNorm.includes(' ')) {
@@ -297,6 +375,59 @@ export function isDestinationInKecamatanTumpang(loc: LocationInput): boolean {
   return true;
 }
 
+/**
+ * Determines whether a destination address and/or coordinates are within Kecamatan Pakis.
+ * Covers all 15 official villages of Kecamatan Pakis, landmarks, postal code 65154, and GPS bounds.
+ */
+export function isDestinationInKecamatanPakis(loc: LocationInput): boolean {
+  const rawCombined = [loc.address, loc.details, loc.landmark].filter(Boolean).join(' ');
+  const normalized = normalizeLocationText(rawCombined);
+
+  // 1. Direct positive check: contains postal code 65154 or "pakis"
+  if (normalized.includes('65154') || /\b(pakis)\b/i.test(normalized)) {
+    return true;
+  }
+
+  // Check against all 15 official Pakis villages
+  const hasPakisVillage = PAKIS_VILLAGES.some(village => {
+    const vNorm = normalizeLocationText(village);
+    if (vNorm.includes(' ')) {
+      return normalized.includes(vNorm);
+    }
+    const regex = new RegExp(`(^|[^a-z])${vNorm}([^a-z]|$)`, 'i');
+    return regex.test(normalized);
+  });
+
+  if (hasPakisVillage) {
+    return true;
+  }
+
+  // Check against recognized local Pakis landmarks
+  const hasPakisLandmark = PAKIS_LANDMARKS.some(lm => {
+    const lmNorm = normalizeLocationText(lm);
+    return normalized.includes(lmNorm);
+  });
+
+  if (hasPakisLandmark) {
+    return true;
+  }
+
+  // Coordinate check: if lat/lng are provided and not zero
+  if (typeof loc.latitude === 'number' && typeof loc.longitude === 'number' && loc.latitude !== 0 && loc.longitude !== 0) {
+    const inBounds =
+      loc.latitude >= PAKIS_GEO_BOUNDS.minLat &&
+      loc.latitude <= PAKIS_GEO_BOUNDS.maxLat &&
+      loc.longitude >= PAKIS_GEO_BOUNDS.minLng &&
+      loc.longitude <= PAKIS_GEO_BOUNDS.maxLng;
+
+    if (inBounds) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 export interface DeliveryFeeCalculationParams {
   address?: string;
   details?: string;
@@ -314,6 +445,7 @@ export interface DeliveryFeeCalculationParams {
 export interface DeliveryFeeResult {
   deliveryFee: number;
   isInTumpang: boolean;
+  isInPakis?: boolean;
   distanceKm?: number;
   explanation: string;
 }
@@ -323,27 +455,41 @@ export interface DeliveryFeeResult {
  * 
  * MANDATORY BUSINESS RULE:
  * - Within Kecamatan Tumpang: Strictly flat Rp 5.000 per order.
- *   No distance multiplication, no zone surcharges, no minimum fees above 5000.
- * - Outside Kecamatan Tumpang: Calculated based on distance.
+ * - Within Kecamatan Pakis: Strictly flat Rp 7.500 per order (all villages).
+ * - Outside both: Calculated based on distance.
  */
 export function calculateDeliveryFee(params: DeliveryFeeCalculationParams): DeliveryFeeResult {
-  const isInTumpang = isDestinationInKecamatanTumpang({
+  const locInput: LocationInput = {
     address: params.address,
     details: params.details,
     landmark: params.landmark,
     latitude: params.latitude,
     longitude: params.longitude
-  });
+  };
+
+  const isInTumpang = isDestinationInKecamatanTumpang(locInput);
 
   if (isInTumpang) {
     return {
       deliveryFee: FLAT_TUMPANG_DELIVERY_FEE,
       isInTumpang: true,
+      isInPakis: false,
       explanation: 'Tarif flat Rp 5.000 untuk seluruh pengantaran di area Kecamatan Tumpang.'
     };
   }
 
-  // Outside Kecamatan Tumpang: Calculate distance-based rate
+  const isInPakis = isDestinationInKecamatanPakis(locInput);
+
+  if (isInPakis) {
+    return {
+      deliveryFee: FLAT_PAKIS_DELIVERY_FEE,
+      isInTumpang: false,
+      isInPakis: true,
+      explanation: 'Tarif flat Rp 7.500 untuk seluruh pengantaran di area Kecamatan Pakis.'
+    };
+  }
+
+  // Outside both Kecamatan Tumpang and Kecamatan Pakis: Calculate distance-based rate
   let distanceKm = 0;
   if (
     params.merchantLatitude &&
@@ -367,14 +513,16 @@ export function calculateDeliveryFee(params: DeliveryFeeCalculationParams): Deli
   return {
     deliveryFee: outsideFee,
     isInTumpang: false,
+    isInPakis: false,
     distanceKm: distanceKm || undefined,
-    explanation: `Pengantaran luar Kecamatan Tumpang (${distanceKm ? distanceKm + ' km' : 'Luar Wilayah'}): Rp ${outsideFee.toLocaleString('id-ID')}`
+    explanation: `Pengantaran luar wilayah (${distanceKm ? distanceKm + ' km' : 'Luar Wilayah'}): Rp ${outsideFee.toLocaleString('id-ID')}`
   };
 }
 
 /**
  * Normalizes an order's delivery fee and total to guarantee that
- * orders inside Kecamatan Tumpang are strictly charged flat Rp 5.000.
+ * orders inside Kecamatan Tumpang are strictly charged flat Rp 5.000,
+ * and orders inside Kecamatan Pakis are strictly charged flat Rp 7.500.
  * Prevents database inconsistencies, stale cached values, or frontend tampering.
  */
 export function normalizeOrderDeliveryFee<T extends { 
@@ -390,17 +538,33 @@ export function normalizeOrderDeliveryFee<T extends {
   total: number;
 }>(order: T): T {
   if (!order) return order;
-  const inTumpang = isDestinationInKecamatanTumpang({
+  const locInput: LocationInput = {
     address: order.deliveryAddress,
     details: order.deliveryDetails,
     landmark: order.landmark,
     latitude: order.latitude,
     longitude: order.longitude
-  });
+  };
 
-  if (inTumpang && order.deliveryFee !== FLAT_TUMPANG_DELIVERY_FEE) {
-    order.deliveryFee = FLAT_TUMPANG_DELIVERY_FEE;
-    order.total = order.subtotal + FLAT_TUMPANG_DELIVERY_FEE + order.serviceFee + (order.uniqueCode || 0);
+  const inTumpang = isDestinationInKecamatanTumpang(locInput);
+
+  if (inTumpang) {
+    if (order.deliveryFee !== FLAT_TUMPANG_DELIVERY_FEE) {
+      order.deliveryFee = FLAT_TUMPANG_DELIVERY_FEE;
+      order.total = order.subtotal + FLAT_TUMPANG_DELIVERY_FEE + order.serviceFee + (order.uniqueCode || 0);
+    }
+    return order;
   }
+
+  const inPakis = isDestinationInKecamatanPakis(locInput);
+
+  if (inPakis) {
+    if (order.deliveryFee !== FLAT_PAKIS_DELIVERY_FEE) {
+      order.deliveryFee = FLAT_PAKIS_DELIVERY_FEE;
+      order.total = order.subtotal + FLAT_PAKIS_DELIVERY_FEE + order.serviceFee + (order.uniqueCode || 0);
+    }
+    return order;
+  }
+
   return order;
 }

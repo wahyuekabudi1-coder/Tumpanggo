@@ -5,6 +5,12 @@
  * Tumpang Shop Standalone Database Engine
  * Completely decoupled from Tumpang Food and other services.
  * Manages all Shop marketplace state, products, categories, orders, shipments, and migrations.
+ * 
+ * Guarantees:
+ * 1. Awaited Persistence: All create/update/delete operations wait for PostgreSQL commit before success.
+ * 2. Race Condition Prevention: Uses row-level locking (SELECT FOR UPDATE) in PostgreSQL and serialized in-memory queues.
+ * 3. Transparent Diagnostics: Explicitly detects PostgreSQL failures and distinguishes persistent SQL from ephemeral /tmp.
+ * 4. Zero Food Firestore touch: Strictly prevents any reads or writes to Food's database.
  */
 
 import fs from 'fs';
@@ -18,13 +24,7 @@ import { courierRegistry } from '../shipping/courierAdapters';
 import { shopEnv } from '../config/shopEnv';
 import { ShopDatabaseSchema, ShopSchemaValidator } from './shopSchema';
 import { ShopMigrationRunner } from './shopMigration';
-import { 
-  safeAdminSetDoc, safeAdminDeleteDoc, safeAdminGetDoc, 
-  safeAdminGetDocs, isFirestoreAdminConfigured,
-  testFirestoreConnection
-} from '../../../server/firebaseAdmin';
-
-const SHOP_DB_FILE = shopEnv.database.filePath;
+import { shopPersistence, ShopStorageError } from './shopPersistence';
 
 export class ShopDatabase {
   private schema: ShopDatabaseSchema = {
@@ -49,132 +49,73 @@ export class ShopDatabase {
   };
 
   private isInitialized = false;
-  private isCloudSyncing = false;
+  private initPromise: Promise<void> | null = null;
   private migrationRunner = new ShopMigrationRunner();
-  private idempotencyCache: Map<string, { orderId: string; timestamp: number }> = new Map();
-  private recentOrderFingerprints: Map<string, { orderId: string; timestamp: number }> = new Map();
 
   constructor() {
-    this.loadFromLocal();
+    this.schema = shopPersistence.loadInitialState(this.schema);
   }
 
   /**
-   * Load state from local JSON file
+   * Helper to execute state mutations atomically with PostgreSQL row-level locking
+   * and in-memory queue serialization.
+   * Awaits PostgreSQL commit before returning. Throws ShopStorageError on persistence failure.
    */
-  private loadFromLocal() {
-    try {
-      if (fs.existsSync(SHOP_DB_FILE)) {
-        const raw = fs.readFileSync(SHOP_DB_FILE, 'utf-8');
-        const parsed = JSON.parse(raw);
-        if (parsed && typeof parsed === 'object') {
-          this.schema = {
-            config: parsed.config || this.schema.config,
-            categories: Array.isArray(parsed.categories) ? parsed.categories : [],
-            products: Array.isArray(parsed.products) ? parsed.products : [],
-            orders: Array.isArray(parsed.orders) ? parsed.orders : [],
-            shipments: Array.isArray(parsed.shipments) ? parsed.shipments : [],
-            auditLogs: Array.isArray(parsed.auditLogs) ? parsed.auditLogs : [],
-            migrations: Array.isArray(parsed.migrations) ? parsed.migrations : []
-          };
-        }
-      }
-    } catch (err: any) {
-      console.warn('[ShopDatabase] Gagal membaca database lokal shop, menggunakan state default:', err?.message || err);
-    }
-  }
-
-  /**
-   * Atomic local persistence
-   */
-  private persistToLocal() {
-    try {
-      const dir = path.dirname(SHOP_DB_FILE);
-      if (!fs.existsSync(dir)) {
-        fs.mkdirSync(dir, { recursive: true });
-      }
-      const tempPath = `${SHOP_DB_FILE}.tmp.${Date.now()}`;
-      fs.writeFileSync(tempPath, JSON.stringify(this.schema, null, 2), 'utf-8');
-      fs.renameSync(tempPath, SHOP_DB_FILE);
-    } catch (err: any) {
-      console.error('[ShopDatabase] Gagal menyimpan ke file lokal:', err?.message || err);
-    }
+  private async mutate<T>(
+    mutator: (lockedSchema: ShopDatabaseSchema) => Promise<{ updatedSchema: ShopDatabaseSchema; result: T }> | { updatedSchema: ShopDatabaseSchema; result: T }
+  ): Promise<T> {
+    const { updatedSchema, result } = await shopPersistence.executeAtomicMutation(
+      () => this.schema,
+      mutator
+    );
+    this.schema = updatedSchema;
+    return result;
   }
 
   /**
    * Create non-destructive backup
    */
   public createBackup(): string {
-    const backupPath = `${SHOP_DB_FILE}.backup_${Date.now()}.json`;
-    try {
-      if (fs.existsSync(SHOP_DB_FILE)) {
-        fs.copyFileSync(SHOP_DB_FILE, backupPath);
-      }
-    } catch (e) {
-      console.warn('[ShopDatabase] Backup warning:', e);
-    }
-    return backupPath;
+    return shopPersistence.createBackup();
   }
 
   /**
-   * Ensure database is initialized, migrated, and synced
+   * Ensure database is initialized and migrated safely with mutex locking.
+   * Completely decoupled from Food Firestore to prevent quota consumption.
    */
   public async ensureInitialized(): Promise<void> {
     if (this.isInitialized) return;
+    if (this.initPromise) return this.initPromise;
 
-    try {
-      // Run automatic migrations & schema audit
-      const { updatedDb, result } = await this.migrationRunner.runMigrations(this.schema);
-      this.schema = updatedDb;
-      this.persistToLocal();
-      if (result.appliedCount > 0) {
-        console.log(`[ShopDatabase] Migrasi database diterapkan: ${result.message}`);
-      }
+    this.initPromise = (async () => {
+      try {
+        // If PostgreSQL is configured, load remote persistent state
+        const pgState = await shopPersistence.loadFromPostgres();
+        if (pgState) {
+          this.schema = {
+            ...this.schema,
+            ...pgState,
+            config: { ...this.schema.config, ...(pgState.config || {}) }
+          };
+        }
 
-      // Check Firestore Cloud Sync if enabled
-      if (shopEnv.database.enableCloudSync && isFirestoreAdminConfigured()) {
-        await this.syncFromCloud();
+        // Run automatic migrations & schema audit
+        const { updatedDb, result } = await this.migrationRunner.runMigrations(this.schema);
+        this.schema = updatedDb;
+        await shopPersistence.persistState(this.schema);
+        if (result.appliedCount > 0) {
+          console.log(`[ShopDatabase] Migrasi database Shop diterapkan: ${result.message}`);
+        }
+        this.isInitialized = true;
+      } catch (err: any) {
+        console.warn('[ShopDatabase Init Error]', err?.message || err);
+        this.isInitialized = true; // Fallback to memory
+      } finally {
+        this.initPromise = null;
       }
+    })();
 
-      this.isInitialized = true;
-    } catch (err: any) {
-      console.warn('[ShopDatabase Init Error]', err?.message || err);
-      this.isInitialized = true; // Fallback to local memory/file
-    }
-  }
-
-  private async syncFromCloud() {
-    try {
-      if (!isFirestoreAdminConfigured()) return;
-
-      const pfx = shopEnv.database.firestoreCollectionPrefix;
-      const [cfgDoc, catDocs, prodDocs, ordDocs, shipDocs] = await Promise.all([
-        safeAdminGetDoc(`${pfx}config`, 'shop_config_default'),
-        safeAdminGetDocs(`${pfx}categories`),
-        safeAdminGetDocs(`${pfx}products`),
-        safeAdminGetDocs(`${pfx}orders`),
-        safeAdminGetDocs(`${pfx}shipments`)
-      ]);
-
-      if (cfgDoc) {
-        this.schema.config = { ...this.schema.config, ...cfgDoc };
-      }
-      if (catDocs && catDocs.length > 0) {
-        this.schema.categories = catDocs as ShopCategory[];
-      }
-      if (prodDocs && prodDocs.length > 0) {
-        this.schema.products = prodDocs as ShopProduct[];
-      }
-      if (ordDocs && ordDocs.length > 0) {
-        this.schema.orders = ordDocs as ShopOrder[];
-      }
-      if (shipDocs && shipDocs.length > 0) {
-        this.schema.shipments = shipDocs as ShopShipment[];
-      }
-
-      this.persistToLocal();
-    } catch (err: any) {
-      console.warn('[ShopDatabase Cloud Sync Warning]', err?.message || err);
-    }
+    return this.initPromise;
   }
 
   /**
@@ -184,49 +125,56 @@ export class ShopDatabase {
     service: string;
     databaseType: string;
     filePath: string;
+    isPersistentOnServerless: boolean;
     liveCloudConnected: boolean;
     storageMode: string;
+    decoupledFromFoodFirestore: boolean;
     totalCategories: number;
     totalProducts: number;
     totalOrders: number;
     totalShipments: number;
     diagnosticReason?: string;
+    remediationStep?: string;
+    lastError?: string;
     timestamp: string;
   }> {
-    const cloudCheck = await testFirestoreConnection();
-    const isCloud = cloudCheck.connected;
+    const diag = await shopPersistence.getDiagnostic();
 
     return {
       service: 'tumpang-shop',
-      databaseType: shopEnv.database.type,
-      filePath: SHOP_DB_FILE,
-      liveCloudConnected: isCloud,
-      storageMode: isCloud ? 'cloud_firestore_primary' : 'isolated_local_database_resilient',
+      databaseType: diag.databaseType,
+      filePath: diag.filePath,
+      isPersistentOnServerless: diag.isPersistentOnServerless,
+      liveCloudConnected: diag.liveCloudConnected,
+      storageMode: diag.storageMode,
+      decoupledFromFoodFirestore: true,
       totalCategories: this.schema.categories.length,
       totalProducts: this.schema.products.length,
       totalOrders: this.schema.orders.length,
       totalShipments: this.schema.shipments.length,
-      diagnosticReason: cloudCheck.diagnosticReason,
+      diagnosticReason: diag.warning || 'Penyimpanan Tumpang Shop 100% mandiri dan terisolasi dari database Tumpang Food.',
+      remediationStep: diag.remediationStep,
+      lastError: diag.lastError,
       timestamp: new Date().toISOString()
     };
   }
 
-  /**
-   * Audit logging
-   */
-  public logAudit(action: string, details: string, actor: string = 'system') {
-    const log: ShopAuditLog = {
+  private createAuditLog(action: string, details: string, actor: string = 'system'): ShopAuditLog {
+    return {
       id: `slog_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
       action,
       details,
       actor,
       timestamp: new Date().toISOString()
     };
+  }
+
+  public logAudit(action: string, details: string, actor: string = 'system') {
+    const log = this.createAuditLog(action, details, actor);
     this.schema.auditLogs.unshift(log);
     if (this.schema.auditLogs.length > 500) {
       this.schema.auditLogs = this.schema.auditLogs.slice(0, 500);
     }
-    this.persistToLocal();
   }
 
   // --- CONFIG ---
@@ -235,20 +183,19 @@ export class ShopDatabase {
   }
 
   public async updateConfig(actor: string, updates: Partial<ShopConfig>): Promise<ShopConfig> {
-    this.schema.config = {
-      ...this.schema.config,
-      ...updates,
-      updatedAt: new Date().toISOString()
-    };
-    this.persistToLocal();
-    this.logAudit('UPDATE_SHOP_CONFIG', `Pembaruan konfigurasi toko oleh ${actor}`, actor);
-
-    try {
-      const pfx = shopEnv.database.firestoreCollectionPrefix;
-      await safeAdminSetDoc(`${pfx}config`, 'shop_config_default', this.schema.config);
-    } catch {}
-
-    return this.getConfig();
+    return this.mutate(current => {
+      const config = {
+        ...current.config,
+        ...updates,
+        updatedAt: new Date().toISOString()
+      };
+      const log = this.createAuditLog('UPDATE_SHOP_CONFIG', `Pembaruan konfigurasi toko oleh ${actor}`, actor);
+      const auditLogs = [log, ...current.auditLogs].slice(0, 500);
+      return {
+        updatedSchema: { ...current, config, auditLogs },
+        result: config
+      };
+    });
   }
 
   // --- CATEGORIES ---
@@ -277,54 +224,53 @@ export class ShopDatabase {
       updatedAt: now
     };
 
-    this.schema.categories.push(newCategory);
-    this.persistToLocal();
-    this.logAudit('CREATE_CATEGORY', `Kategori ${newCategory.name} dibuat oleh ${actor}`, actor);
-
-    try {
-      const pfx = shopEnv.database.firestoreCollectionPrefix;
-      await safeAdminSetDoc(`${pfx}categories`, newCategory.id, newCategory);
-    } catch {}
-
-    return newCategory;
+    return this.mutate(current => {
+      const categories = [...current.categories, newCategory];
+      const log = this.createAuditLog('CREATE_CATEGORY', `Kategori ${newCategory.name} dibuat oleh ${actor}`, actor);
+      const auditLogs = [log, ...current.auditLogs].slice(0, 500);
+      return {
+        updatedSchema: { ...current, categories, auditLogs },
+        result: newCategory
+      };
+    });
   }
 
   public async updateCategory(actor: string, id: string, updates: Partial<ShopCategory>): Promise<ShopCategory> {
-    const index = this.schema.categories.findIndex(c => c.id === id);
-    if (index === -1) throw new Error(`Kategori ${id} tidak ditemukan.`);
+    return this.mutate(current => {
+      const index = current.categories.findIndex(c => c.id === id);
+      if (index === -1) throw new Error(`Kategori ${id} tidak ditemukan.`);
 
-    const updated = {
-      ...this.schema.categories[index],
-      ...updates,
-      updatedAt: new Date().toISOString()
-    };
+      const updated = {
+        ...current.categories[index],
+        ...updates,
+        updatedAt: new Date().toISOString()
+      };
+      const categories = [...current.categories];
+      categories[index] = updated;
 
-    this.schema.categories[index] = updated;
-    this.persistToLocal();
-    this.logAudit('UPDATE_CATEGORY', `Kategori ${updated.name} (${id}) diperbarui oleh ${actor}`, actor);
-
-    try {
-      const pfx = shopEnv.database.firestoreCollectionPrefix;
-      await safeAdminSetDoc(`${pfx}categories`, id, updated);
-    } catch {}
-
-    return updated;
+      const log = this.createAuditLog('UPDATE_CATEGORY', `Kategori ${updated.name} (${id}) diperbarui oleh ${actor}`, actor);
+      const auditLogs = [log, ...current.auditLogs].slice(0, 500);
+      return {
+        updatedSchema: { ...current, categories, auditLogs },
+        result: updated
+      };
+    });
   }
 
   public async deleteCategory(actor: string, id: string): Promise<boolean> {
-    const index = this.schema.categories.findIndex(c => c.id === id);
-    if (index === -1) return false;
+    return this.mutate(current => {
+      const index = current.categories.findIndex(c => c.id === id);
+      if (index === -1) return { updatedSchema: current, result: false };
 
-    const [deleted] = this.schema.categories.splice(index, 1);
-    this.persistToLocal();
-    this.logAudit('DELETE_CATEGORY', `Kategori ${deleted.name} (${id}) dihapus oleh ${actor}`, actor);
-
-    try {
-      const pfx = shopEnv.database.firestoreCollectionPrefix;
-      await safeAdminDeleteDoc(`${pfx}categories`, id);
-    } catch {}
-
-    return true;
+      const deleted = current.categories[index];
+      const categories = current.categories.filter(c => c.id !== id);
+      const log = this.createAuditLog('DELETE_CATEGORY', `Kategori ${deleted.name} (${id}) dihapus oleh ${actor}`, actor);
+      const auditLogs = [log, ...current.auditLogs].slice(0, 500);
+      return {
+        updatedSchema: { ...current, categories, auditLogs },
+        result: true
+      };
+    });
   }
 
   // --- PRODUCTS ---
@@ -375,60 +321,59 @@ export class ShopDatabase {
       updatedAt: now
     };
 
-    this.schema.products.push(newProduct);
-    this.persistToLocal();
-    this.logAudit('CREATE_PRODUCT', `Produk ${newProduct.name} (${newProduct.sku}) dibuat oleh ${actor}`, actor);
-
-    try {
-      const pfx = shopEnv.database.firestoreCollectionPrefix;
-      await safeAdminSetDoc(`${pfx}products`, newProduct.id, newProduct);
-    } catch {}
-
-    return newProduct;
+    return this.mutate(current => {
+      const products = [...current.products, newProduct];
+      const log = this.createAuditLog('CREATE_PRODUCT', `Produk ${newProduct.name} (${newProduct.sku}) dibuat oleh ${actor}`, actor);
+      const auditLogs = [log, ...current.auditLogs].slice(0, 500);
+      return {
+        updatedSchema: { ...current, products, auditLogs },
+        result: newProduct
+      };
+    });
   }
 
   public async updateProduct(actor: string, id: string, updates: any): Promise<ShopProduct> {
-    const index = this.schema.products.findIndex(p => p.id === id);
-    if (index === -1) throw new Error(`Produk ${id} tidak ditemukan.`);
+    return this.mutate(current => {
+      const index = current.products.findIndex(p => p.id === id);
+      if (index === -1) throw new Error(`Produk ${id} tidak ditemukan.`);
 
-    const current = this.schema.products[index];
-    const effectivePrice = typeof updates.price === 'number' ? updates.price : typeof updates.basePrice === 'number' ? updates.basePrice : current.price;
-    const updated: any = {
-      ...current,
-      ...updates,
-      id: current.id,
-      price: Math.round(effectivePrice),
-      basePrice: Math.round(effectivePrice),
-      stock: updates.stock !== undefined ? updates.stock : current.stock,
-      updatedAt: new Date().toISOString()
-    };
+      const cur = current.products[index];
+      const effectivePrice = typeof updates.price === 'number' ? updates.price : typeof updates.basePrice === 'number' ? updates.basePrice : cur.price;
+      const updated: any = {
+        ...cur,
+        ...updates,
+        id: cur.id,
+        price: Math.round(effectivePrice),
+        basePrice: Math.round(effectivePrice),
+        stock: updates.stock !== undefined ? updates.stock : cur.stock,
+        updatedAt: new Date().toISOString()
+      };
+      const products = [...current.products];
+      products[index] = updated;
 
-    this.schema.products[index] = updated;
-    this.persistToLocal();
-    this.logAudit('UPDATE_PRODUCT', `Produk ${updated.name} (${id}) diperbarui oleh ${actor}`, actor);
-
-    try {
-      const pfx = shopEnv.database.firestoreCollectionPrefix;
-      await safeAdminSetDoc(`${pfx}products`, id, updated);
-    } catch {}
-
-    return updated;
+      const log = this.createAuditLog('UPDATE_PRODUCT', `Produk ${updated.name} (${id}) diperbarui oleh ${actor}`, actor);
+      const auditLogs = [log, ...current.auditLogs].slice(0, 500);
+      return {
+        updatedSchema: { ...current, products, auditLogs },
+        result: updated
+      };
+    });
   }
 
   public async deleteProduct(actor: string, id: string): Promise<boolean> {
-    const index = this.schema.products.findIndex(p => p.id === id);
-    if (index === -1) return false;
+    return this.mutate(current => {
+      const index = current.products.findIndex(p => p.id === id);
+      if (index === -1) return { updatedSchema: current, result: false };
 
-    const [deleted] = this.schema.products.splice(index, 1);
-    this.persistToLocal();
-    this.logAudit('DELETE_PRODUCT', `Produk ${deleted.name} (${id}) dihapus oleh ${actor}`, actor);
-
-    try {
-      const pfx = shopEnv.database.firestoreCollectionPrefix;
-      await safeAdminDeleteDoc(`${pfx}products`, id);
-    } catch {}
-
-    return true;
+      const deleted = current.products[index];
+      const products = current.products.filter(p => p.id !== id);
+      const log = this.createAuditLog('DELETE_PRODUCT', `Produk ${deleted.name} (${id}) dihapus oleh ${actor}`, actor);
+      const auditLogs = [log, ...current.auditLogs].slice(0, 500);
+      return {
+        updatedSchema: { ...current, products, auditLogs },
+        result: true
+      };
+    });
   }
 
   // --- ORDERS ---
@@ -476,263 +421,209 @@ export class ShopDatabase {
       return duplicateRecent;
     }
 
-    // 3. Item Validation, Pricing, and Stock Check
-    const validatedItems: ShopOrderItem[] = [];
-    let subtotal = 0;
+    // Atomic checkout mutation with row-level stock locking
+    return this.mutate(current => {
+      // 3. Item Validation, Pricing, and Stock Check against locked state
+      const validatedItems: ShopOrderItem[] = [];
+      let subtotal = 0;
 
-    for (const itemInput of input.items) {
-      if (!itemInput.productId || !itemInput.quantity || itemInput.quantity < 1) {
-        throw new Error('Kuantitas produk tidak valid.');
-      }
-      const product = this.schema.products.find(p => p.id === itemInput.productId);
-      if (!product) {
-        throw new Error(`Produk dengan ID "${itemInput.productId}" tidak ditemukan.`);
-      }
-      if (!product.isActive) {
-        throw new Error(`Produk "${product.name}" sedang tidak aktif atau tidak tersedia.`);
-      }
+      for (const itemInput of input.items) {
+        if (!itemInput.productId || !itemInput.quantity || itemInput.quantity < 1) {
+          throw new Error('Kuantitas produk tidak valid.');
+        }
+        const product = current.products.find(p => p.id === itemInput.productId);
+        if (!product) {
+          throw new Error(`Produk dengan ID "${itemInput.productId}" tidak ditemukan.`);
+        }
+        if (!product.isActive) {
+          throw new Error(`Produk "${product.name}" sedang tidak aktif atau tidak tersedia.`);
+        }
 
-      let unitPrice = product.price;
-      let selectedVariation: any = undefined;
+        let unitPrice = product.price;
+        let selectedVariation: any = undefined;
 
-      const variationId = itemInput.variationId || itemInput.variantId;
-      const optionId = itemInput.optionId;
+        const variationId = itemInput.variationId || itemInput.variantId;
+        const optionId = itemInput.optionId;
 
-      if (variationId && product.variations) {
-        const variation = product.variations.find(v => v.id === variationId);
-        if (variation) {
-          const option = optionId ? variation.options.find(o => o.id === optionId) : variation.options[0];
-          if (option) {
-            if (typeof option.stock === 'number' && option.stock < itemInput.quantity) {
-              throw new Error(`Stok variasi "${option.name}" untuk produk "${product.name}" tidak mencukupi (Tersisa: ${option.stock}, Diminta: ${itemInput.quantity}).`);
+        if (variationId && product.variations) {
+          const variation = product.variations.find(v => v.id === variationId);
+          if (variation) {
+            const option = optionId ? variation.options.find(o => o.id === optionId) : variation.options[0];
+            if (option) {
+              if (typeof option.stock === 'number' && option.stock < itemInput.quantity) {
+                throw new Error(`Stok variasi "${option.name}" untuk produk "${product.name}" tidak mencukupi (Tersisa: ${option.stock}, Diminta: ${itemInput.quantity}).`);
+              }
+              unitPrice = product.price + (option.priceDelta || 0);
+              selectedVariation = {
+                variationId: variation.id,
+                variationName: variation.name,
+                optionId: option.id,
+                optionName: option.name
+              };
             }
-            unitPrice = product.price + (option.priceDelta || 0);
-            selectedVariation = {
-              variationId: variation.id,
-              variationName: variation.name,
-              optionId: option.id,
-              optionName: option.name
+          }
+        } else {
+          if (product.stock < itemInput.quantity) {
+            throw new Error(`Stok untuk produk "${product.name}" tidak mencukupi (Tersisa: ${product.stock}, Diminta: ${itemInput.quantity}).`);
+          }
+        }
+
+        const itemSubtotal = unitPrice * itemInput.quantity;
+        subtotal += itemSubtotal;
+        validatedItems.push({
+          productId: product.id,
+          sku: product.sku,
+          name: product.name,
+          unit: product.unit,
+          selectedVariation,
+          price: unitPrice,
+          quantity: itemInput.quantity,
+          subtotal: itemSubtotal
+        });
+      }
+
+      const minAmount = current.config.minOrderAmount || 0;
+      if (subtotal < minAmount) {
+        throw new Error(`Subtotal belanja minimal adalah Rp ${minAmount.toLocaleString('id-ID')}. Subtotal saat ini: Rp ${subtotal.toLocaleString('id-ID')}`);
+      }
+
+      // 4. Shipping Calculation
+      const method = (input.shippingMethod || input.shippingOption?.code || 'INSTANT').toUpperCase();
+      let deliveryFee = input.deliveryFee !== undefined ? Number(input.deliveryFee) : (current.config.defaultDeliveryFee || 4000);
+      let shippingMethodLabel = 'Kurir Instan Tumpang Go';
+
+      if (method === 'PICKUP') {
+        deliveryFee = 0;
+        shippingMethodLabel = 'Ambil Sendiri di Toko (Pickup)';
+      } else if (method === 'REGULAR') {
+        deliveryFee = input.deliveryFee !== undefined ? Number(input.deliveryFee) : Math.max(0, Math.round((current.config.defaultDeliveryFee || 4000) * 0.7));
+        shippingMethodLabel = 'Kurir Reguler Toko (Next-Day)';
+      } else if (method === 'EXPEDITION_REGULAR') {
+        deliveryFee = input.deliveryFee !== undefined ? Number(input.deliveryFee) : 12000;
+        shippingMethodLabel = 'Ekspedisi Domestik Reguler (J&T / JNE)';
+      } else if (method === 'CHINA_AIR_EXPRESS') {
+        deliveryFee = input.deliveryFee !== undefined ? Number(input.deliveryFee) : 35000;
+        shippingMethodLabel = 'China Air Freight Express (7-12 Hari)';
+      } else if (method === 'CHINA_SEA_STANDARD') {
+        deliveryFee = input.deliveryFee !== undefined ? Number(input.deliveryFee) : 20000;
+        shippingMethodLabel = 'China Sea Freight Ekonomis (20-30 Hari)';
+      }
+
+      const serviceFee = input.serviceFee !== undefined ? Number(input.serviceFee) : (current.config.serviceFee || 1500);
+      const uniqueCode = input.uniqueCode !== undefined ? Number(input.uniqueCode) : Math.floor(100 + Math.random() * 899);
+      const total = subtotal + deliveryFee + serviceFee + uniqueCode;
+
+      // Deduct stock from locked products
+      const updatedProducts = current.products.map(p => {
+        const orderedItem = validatedItems.find(it => it.productId === p.id);
+        if (!orderedItem) return p;
+
+        const updated = { ...p, stock: Math.max(0, p.stock - orderedItem.quantity), updatedAt: new Date().toISOString() };
+        if (orderedItem.selectedVariation && updated.variations) {
+          updated.variations = updated.variations.map(v => {
+            if (v.id !== orderedItem.selectedVariation?.variationId) return v;
+            return {
+              ...v,
+              options: v.options.map(o => {
+                if (o.id !== orderedItem.selectedVariation?.optionId) return o;
+                return { ...o, stock: typeof o.stock === 'number' ? Math.max(0, o.stock - orderedItem.quantity) : o.stock };
+              })
             };
-          }
+          });
         }
-      } else {
-        if (product.stock < itemInput.quantity) {
-          throw new Error(`Stok untuk produk "${product.name}" tidak mencukupi (Tersisa: ${product.stock}, Diminta: ${itemInput.quantity}).`);
-        }
-      }
-
-      const itemSubtotal = unitPrice * itemInput.quantity;
-      subtotal += itemSubtotal;
-      validatedItems.push({
-        productId: product.id,
-        sku: product.sku,
-        name: product.name,
-        unit: product.unit,
-        selectedVariation,
-        price: unitPrice,
-        quantity: itemInput.quantity,
-        subtotal: itemSubtotal
+        return updated;
       });
-    }
 
-    const minAmount = this.schema.config.minOrderAmount || 0;
-    if (subtotal < minAmount) {
-      throw new Error(`Subtotal belanja minimal adalah Rp ${minAmount.toLocaleString('id-ID')}. Subtotal saat ini: Rp ${subtotal.toLocaleString('id-ID')}`);
-    }
+      const now = new Date();
+      const expiryMinutes = shopEnv.defaults.paymentExpiryMinutes || 30;
+      const expiresAt = new Date(now.getTime() + expiryMinutes * 60 * 1000).toISOString();
+      const datePrefix = now.toISOString().slice(0, 10).replace(/-/g, '');
+      const dailyCount = current.orders.filter(o => o.createdAt && o.createdAt.startsWith(now.toISOString().slice(0, 10))).length + 1;
+      const orderNumber = `TS-${datePrefix}-${String(dailyCount).padStart(3, '0')}`;
 
-    // 4. Shipping Calculation
-    const method = (input.shippingMethod || input.shippingOption?.code || 'INSTANT').toUpperCase();
-    let deliveryFee = input.deliveryFee !== undefined ? Number(input.deliveryFee) : (this.schema.config.defaultDeliveryFee || 4000);
-    let shippingMethodLabel = 'Kurir Instan Tumpang Go';
+      const isInternational = method.includes('CHINA') || method.includes('CROSSBORDER') || method === 'INTERNATIONAL';
+      const shipmentScope: ShopShipmentScope = isInternational ? 'INTERNATIONAL' : 'LOCAL';
+      const courierCode = isInternational ? 'CHINA_ID_CROSSBORDER' : method === 'EXPEDITION_REGULAR' ? 'DOMESTIC_EXPEDITION' : 'TUMPANG_LOCAL';
+      const courierName = isInternational ? 'Layanan Impor Cross-Border (China 🇨🇳 → Indonesia 🇮🇩)' : method === 'EXPEDITION_REGULAR' ? 'Ekspedisi Domestik Reguler (J&T / JNE)' : 'Kurir Toko Tumpang Go';
+      const trackingPrefix = isInternational ? 'CN-ID' : method === 'EXPEDITION_REGULAR' ? 'TS-EXP' : 'TS-LOC';
+      const trackingNumber = `${trackingPrefix}-${datePrefix}-${String(dailyCount).padStart(3, '0')}`;
+      const originCountry = isInternational ? 'CN' : 'ID';
+      const originCity = isInternational ? 'Gudang Konsolidasi Shenzhen, China' : 'Kecamatan Tumpang, Malang';
+      const destinationCountry = 'ID';
+      const destinationCity = `${customerDistrict}, Malang`;
 
-    if (method === 'PICKUP') {
-      deliveryFee = 0;
-      shippingMethodLabel = 'Ambil Sendiri di Toko (Pickup)';
-    } else if (method === 'REGULAR') {
-      deliveryFee = input.deliveryFee !== undefined ? Number(input.deliveryFee) : Math.max(0, Math.round((this.schema.config.defaultDeliveryFee || 4000) * 0.7));
-      shippingMethodLabel = 'Kurir Reguler Toko (Next-Day)';
-    } else if (method === 'EXPEDITION_REGULAR') {
-      deliveryFee = input.deliveryFee !== undefined ? Number(input.deliveryFee) : 12000;
-      shippingMethodLabel = 'Ekspedisi Domestik Reguler (J&T / JNE)';
-    } else if (method === 'CHINA_AIR_EXPRESS') {
-      deliveryFee = input.deliveryFee !== undefined ? Number(input.deliveryFee) : 35000;
-      shippingMethodLabel = 'China Air Freight Express (7-12 Hari)';
-    } else if (method === 'CHINA_SEA_STANDARD') {
-      deliveryFee = input.deliveryFee !== undefined ? Number(input.deliveryFee) : 20000;
-      shippingMethodLabel = 'China Sea Freight Ekonomis (20-30 Hari)';
-    }
-
-    const serviceFee = input.serviceFee !== undefined ? Number(input.serviceFee) : (this.schema.config.serviceFee || 1500);
-    const uniqueCode = input.uniqueCode !== undefined ? Number(input.uniqueCode) : Math.floor(100 + Math.random() * 899);
-    const total = subtotal + deliveryFee + serviceFee + uniqueCode;
-
-    // Deduct stock
-    for (const item of validatedItems) {
-      const prod = this.schema.products.find(p => p.id === item.productId);
-      if (prod) {
-        prod.stock = Math.max(0, prod.stock - item.quantity);
-        if (item.selectedVariation && prod.variations) {
-          const v = prod.variations.find(v2 => v2.id === item.selectedVariation?.variationId);
-          const opt = v?.options.find(o => o.id === item.selectedVariation?.optionId);
-          if (opt && typeof opt.stock === 'number') {
-            opt.stock = Math.max(0, opt.stock - item.quantity);
-          }
-        }
-        prod.updatedAt = new Date().toISOString();
-      }
-    }
-
-    const now = new Date();
-    const expiryMinutes = shopEnv.defaults.paymentExpiryMinutes || 30;
-    const expiresAt = new Date(now.getTime() + expiryMinutes * 60 * 1000).toISOString();
-    const datePrefix = now.toISOString().slice(0, 10).replace(/-/g, '');
-    const dailyCount = this.schema.orders.filter(o => o.createdAt && o.createdAt.startsWith(now.toISOString().slice(0, 10))).length + 1;
-    const orderNumber = `TS-${datePrefix}-${String(dailyCount).padStart(3, '0')}`;
-
-    const isInternational = method.includes('CHINA') || method.includes('CROSSBORDER') || method === 'INTERNATIONAL';
-    const shipmentScope: ShopShipmentScope = isInternational ? 'INTERNATIONAL' : 'LOCAL';
-    const courierCode = isInternational ? 'CHINA_ID_CROSSBORDER' : method === 'EXPEDITION_REGULAR' ? 'DOMESTIC_EXPEDITION' : 'TUMPANG_LOCAL';
-    const courierName = isInternational ? 'Layanan Impor Cross-Border (China 🇨🇳 → Indonesia 🇮🇩)' : method === 'EXPEDITION_REGULAR' ? 'Ekspedisi Domestik Reguler (J&T / JNE)' : 'Kurir Toko Tumpang Go';
-    const trackingPrefix = isInternational ? 'CN-ID' : method === 'EXPEDITION_REGULAR' ? 'TS-EXP' : 'TS-LOC';
-    const trackingNumber = `${trackingPrefix}-${datePrefix}-${String(dailyCount).padStart(3, '0')}`;
-    const originCountry = isInternational ? 'CN' : 'ID';
-    const originCity = isInternational ? 'Gudang Konsolidasi Shenzhen, China' : 'Kecamatan Tumpang, Malang';
-    const destinationCountry = 'ID';
-    const destinationCity = `${customerDistrict}, Malang`;
-
-    const initialTrackingEvent: ShopTrackingEvent = {
-      id: `tevt_${Date.now()}_1`,
-      status: ShopShipmentStatus.WAITING_DISPATCH,
-      location: originCity,
-      description: isInternational 
-        ? 'Pesanan impor telah dibuat. Menunggu pengemasan dari gudang konsolidasi China.' 
-        : 'Pesanan telah dibuat dan siap dikemas setelah pembayaran diverifikasi.',
-      timestamp: now.toISOString()
-    };
-
-    const estimatedArrival = isInternational 
-      ? method === 'CHINA_SEA_STANDARD' ? '20-30 hari kalender (Estimasi unverified)' : '7-12 hari kerja (Estimasi unverified)'
-      : method === 'EXPEDITION_REGULAR' ? '2-3 hari kerja (Estimasi manual unverified)' : method === 'REGULAR' ? '1 hari (Next-day)' : '1-3 jam (Same-day)';
-
-    const initialShipment: ShopShipment = {
-      id: `ship_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
-      orderId: `sord_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
-      trackingNumber,
-      courierCode,
-      courierName,
-      serviceName: shippingMethodLabel,
-      scope: shipmentScope,
-      originCountry,
-      originCity,
-      destinationCountry,
-      destinationCity,
-      status: ShopShipmentStatus.WAITING_DISPATCH,
-      isEstimateVerified: !isInternational && method !== 'EXPEDITION_REGULAR',
-      estimatedArrivalNote: estimatedArrival,
-      trackingHistory: [initialTrackingEvent],
-      createdAt: now.toISOString(),
-      updatedAt: now.toISOString()
-    };
-
-    const newOrder: any = {
-      id: initialShipment.orderId,
-      orderNumber,
-      customerName: input.customerName.trim(),
-      customerPhone: input.customerPhone.trim(),
-      deliveryAddress,
-      customerAddress: deliveryAddress,
-      customerDistrict,
-      shippingMethod: method,
-      shippingMethodLabel,
-      deliveryNotes: input.deliveryNotes?.trim() || '',
-      clientRequestId: reqId || undefined,
-      items: validatedItems,
-      subtotal,
-      deliveryFee,
-      serviceFee,
-      uniqueCode,
-      total,
-      paymentStatus: ShopPaymentStatus.UNPAID,
-      orderStatus: ShopOrderStatus.NEW,
-      paymentExpiresAt: expiresAt,
-      shipment: initialShipment,
-      shipmentId: initialShipment.id,
-      trackingNumber,
-      createdAt: now.toISOString(),
-      updatedAt: now.toISOString()
-    };
-
-    this.schema.orders.unshift(newOrder);
-    this.schema.shipments.unshift(initialShipment);
-
-    this.persistToLocal();
-    this.logAudit('CREATE_SHOP_ORDER', `Pesanan dibuat: ${newOrder.orderNumber} (Resi: ${trackingNumber}) senilai Rp ${newOrder.total.toLocaleString('id-ID')}`, 'CUSTOMER');
-
-    try {
-      const pfx = shopEnv.database.firestoreCollectionPrefix;
-      await Promise.all([
-        safeAdminSetDoc(`${pfx}orders`, newOrder.id, newOrder),
-        safeAdminSetDoc(`${pfx}shipments`, initialShipment.id, initialShipment)
-      ]);
-    } catch {}
-
-    return newOrder;
-  }
-
-  public async attachShipment(order: ShopOrder) {
-    const scope: ShopShipmentScope = order.shippingOption?.scope || 'LOCAL';
-    const isInternational = scope === 'INTERNATIONAL';
-
-    const courierCode = order.shippingOption?.courierCode || 'TUMPANG_LOCAL';
-    const courierName = order.shippingOption?.courierName || 'Kurir Toko Tumpang Go';
-    const serviceName = order.shippingOption?.serviceName || 'Kurir Toko Reguler';
-
-    const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
-    const trackingPrefix = isInternational ? 'CN-ID' : 'TPG';
-    const trackingNumber = `${trackingPrefix}-${dateStr}-${Math.floor(100 + Math.random() * 900)}`;
-
-    const initialHistory: ShopTrackingEvent[] = [
-      {
-        id: `ev_${Date.now()}_1`,
+      const initialTrackingEvent: ShopTrackingEvent = {
+        id: `tevt_${Date.now()}_1`,
         status: ShopShipmentStatus.WAITING_DISPATCH,
-        location: isInternational ? 'Gudang Asal (China)' : 'Toko Tumpang Shop',
+        location: originCity,
         description: isInternational 
-          ? 'Pesanan diterima pemasok internasional, menunggu pengemasan dan jadwal penerbangan ekspor.'
-          : 'Pesanan telah masuk ke sistem toko dan menunggu pengemasan produk.',
-        timestamp: new Date().toISOString()
-      }
-    ];
+          ? 'Pesanan impor telah dibuat. Menunggu pengemasan dari gudang konsolidasi China.' 
+          : 'Pesanan telah dibuat dan siap dikemas setelah pembayaran diverifikasi.',
+        timestamp: now.toISOString()
+      };
 
-    const shipment: ShopShipment = {
-      id: `ship_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
-      orderId: order.id,
-      trackingNumber,
-      courierCode,
-      courierName,
-      serviceName,
-      scope,
-      originCountry: isInternational ? 'CN' : 'ID',
-      originCity: isInternational ? 'Shenzhen / Guangzhou, China' : 'Tumpang, Malang',
-      destinationCountry: 'ID',
-      destinationCity: 'Tumpang, Malang',
-      status: ShopShipmentStatus.WAITING_DISPATCH,
-      isEstimateVerified: !isInternational,
-      estimatedArrivalNote: isInternational 
-        ? 'Estimasi belum terverifikasi API live kargo internasional, bergantung pada waktu pembersihan bea cukai.'
-        : 'Estimasi pengantaran kurir toko terverifikasi.',
-      trackingHistory: initialHistory,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
-    };
+      const estimatedArrival = isInternational 
+        ? method === 'CHINA_SEA_STANDARD' ? '20-30 hari kalender (Estimasi unverified)' : '7-12 hari kerja (Estimasi unverified)'
+        : method === 'EXPEDITION_REGULAR' ? '2-3 hari kerja (Estimasi manual unverified)' : method === 'REGULAR' ? '1 hari (Next-day)' : '1-3 jam (Same-day)';
 
-    order.shipmentId = shipment.id;
-    order.trackingNumber = trackingNumber;
-    this.schema.shipments.unshift(shipment);
+      const initialShipment: ShopShipment = {
+        id: `ship_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+        orderId: `sord_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+        trackingNumber,
+        courierCode,
+        courierName,
+        serviceName: shippingMethodLabel,
+        scope: shipmentScope,
+        originCountry,
+        originCity,
+        destinationCountry,
+        destinationCity,
+        status: ShopShipmentStatus.WAITING_DISPATCH,
+        isEstimateVerified: !isInternational && method !== 'EXPEDITION_REGULAR',
+        estimatedArrivalNote: estimatedArrival,
+        trackingHistory: [initialTrackingEvent],
+        createdAt: now.toISOString(),
+        updatedAt: now.toISOString()
+      };
 
-    try {
-      const pfx = shopEnv.database.firestoreCollectionPrefix;
-      await safeAdminSetDoc(`${pfx}shipments`, shipment.id, shipment);
-    } catch {}
+      const newOrder: any = {
+        id: initialShipment.orderId,
+        orderNumber,
+        customerName: input.customerName.trim(),
+        customerPhone: input.customerPhone.trim(),
+        deliveryAddress,
+        customerAddress: deliveryAddress,
+        customerDistrict,
+        shippingMethod: method,
+        shippingMethodLabel,
+        deliveryNotes: input.deliveryNotes?.trim() || '',
+        clientRequestId: reqId || undefined,
+        items: validatedItems,
+        subtotal,
+        deliveryFee,
+        serviceFee,
+        uniqueCode,
+        total,
+        paymentStatus: ShopPaymentStatus.UNPAID,
+        orderStatus: ShopOrderStatus.NEW,
+        paymentExpiresAt: expiresAt,
+        shipment: initialShipment,
+        shipmentId: initialShipment.id,
+        trackingNumber,
+        createdAt: now.toISOString(),
+        updatedAt: now.toISOString()
+      };
+
+      const orders = [newOrder, ...current.orders];
+      const shipments = [initialShipment, ...current.shipments];
+      const log = this.createAuditLog('CREATE_SHOP_ORDER', `Pesanan dibuat: ${newOrder.orderNumber} (Resi: ${trackingNumber}) senilai Rp ${newOrder.total.toLocaleString('id-ID')}`, 'CUSTOMER');
+      const auditLogs = [log, ...current.auditLogs].slice(0, 500);
+
+      return {
+        updatedSchema: { ...current, products: updatedProducts, orders, shipments, auditLogs },
+        result: newOrder
+      };
+    });
   }
 
   public getOrders(filter?: { paymentStatus?: ShopPaymentStatus; orderStatus?: ShopOrderStatus }): ShopOrder[] {
@@ -757,15 +648,7 @@ export class ShopDatabase {
   }
 
   public async findOrderById(id: string): Promise<ShopOrder | undefined> {
-    const local = this.getOrderById(id) || this.schema.orders.find(o => o.orderNumber === id);
-    if (local) return local;
-
-    try {
-      const pfx = shopEnv.database.firestoreCollectionPrefix;
-      const doc = await safeAdminGetDoc(`${pfx}orders`, id);
-      if (doc) return doc as ShopOrder;
-    } catch {}
-    return undefined;
+    return this.getOrderById(id) || this.schema.orders.find(o => o.orderNumber === id);
   }
 
   public async findOrderByNumberAndPhone(numberOrId: string, phone: string): Promise<ShopOrder | undefined> {
@@ -781,98 +664,121 @@ export class ShopDatabase {
   }
 
   public async uploadPaymentProof(orderIdOrNumber: string, paymentProofUrl: string): Promise<ShopOrder> {
-    const order = this.getOrderById(orderIdOrNumber) || this.schema.orders.find(o => o.orderNumber === orderIdOrNumber);
-    if (!order) throw new Error(`Pesanan ${orderIdOrNumber} tidak ditemukan.`);
+    return this.mutate(current => {
+      const index = current.orders.findIndex(o => o.id === orderIdOrNumber || o.orderNumber === orderIdOrNumber);
+      if (index === -1) throw new Error(`Pesanan ${orderIdOrNumber} tidak ditemukan.`);
 
-    order.paymentProof = paymentProofUrl;
-    order.paymentStatus = ShopPaymentStatus.WAITING_VERIFICATION;
-    order.updatedAt = new Date().toISOString();
+      const updated = {
+        ...current.orders[index],
+        paymentProof: paymentProofUrl,
+        paymentStatus: ShopPaymentStatus.WAITING_VERIFICATION,
+        updatedAt: new Date().toISOString()
+      };
+      const orders = [...current.orders];
+      orders[index] = updated;
 
-    this.persistToLocal();
-    this.logAudit('UPLOAD_PAYMENT_PROOF', `Bukti bayar diunggah untuk #${order.orderNumber}`, order.customerName);
+      const log = this.createAuditLog('UPLOAD_PAYMENT_PROOF', `Bukti bayar diunggah untuk #${updated.orderNumber}`, updated.customerName);
+      const auditLogs = [log, ...current.auditLogs].slice(0, 500);
 
-    try {
-      const pfx = shopEnv.database.firestoreCollectionPrefix;
-      await safeAdminSetDoc(`${pfx}orders`, order.id, order);
-    } catch {}
-
-    return order;
+      return {
+        updatedSchema: { ...current, orders, auditLogs },
+        result: updated
+      };
+    });
   }
 
   public async verifyPayment(actor: string, orderIdOrNumber: string, approved: boolean, reason?: string): Promise<ShopOrder> {
-    const order = this.getOrderById(orderIdOrNumber) || this.schema.orders.find(o => o.orderNumber === orderIdOrNumber);
-    if (!order) throw new Error(`Pesanan ${orderIdOrNumber} tidak ditemukan.`);
+    return this.mutate(current => {
+      const index = current.orders.findIndex(o => o.id === orderIdOrNumber || o.orderNumber === orderIdOrNumber);
+      if (index === -1) throw new Error(`Pesanan ${orderIdOrNumber} tidak ditemukan.`);
 
-    const now = new Date().toISOString();
-    if (approved) {
-      order.paymentStatus = ShopPaymentStatus.PAID;
-      order.orderStatus = ShopOrderStatus.PROCESSING;
-      order.paidAt = now;
-      this.logAudit('VERIFY_PAYMENT_APPROVED', `Pembayaran pesanan #${order.orderNumber} diverifikasi sah oleh ${actor}`, actor);
-    } else {
-      order.paymentStatus = ShopPaymentStatus.REJECTED;
-      order.rejectionReason = reason || 'Bukti transfer tidak valid atau dana belum masuk.';
-      this.logAudit('VERIFY_PAYMENT_REJECTED', `Pembayaran pesanan #${order.orderNumber} ditolak oleh ${actor}: ${order.rejectionReason}`, actor);
-    }
+      const now = new Date().toISOString();
+      const updated = { ...current.orders[index], updatedAt: now };
 
-    order.updatedAt = now;
-    this.persistToLocal();
+      let logMsg = '';
+      if (approved) {
+        updated.paymentStatus = ShopPaymentStatus.PAID;
+        updated.orderStatus = ShopOrderStatus.PROCESSING;
+        updated.paidAt = now;
+        logMsg = `Pembayaran pesanan #${updated.orderNumber} diverifikasi sah oleh ${actor}`;
+      } else {
+        updated.paymentStatus = ShopPaymentStatus.REJECTED;
+        updated.rejectionReason = reason || 'Bukti transfer tidak valid atau dana belum masuk.';
+        logMsg = `Pembayaran pesanan #${updated.orderNumber} ditolak oleh ${actor}: ${updated.rejectionReason}`;
+      }
 
-    try {
-      const pfx = shopEnv.database.firestoreCollectionPrefix;
-      await safeAdminSetDoc(`${pfx}orders`, order.id, order);
-    } catch {}
+      const orders = [...current.orders];
+      orders[index] = updated;
+      const log = this.createAuditLog(approved ? 'VERIFY_PAYMENT_APPROVED' : 'VERIFY_PAYMENT_REJECTED', logMsg, actor);
+      const auditLogs = [log, ...current.auditLogs].slice(0, 500);
 
-    return order;
+      return {
+        updatedSchema: { ...current, orders, auditLogs },
+        result: updated
+      };
+    });
   }
 
   public async attachArtopayPayment(orderId: string, details: Partial<ShopOrder>): Promise<ShopOrder> {
-    const order = this.getOrderById(orderId) || this.schema.orders.find(o => o.orderNumber === orderId);
-    if (!order) throw new Error(`Pesanan Shop ${orderId} tidak ditemukan.`);
+    return this.mutate(current => {
+      const index = current.orders.findIndex(o => o.id === orderId || o.orderNumber === orderId);
+      if (index === -1) throw new Error(`Pesanan Shop ${orderId} tidak ditemukan.`);
 
-    Object.assign(order, details, { updatedAt: new Date().toISOString() });
-    this.persistToLocal();
+      const updated = {
+        ...current.orders[index],
+        ...details,
+        updatedAt: new Date().toISOString()
+      };
+      const orders = [...current.orders];
+      orders[index] = updated;
 
-    try {
-      const pfx = shopEnv.database.firestoreCollectionPrefix;
-      await safeAdminSetDoc(`${pfx}orders`, order.id, order);
-    } catch {}
-
-    return order;
+      return {
+        updatedSchema: { ...current, orders },
+        result: updated
+      };
+    });
   }
 
   public async updateOrderStatus(actor: string, orderIdOrNumber: string, status: ShopOrderStatus, reason?: string): Promise<ShopOrder> {
-    const order = this.getOrderById(orderIdOrNumber) || this.schema.orders.find(o => o.orderNumber === orderIdOrNumber);
-    if (!order) throw new Error(`Pesanan ${orderIdOrNumber} tidak ditemukan.`);
+    return this.mutate(current => {
+      const index = current.orders.findIndex(o => o.id === orderIdOrNumber || o.orderNumber === orderIdOrNumber);
+      if (index === -1) throw new Error(`Pesanan ${orderIdOrNumber} tidak ditemukan.`);
 
-    const oldStatus = order.orderStatus;
-    order.orderStatus = status;
-    order.updatedAt = new Date().toISOString();
+      const oldOrder = current.orders[index];
+      const oldStatus = oldOrder.orderStatus;
+      const updatedOrder = {
+        ...oldOrder,
+        orderStatus: status,
+        updatedAt: new Date().toISOString()
+      };
 
-    // If order was cancelled and was not cancelled before, restore stock
-    if (status === ShopOrderStatus.CANCELLED && oldStatus !== ShopOrderStatus.CANCELLED) {
-      order.cancelledAt = new Date().toISOString();
-      order.cancellationReason = reason || 'Pesanan dibatalkan oleh pengguna atau admin toko.';
-      for (const item of order.items) {
-        const prod = this.getProductById(item.productId);
-        if (prod) {
-          prod.stock += item.quantity;
-          prod.updatedAt = new Date().toISOString();
-        }
+      let products = [...current.products];
+      let logMsg = '';
+
+      // If order was cancelled and was not cancelled before, restore stock
+      if (status === ShopOrderStatus.CANCELLED && oldStatus !== ShopOrderStatus.CANCELLED) {
+        updatedOrder.cancelledAt = new Date().toISOString();
+        updatedOrder.cancellationReason = reason || 'Pesanan dibatalkan oleh pengguna atau admin toko.';
+        products = products.map(prod => {
+          const item = updatedOrder.items.find(it => it.productId === prod.id);
+          if (!item) return prod;
+          return { ...prod, stock: prod.stock + item.quantity, updatedAt: new Date().toISOString() };
+        });
+        logMsg = `Pesanan #${updatedOrder.orderNumber} dibatalkan. Stok dipulihkan oleh ${actor}`;
+      } else {
+        logMsg = `Status pesanan #${updatedOrder.orderNumber} diubah ke ${status} oleh ${actor}`;
       }
-      this.logAudit('CANCEL_ORDER_STOCK_RESTORED', `Pesanan #${order.orderNumber} dibatalkan. Stok dipulihkan oleh ${actor}`, actor);
-    } else {
-      this.logAudit('UPDATE_ORDER_STATUS', `Status pesanan #${order.orderNumber} diubah ke ${status} oleh ${actor}`, actor);
-    }
 
-    this.persistToLocal();
+      const orders = [...current.orders];
+      orders[index] = updatedOrder;
+      const log = this.createAuditLog('UPDATE_ORDER_STATUS', logMsg, actor);
+      const auditLogs = [log, ...current.auditLogs].slice(0, 500);
 
-    try {
-      const pfx = shopEnv.database.firestoreCollectionPrefix;
-      await safeAdminSetDoc(`${pfx}orders`, order.id, order);
-    } catch {}
-
-    return order;
+      return {
+        updatedSchema: { ...current, products, orders, auditLogs },
+        result: updatedOrder
+      };
+    });
   }
 
   // --- SHIPMENTS ---
@@ -917,74 +823,84 @@ export class ShopDatabase {
       updatedAt: new Date().toISOString()
     };
 
-    this.schema.shipments.unshift(shipment);
-    this.persistToLocal();
-    this.logAudit('CREATE_SHIPMENT', `Pengiriman dibuat #${shipment.trackingNumber} oleh ${actor}`, actor);
-    return shipment;
+    return this.mutate(current => {
+      const shipments = [shipment, ...current.shipments];
+      const log = this.createAuditLog('CREATE_SHIPMENT', `Pengiriman dibuat #${shipment.trackingNumber} oleh ${actor}`, actor);
+      const auditLogs = [log, ...current.auditLogs].slice(0, 500);
+      return {
+        updatedSchema: { ...current, shipments, auditLogs },
+        result: shipment
+      };
+    });
   }
 
   public async updateShipmentStatus(actor: string, id: string, status: ShopShipmentStatus, details?: { location?: string; description?: string; note?: string }): Promise<ShopShipment> {
     const val = ShopSchemaValidator.validateShipmentStatus(status);
     if (!val.isValid) throw new Error(val.error);
 
-    const shipment = this.getShipmentById(id);
-    if (!shipment) throw new Error(`Pengiriman ${id} tidak ditemukan.`);
+    return this.mutate(current => {
+      const sIndex = current.shipments.findIndex(s => s.id === id);
+      if (sIndex === -1) throw new Error(`Pengiriman ${id} tidak ditemukan.`);
 
-    const statusLabels: Record<string, string> = {
-      WAITING_DISPATCH: 'Menunggu Pengiriman',
-      PROCESSING: 'Diproses di Gudang',
-      DISPATCHED: 'Dikirim dari Negara Asal',
-      IN_TRANSIT: 'Dalam Perjalanan Internasional',
-      ARRIVED_INDONESIA: 'Tiba di Indonesia',
-      CUSTOMS_CLEARANCE: 'Pemeriksaan Bea Cukai',
-      CUSTOMS_HOLD: 'Tertahan di Bea Cukai',
-      TRANSFERRED_LOCAL_COURIER: 'Diteruskan Kurir Lokal',
-      OUT_FOR_DELIVERY: 'Dalam Pengantaran',
-      DELIVERED: 'Terkirim',
-      FAILED_DELIVERY: 'Gagal Dikirim',
-      RETURNED_TO_SENDER: 'Dikembalikan ke Pengirim'
-    };
-    const statusLabel = statusLabels[status] || status;
+      const statusLabels: Record<string, string> = {
+        WAITING_DISPATCH: 'Menunggu Pengiriman',
+        PROCESSING: 'Diproses di Gudang',
+        DISPATCHED: 'Dikirim dari Negara Asal',
+        IN_TRANSIT: 'Dalam Perjalanan Internasional',
+        ARRIVED_INDONESIA: 'Tiba di Indonesia',
+        CUSTOMS_CLEARANCE: 'Pemeriksaan Bea Cukai',
+        CUSTOMS_HOLD: 'Tertahan di Bea Cukai',
+        TRANSFERRED_LOCAL_COURIER: 'Diteruskan Kurir Lokal',
+        OUT_FOR_DELIVERY: 'Dalam Pengantaran',
+        DELIVERED: 'Terkirim',
+        FAILED_DELIVERY: 'Gagal Dikirim',
+        RETURNED_TO_SENDER: 'Dikembalikan ke Pengirim'
+      };
+      const statusLabel = statusLabels[status] || status;
 
-    shipment.status = status;
-    (shipment as any).statusLabel = statusLabel;
-    shipment.updatedAt = new Date().toISOString();
+      const currentShipment = current.shipments[sIndex];
+      const updatedShipment: any = {
+        ...currentShipment,
+        status,
+        statusLabel,
+        updatedAt: new Date().toISOString()
+      };
 
-    const event: any = {
-      id: `tevt_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
-      status,
-      statusLabel,
-      location: details?.location || (shipment.scope === 'INTERNATIONAL' ? 'Hub Logistik Internasional' : 'Area Tumpang'),
-      description: details?.description || `Pembaruan status pengiriman: ${statusLabel}`,
-      timestamp: new Date().toISOString()
-    };
+      const event: any = {
+        id: `tevt_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+        status,
+        statusLabel,
+        location: details?.location || (currentShipment.scope === 'INTERNATIONAL' ? 'Hub Logistik Internasional' : 'Area Tumpang'),
+        description: details?.description || `Pembaruan status pengiriman: ${statusLabel}`,
+        timestamp: new Date().toISOString()
+      };
+      updatedShipment.trackingHistory = [event, ...currentShipment.trackingHistory];
 
-    shipment.trackingHistory.unshift(event);
+      const shipments = [...current.shipments];
+      shipments[sIndex] = updatedShipment;
 
-    // Update associated order and order shipment
-    const order = this.getOrderById(shipment.orderId);
-    if (order) {
-      if (order.shipment) {
-        order.shipment.status = status;
-        (order.shipment as any).statusLabel = statusLabel;
-        order.shipment.trackingHistory = shipment.trackingHistory;
-      }
-      if (status === ShopShipmentStatus.DELIVERED && order.orderStatus !== ShopOrderStatus.COMPLETED) {
-        order.orderStatus = ShopOrderStatus.COMPLETED;
-        order.deliveredAt = new Date().toISOString();
-      }
-      order.updatedAt = new Date().toISOString();
-    }
+      // Also update linked order
+      const orders = current.orders.map(o => {
+        if (o.id !== updatedShipment.orderId) return o;
+        const ord = { ...o, updatedAt: new Date().toISOString() };
+        if (ord.shipment) {
+          ord.shipment = { ...ord.shipment, status, statusLabel, trackingHistory: updatedShipment.trackingHistory };
+        }
+        if (status === ShopShipmentStatus.DELIVERED && ord.orderStatus !== ShopOrderStatus.COMPLETED) {
+          ord.orderStatus = ShopOrderStatus.COMPLETED;
+          ord.deliveredAt = new Date().toISOString();
+        }
+        return ord;
+      });
 
-    this.persistToLocal();
-    this.logAudit('UPDATE_SHIPMENT_STATUS', `Status pengiriman #${shipment.trackingNumber} diubah ke ${status} oleh ${actor}`, actor);
+      const log = this.createAuditLog('UPDATE_SHIPMENT_STATUS', `Status pengiriman #${updatedShipment.trackingNumber} diubah ke ${status} oleh ${actor}`, actor);
+      const auditLogs = [log, ...current.auditLogs].slice(0, 500);
 
-    try {
-      const pfx = shopEnv.database.firestoreCollectionPrefix;
-      await safeAdminSetDoc(`${pfx}shipments`, shipment.id, shipment);
-    } catch {}
-
-    return shipment;
+      return {
+        updatedSchema: { ...current, shipments, orders, auditLogs },
+        result: updatedShipment
+      };
+    });
   }
 
   // --- REPORTS & METRICS ---

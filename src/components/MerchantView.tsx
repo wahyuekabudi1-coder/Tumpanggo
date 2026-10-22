@@ -316,12 +316,12 @@ export default function MerchantView({ merchantId: rawMerchantId, onLogout, onSe
 
     fetchMerchantData(false);
 
-    // Auto-refresh polling every 8 seconds to catch incoming orders verified by admin
+    // Optimized auto-refresh polling every 25 seconds when page is visible
     const pollInterval = setInterval(() => {
-      if (document.visibilityState === 'visible' && isMountedRef.current) {
+      if (document.visibilityState === 'visible' && isMountedRef.current && navigator.onLine) {
         fetchMerchantData(true);
       }
-    }, 8000);
+    }, 25000);
 
     return () => {
       clearInterval(pollInterval);
@@ -334,6 +334,18 @@ export default function MerchantView({ merchantId: rawMerchantId, onLogout, onSe
     else setIsRefreshing(true);
 
     try {
+      if (isBackground) {
+        // Background polling: strictly poll orders only to minimize database load
+        const ordRes = await fetch(`/api/merchants/${encodeURIComponent(effectiveMerchantId)}/orders`)
+          .then(r => r.ok ? r.json() : [])
+          .catch(() => []);
+        if (!isMountedRef.current) return;
+        setOrders(extractArrayResponse<Order>(ordRes, 'orders'));
+        setLastRefreshedAt(new Date());
+        return;
+      }
+
+      // Full sync: initial load or explicit manual refresh
       const [profRes, ordRes, menuRes, catRes, setRes] = await Promise.all([
         fetch(`/api/merchants/${encodeURIComponent(effectiveMerchantId)}`).then(r => r.ok ? r.json() : null).catch(() => null),
         fetch(`/api/merchants/${encodeURIComponent(effectiveMerchantId)}/orders`).then(r => r.ok ? r.json() : []).catch(() => []),

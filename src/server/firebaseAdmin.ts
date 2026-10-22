@@ -27,6 +27,7 @@ export type DiagnosticReason =
   | 'DATABASE_NOT_FOUND'
   | 'INVALID_PROJECT'
   | 'NETWORK_OR_TIMEOUT'
+  | 'RESOURCE_EXHAUSTED'
   | 'UNKNOWN';
 
 let adminApp: App | null = null;
@@ -525,6 +526,10 @@ export async function testFirestoreConnection(force = false): Promise<FirestoreP
       diagnosticReason = 'INVALID_PROJECT';
       diagnosticDetail = `Proyek Google Cloud "${activeProjectId}" tidak valid atau tidak dapat diakses.`;
       remediationStep = `Pastikan Service Account dibuat dari project ID "${activeProjectId}" di Firebase Console.`;
+    } else if (rawErrCode === 8 || rawErrCode === '8' || rawErrCode === 'RESOURCE_EXHAUSTED' || lower.includes('resource_exhausted') || lower.includes('quota exceeded') || lower.includes('quota_exceeded') || lower.includes('status: 8')) {
+      diagnosticReason = 'RESOURCE_EXHAUSTED';
+      diagnosticDetail = 'Batas kuota gratis harian Cloud Firestore (50.000 dokumen baca atau 20.000 tulis per hari) telah tercapai (RESOURCE_EXHAUSTED). Operasi penulisan cloud ditangguhkan sementara sampai kuota direset oleh Google Cloud pada pukul 00:00 PST / 14:00 WIB, atau paket ditingkatkan ke Blaze (Pay-as-you-go).';
+      remediationStep = 'Tunggu reset kuota harian pada pukul 14:00 WIB, atau beralih ke paket Blaze di Firebase Console -> Project Settings -> Usage and Billing, serta pastikan query tidak memuat seluruh koleksi dokumen berulang kali.';
     } else if (rawErrCode === 4 || rawErrCode === 14 || rawErrCode === '4' || rawErrCode === '14' || rawErrCode === 'DEADLINE_EXCEEDED' || rawErrCode === 'UNAVAILABLE' || lower.includes('timed out') || lower.includes('deadline_exceeded') || lower.includes('unavailable') || lower.includes('econnrefused') || lower.includes('etimedout')) {
       diagnosticReason = 'NETWORK_OR_TIMEOUT';
       diagnosticDetail = 'Gagal menghubungi server Google Cloud Firestore karena koneksi timeout atau gangguan jaringan serverless.';
@@ -644,14 +649,40 @@ export async function safeAdminGetDoc(collectionName: string, docId: string): Pr
 /**
  * Safe administrative getDocs read across collection.
  */
-export async function safeAdminGetDocs(collectionName: string): Promise<any[]> {
+export async function safeAdminGetDocs(
+  collectionName: string,
+  queryBuilder?: (ref: FirebaseFirestore.CollectionReference) => FirebaseFirestore.Query
+): Promise<any[]> {
   if (!adminDb || !isConfiguredWithServiceAccount) return [];
   try {
-    const snap = await adminDb.collection(collectionName).get();
+    const baseRef = adminDb.collection(collectionName);
+    const query = queryBuilder ? queryBuilder(baseRef) : baseRef;
+    const snap = await query.get();
     return snap.docs.map(doc => ({ id: doc.id, ...(doc.data() || {}) }));
   } catch (err: any) {
     console.warn(`[TumpangFood Admin] safeAdminGetDocs failed for ${collectionName}:`, sanitizeErrorMessage(err.message));
     return [];
+  }
+}
+
+/**
+ * Safe administrative aggregation countDoc read across collection or query.
+ * Uses Firestore server-side aggregation (.count().get()) which avoids reading full documents,
+ * dramatically saving Firestore read quotas.
+ */
+export async function safeAdminCountDocs(
+  collectionName: string,
+  queryBuilder?: (ref: FirebaseFirestore.CollectionReference) => FirebaseFirestore.Query
+): Promise<number | null> {
+  if (!adminDb || !isConfiguredWithServiceAccount) return null;
+  try {
+    const baseRef = adminDb.collection(collectionName);
+    const query = queryBuilder ? queryBuilder(baseRef) : baseRef;
+    const snap = await query.count().get();
+    return snap.data().count;
+  } catch (err: any) {
+    console.warn(`[TumpangFood Admin] safeAdminCountDocs failed for ${collectionName}:`, sanitizeErrorMessage(err.message));
+    return null;
   }
 }
 

@@ -11,7 +11,7 @@ import { foodDb } from './db';
 import { foodConfig } from './config';
 import { shopApp } from '../services/shop/api/shopApp';
 import { shopApiClient } from '../services/shop/client/shopApiClient';
-import { isFirestoreAdminConfigured, isUsingServiceAccount, testFirestoreConnection, getFirestoreDiagnosticStatus, getAdminDb } from './firebaseAdmin';
+import { isFirestoreAdminConfigured, isUsingServiceAccount, testFirestoreConnection, getFirestoreDiagnosticStatus, getAdminDb, safeAdminCountDocs } from './firebaseAdmin';
 import { authenticateToken } from './auth';
 import { authRouter } from './routes/authRoutes';
 import { merchantRouter } from './routes/merchantRoutes';
@@ -122,14 +122,9 @@ app.use((err: any, req: any, _res: any, next: any) => {
   next(err);
 });
 
-// Lazy asynchronous database synchronization middleware for Serverless & Cold-Starts
-app.use(async (req, res, next) => {
-  try {
-    await foodDb.ensureInitialized();
-  } catch (err: any) {
-    console.warn('[TumpangFood Database Sync Warning]', err?.message || err);
-  }
-  next();
+// Initialize database asynchronously in the background on startup (no per-request blocking)
+foodDb.ensureInitialized().catch((err: any) => {
+  console.warn('[TumpangFood Database Startup Sync Warning]', err?.message || err);
 });
 
 // Attach user authentication from tokens or headers
@@ -206,22 +201,22 @@ app.get('/api/health/catalog-status', async (req, res) => {
     let settlementsCount = 0;
 
     if (probe.connected && adminDb) {
-      const [mSnap, cSnap, iSnap, mrSnap, dSnap, oSnap, sSnap] = await Promise.all([
-        adminDb.collection('merchants').get(),
-        adminDb.collection('categories').get(),
-        adminDb.collection('menuItems').get(),
-        adminDb.collection('partnerRegistrations').where('type', '==', 'MERCHANT').get(),
-        adminDb.collection('drivers').get(),
-        adminDb.collection('orders').get(),
-        adminDb.collection('settlements').get()
+      const [mCount, cCount, iCount, mrCount, dCount, oCount, sCount] = await Promise.all([
+        safeAdminCountDocs('merchants'),
+        safeAdminCountDocs('categories'),
+        safeAdminCountDocs('menuItems'),
+        safeAdminCountDocs('partnerRegistrations', ref => ref.where('type', '==', 'MERCHANT')),
+        safeAdminCountDocs('drivers'),
+        safeAdminCountDocs('orders'),
+        safeAdminCountDocs('settlements')
       ]);
-      merchantsCount = mSnap.size;
-      categoriesCount = cSnap.size;
-      menuItemsCount = iSnap.size;
-      merchantRegistrationsCount = mrSnap.size;
-      driversCount = dSnap.size;
-      ordersCount = oSnap.size;
-      settlementsCount = sSnap.size;
+      merchantsCount = mCount ?? 0;
+      categoriesCount = cCount ?? 0;
+      menuItemsCount = iCount ?? 0;
+      merchantRegistrationsCount = mrCount ?? 0;
+      driversCount = dCount ?? 0;
+      ordersCount = oCount ?? 0;
+      settlementsCount = sCount ?? 0;
     } else {
       const rawData = (foodDb as any).data;
       merchantsCount = rawData?.merchants?.length || 0;

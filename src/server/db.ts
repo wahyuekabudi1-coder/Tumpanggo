@@ -23,6 +23,7 @@ import {
   safeAdminDeleteDoc,
   safeAdminGetDoc,
   safeAdminGetDocs,
+  safeAdminCountDocs,
   safeAdminBatchDelete,
   safeAdminBatchDeleteQuery,
   createFirestoreBackup,
@@ -431,39 +432,39 @@ export class FoodDatabase {
     let driverPartnerRegistrationsCount = 0;
 
     if (probe.connected && adminDb) {
-      // Query Cloud Firestore directly for authoritative cloud document counts
+      // Query Cloud Firestore directly using aggregation counts to avoid reading full documents
       const [
-        mSnap,
-        cSnap,
-        iSnap,
-        mrSnap,
-        dSnap,
-        oSnap,
-        sSnap,
-        tSnap,
-        drSnap
+        mCount,
+        cCount,
+        iCount,
+        mrCount,
+        dCount,
+        oCount,
+        sCount,
+        tCount,
+        drCount
       ] = await Promise.all([
-        adminDb.collection('merchants').get(),
-        adminDb.collection('categories').get(),
-        adminDb.collection('menuItems').get(),
-        adminDb.collection('partnerRegistrations').where('type', '==', 'MERCHANT').get(),
-        adminDb.collection('drivers').get(),
-        adminDb.collection('orders').get(),
-        adminDb.collection('settlements').get(),
-        adminDb.collection('testimonials').get(),
-        adminDb.collection('partnerRegistrations').where('type', '==', 'DRIVER').get()
+        safeAdminCountDocs('merchants'),
+        safeAdminCountDocs('categories'),
+        safeAdminCountDocs('menuItems'),
+        safeAdminCountDocs('partnerRegistrations', ref => ref.where('type', '==', 'MERCHANT')),
+        safeAdminCountDocs('drivers'),
+        safeAdminCountDocs('orders'),
+        safeAdminCountDocs('settlements'),
+        safeAdminCountDocs('testimonials'),
+        safeAdminCountDocs('partnerRegistrations', ref => ref.where('type', '==', 'DRIVER'))
       ]);
 
-      merchantsCount = mSnap.size;
-      categoriesCount = cSnap.size;
-      menuItemsCount = iSnap.size;
-      merchantPartnerRegistrationsCount = mrSnap.size;
+      merchantsCount = mCount ?? 0;
+      categoriesCount = cCount ?? 0;
+      menuItemsCount = iCount ?? 0;
+      merchantPartnerRegistrationsCount = mrCount ?? 0;
 
-      driversCount = dSnap.size;
-      ordersCount = oSnap.size;
-      settlementsCount = sSnap.size;
-      testimonialsCount = tSnap.size;
-      driverPartnerRegistrationsCount = drSnap.size;
+      driversCount = dCount ?? 0;
+      ordersCount = oCount ?? 0;
+      settlementsCount = sCount ?? 0;
+      testimonialsCount = tCount ?? 0;
+      driverPartnerRegistrationsCount = drCount ?? 0;
     } else {
       // Development mode fallback only - clearly labeled
       merchantsCount = this.data.merchants.length;
@@ -773,23 +774,27 @@ export class FoodDatabase {
 
   private initPromise: Promise<void> | null = null;
   private lastSyncTimestamp = 0;
-  private readonly CACHE_TTL_MS = 15000;
+  private readonly CACHE_TTL_MS = 300000; // 5 minutes cache TTL to avoid burning Firestore read quotas
 
   public async ensureInitialized(forceRefresh = false): Promise<void> {
     if (this.isInitialized && !forceRefresh && (Date.now() - this.lastSyncTimestamp < this.CACHE_TTL_MS)) {
       return;
     }
     if (!this.initPromise || forceRefresh) {
-      this.initPromise = this.init();
+      this.initPromise = (async () => {
+        try {
+          await this.init();
+          this.lastSyncTimestamp = Date.now();
+          this.isInitialized = true;
+        } catch (err) {
+          this.isInitialized = false;
+          throw err;
+        } finally {
+          this.initPromise = null;
+        }
+      })();
     }
-    try {
-      await this.initPromise;
-      this.lastSyncTimestamp = Date.now();
-    } catch (err) {
-      this.initPromise = null;
-      this.isInitialized = false;
-      throw err;
-    }
+    return this.initPromise;
   }
 
   /**
@@ -951,9 +956,9 @@ export class FoodDatabase {
       }
 
 
-      // Audit Logs
+      // Audit Logs (Fetch only recent 50 entries to conserve Firestore read quotas)
       try {
-        const remoteLogs = await safeAdminGetDocs('auditLogs');
+        const remoteLogs = await safeAdminGetDocs('auditLogs', ref => ref.orderBy('createdAt', 'desc').limit(50));
         if (remoteLogs.length > 0) {
           this.data.auditLogs = (remoteLogs as AuditLog[])
             .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())

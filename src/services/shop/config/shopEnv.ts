@@ -84,14 +84,15 @@ export const shopEnv = {
   isProduction: process.env.NODE_ENV === 'production',
   port: resolveShopPort(),
   
-  // Database Configuration
+  // Database Configuration - Isolated from Tumpang Food
   database: {
     type: (process.env.SHOP_DATABASE_TYPE || 'file') as 'file' | 'firestore' | 'sql',
     filePath: process.env.SHOP_DB_FILE ? path.resolve(process.cwd(), process.env.SHOP_DB_FILE) : defaultShopDbFile,
     databaseUrl: process.env.SHOP_DATABASE_URL || '',
     firestoreDatabaseId: process.env.SHOP_FIRESTORE_DATABASE_ID || '(default)',
     firestoreCollectionPrefix: process.env.SHOP_FIRESTORE_PREFIX || 'shop_',
-    enableCloudSync: process.env.SHOP_ENABLE_CLOUD_SYNC === 'true' || process.env.NODE_ENV === 'production',
+    // Explicit opt-in only: Never piggyback automatically on Food's Firestore instance
+    enableCloudSync: process.env.SHOP_ENABLE_CLOUD_SYNC === 'true',
     maxRetries: 3,
     retryDelayMs: 1000
   } as ShopDatabaseConnectionConfig,

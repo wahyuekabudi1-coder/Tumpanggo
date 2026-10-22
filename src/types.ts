@@ -306,21 +306,23 @@ export type UserReview = Testimonial;
 /**
  * Menghitung biaya layanan pelanggan bertingkat berdasarkan nominal subtotal makanan.
  * Ketentuan tarif resmi TumpangGo:
- * - Rp 0 – Rp 30.000       : Rp 1.200
- * - Rp 30.001 – Rp 99.000  : Rp 2.000
- * - Rp 100.000 – Rp 199.000: Rp 3.000
- * - Rp 200.000 – Rp 299.000: Rp 4.000
- * - Rp 300.000 – Rp 500.000: Rp 5.000
+ * - Rp 1 – Rp 30.000       : Rp 1.200
+ * - Di atas Rp 30.000 – Rp 100.000 : Rp 2.000 (tepat Rp 100.000 tetap Rp 2.000)
+ * - Di atas Rp 100.000 – Rp 200.000: Rp 3.000 (tepat Rp 200.000 tetap Rp 3.000)
+ * - Di atas Rp 200.000 – Rp 300.000: Rp 4.000 (tepat Rp 300.000 tetap Rp 4.000)
+ * - Di atas Rp 300.000 – Rp 500.000: Rp 5.000
  * Aturan bisnis berkelanjutan:
  * - Rp 500.001 – Rp 700.000: Rp 5.000
  * - Di atas Rp 700.000     : Rp 10.000
  */
 export function calculateTieredServiceFee(subtotal: number): number {
   const amount = Math.max(0, Math.round(Number(subtotal) || 0));
+  if (amount <= 0) return 0;
   if (amount <= 30000) return 1200;
-  if (amount < 100000) return 2000;
-  if (amount < 200000) return 3000;
-  if (amount < 300000) return 4000;
+  if (amount <= 100000) return 2000;
+  if (amount <= 200000) return 3000;
+  if (amount <= 300000) return 4000;
+  if (amount <= 500000) return 5000;
   if (amount <= 700000) return 5000;
   return 10000;
 }

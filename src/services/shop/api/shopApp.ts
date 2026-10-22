@@ -42,14 +42,9 @@ shopApp.use((req: any, res, next) => {
   next();
 });
 
-// Auto-initialize Shop Database
-shopApp.use(async (_req, _res, next) => {
-  try {
-    await shopDb.ensureInitialized();
-  } catch (err: any) {
-    console.warn('[Shop App Sync Warning]', err?.message || err);
-  }
-  next();
+// Initialize Shop Database safely in background on startup (no per-request blocking)
+shopDb.ensureInitialized().catch((err: any) => {
+  console.warn('[Shop Database Startup Init Warning]', err?.message || err);
 });
 
 // Attach authenticated Shop user
@@ -58,15 +53,31 @@ shopApp.use(attachShopUser);
 // Router defining all Shop endpoints
 const router = express.Router();
 
+export function handleShopError(res: Response, err: any, defaultMessage: string) {
+  const isStorage = Boolean(
+    err?.isStorageError || 
+    err?.code === 'STORAGE_PERSISTENCE_FAILED' || 
+    err?.name === 'ShopStorageError' ||
+    err?.message?.includes('PostgreSQL')
+  );
+  const status = isStorage ? 503 : (typeof err?.status === 'number' && err.status >= 400 && err.status < 600 ? err.status : 400);
+  res.status(status).json({
+    error: err?.message || defaultMessage,
+    code: err?.code || (isStorage ? 'STORAGE_PERSISTENCE_FAILED' : 'INVALID_REQUEST'),
+    isStorageError: isStorage
+  });
+}
+
 // ==========================================
 // 1. HEALTH & METRICS
 // ==========================================
 router.get('/health', async (_req: Request, res: Response) => {
   try {
     const status = await shopDb.getStorageStatus();
-    res.json({
+    const isDegraded = status.storageMode === 'degraded_sql_connection_failed';
+    res.status(isDegraded ? 503 : 200).json({
       service: 'tumpang-shop-service',
-      status: 'healthy',
+      status: isDegraded ? 'degraded' : 'healthy',
       database: status,
       timestamp: new Date().toISOString()
     });
@@ -230,7 +241,7 @@ const handleUpdateConfig = async (req: Request, res: Response) => {
     const updated = await shopDb.updateConfig(actor, req.body);
     res.json(updated);
   } catch (err: any) {
-    res.status(400).json({ error: err.message || 'Gagal memperbarui pengaturan toko belanja.' });
+    handleShopError(res, err, 'Gagal memperbarui pengaturan toko belanja.');
   }
 };
 router.put('/config', requireShopAdmin, handleUpdateConfig);
@@ -258,7 +269,7 @@ const handleCreateCategory = async (req: Request, res: Response) => {
     const created = await shopDb.createCategory(actor, req.body);
     res.status(201).json(created);
   } catch (err: any) {
-    res.status(400).json({ error: err.message || 'Gagal membuat kategori baru.' });
+    handleShopError(res, err, 'Gagal membuat kategori baru.');
   }
 };
 router.post('/categories', requireShopAdmin, handleCreateCategory);
@@ -270,7 +281,7 @@ const handleUpdateCategory = async (req: Request, res: Response) => {
     const updated = await shopDb.updateCategory(actor, req.params.id, req.body);
     res.json(updated);
   } catch (err: any) {
-    res.status(400).json({ error: err.message || 'Gagal memperbarui kategori.' });
+    handleShopError(res, err, 'Gagal memperbarui kategori.');
   }
 };
 router.put('/categories/:id', requireShopAdmin, handleUpdateCategory);
@@ -285,7 +296,7 @@ const handleDeleteCategory = async (req: Request, res: Response) => {
     }
     res.json({ success: true, message: 'Kategori berhasil dihapus.' });
   } catch (err: any) {
-    res.status(400).json({ error: err.message || 'Gagal menghapus kategori.' });
+    handleShopError(res, err, 'Gagal menghapus kategori.');
   }
 };
 router.delete('/categories/:id', requireShopAdmin, handleDeleteCategory);
@@ -346,7 +357,7 @@ const handleCreateProduct = async (req: Request, res: Response) => {
     const created = await shopDb.createProduct(actor, req.body);
     res.status(201).json(created);
   } catch (err: any) {
-    res.status(400).json({ error: err.message || 'Gagal membuat produk baru.' });
+    handleShopError(res, err, 'Gagal membuat produk baru.');
   }
 };
 router.post('/products', requireShopAdmin, handleCreateProduct);
@@ -358,7 +369,7 @@ const handleUpdateProduct = async (req: Request, res: Response) => {
     const updated = await shopDb.updateProduct(actor, req.params.id, req.body);
     res.json(updated);
   } catch (err: any) {
-    res.status(400).json({ error: err.message || 'Gagal memperbarui produk.' });
+    handleShopError(res, err, 'Gagal memperbarui produk.');
   }
 };
 router.put('/products/:id', requireShopAdmin, handleUpdateProduct);
@@ -373,7 +384,7 @@ const handleDeleteProduct = async (req: Request, res: Response) => {
     }
     res.json({ success: true, message: 'Produk berhasil dihapus.' });
   } catch (err: any) {
-    res.status(400).json({ error: err.message || 'Gagal menghapus produk.' });
+    handleShopError(res, err, 'Gagal menghapus produk.');
   }
 };
 router.delete('/products/:id', requireShopAdmin, handleDeleteProduct);
@@ -387,7 +398,7 @@ router.post('/orders', async (req: Request, res: Response) => {
     const newOrder = await shopDb.createOrder(req.body);
     res.status(201).json(newOrder);
   } catch (err: any) {
-    res.status(400).json({ error: err.message || 'Gagal membuat pesanan belanja.' });
+    handleShopError(res, err, 'Gagal membuat pesanan belanja.');
   }
 });
 
@@ -461,7 +472,7 @@ router.post('/orders/:id/payment-proof', async (req: Request, res: Response) => 
     const updated = await shopDb.uploadPaymentProof(req.params.id, paymentProof.trim());
     res.json(updated);
   } catch (err: any) {
-    res.status(400).json({ error: err.message || 'Gagal mengunggah bukti pembayaran.' });
+    handleShopError(res, err, 'Gagal mengunggah bukti pembayaran.');
   }
 });
 
@@ -487,7 +498,7 @@ router.post('/orders/:id/verify-payment', requireShopAdmin, async (req: Request,
     const updated = await shopDb.verifyPayment(actor, req.params.id, approved, reason);
     res.json(updated);
   } catch (err: any) {
-    res.status(400).json({ error: err.message || 'Gagal memproses verifikasi pembayaran.' });
+    handleShopError(res, err, 'Gagal memproses verifikasi pembayaran.');
   }
 });
 
@@ -502,7 +513,7 @@ router.patch('/orders/:id/status', requireShopAdmin, async (req: Request, res: R
     const updated = await shopDb.updateOrderStatus(actor, req.params.id, status as ShopOrderStatus, reason);
     res.json(updated);
   } catch (err: any) {
-    res.status(400).json({ error: err.message || 'Gagal mengubah status pesanan.' });
+    handleShopError(res, err, 'Gagal mengubah status pesanan.');
   }
 });
 
@@ -582,7 +593,7 @@ router.post('/admin/shipments', requireShopAdmin, async (req: Request, res: Resp
     const created = await shopDb.createShipment(actor, req.body);
     res.status(201).json(created);
   } catch (err: any) {
-    res.status(400).json({ error: err.message || 'Gagal membuat data pengiriman.' });
+    handleShopError(res, err, 'Gagal membuat data pengiriman.');
   }
 });
 
@@ -599,7 +610,7 @@ router.patch('/admin/shipments/:id/status', requireShopAdmin, async (req: Reques
     });
     res.json(updated);
   } catch (err: any) {
-    res.status(400).json({ error: err.message || 'Gagal memperbarui status pengiriman.' });
+    handleShopError(res, err, 'Gagal memperbarui status pengiriman.');
   }
 });
 

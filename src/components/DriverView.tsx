@@ -211,7 +211,7 @@ export default function DriverView({ driverId, onLogout, onSelectRole }: DriverV
       if (document.visibilityState === 'visible' && navigator.onLine) {
         fetchDriverData(true);
       }
-    }, 10000);
+    }, 25000);
 
     const handleVisibility = () => {
       if (document.visibilityState === 'visible' && navigator.onLine) {
