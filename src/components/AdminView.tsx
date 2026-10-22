@@ -1765,6 +1765,13 @@ export default function AdminView({ onLogout, systemConfig, onUpdateConfig, onSe
                         {reg.storeAddress && (
                           <p className="text-xs text-slate-500 mt-1">Alamat: {reg.storeAddress}</p>
                         )}
+                        <p className="text-[11px] text-slate-600 mt-1 flex items-center gap-1.5">
+                          <span className="font-semibold text-emerald-800">Kontrak:</span>
+                          <span className="font-mono font-bold bg-slate-100 px-1.5 py-0.5 rounded text-slate-800">{reg.contractVersion || 'PKS-TUMPANGGO-2026.1'}</span>
+                          {reg.contractAgreedAt && (
+                            <span className="text-[10px] text-slate-500">({new Date(reg.contractAgreedAt).toLocaleDateString('id-ID')})</span>
+                          )}
+                        </p>
                       </div>
 
                       {/* Documents inspection */}

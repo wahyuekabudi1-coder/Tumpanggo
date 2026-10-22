@@ -3,12 +3,13 @@ import {
   Store, Bike, ArrowRight, ArrowLeft, Lock, UserPlus, Eye, EyeOff, 
   CheckCircle2, AlertCircle, Loader2, ShieldCheck, Camera, Check,
   ChevronRight, Sparkles, Building2, User, Mail, Phone, MapPin, 
-  Car, FileText, CheckCircle
+  Car, FileText, CheckCircle, Download
 } from 'lucide-react';
 import Logo from './Logo.tsx';
 import { safeStorage } from '../utils/safeStorage.ts';
 import { apiFetch as fetch } from '../utils/apiClient.ts';
 import { compressImage } from '../utils/imageCompressor.ts';
+import { downloadPartnershipContractPdf, OFFICIAL_CONTRACT_VERSION, OFFICIAL_DRIVER_CONTRACT_VERSION } from '../utils/contractDocument.ts';
 
 export type PartnerRole = 'MERCHANT' | 'DRIVER';
 export type PortalStep = 'role_selection' | 'action_selection' | 'login' | 'register';
@@ -217,7 +218,9 @@ export default function PartnerPortalHub({
         password: mPassword,
         businessPhoto: mBusinessPhoto || undefined,
         idPhoto: mIdPhoto || undefined,
-        status: 'PENDING'
+        status: 'PENDING',
+        contractVersion: OFFICIAL_CONTRACT_VERSION,
+        contractAgreedAt: new Date().toISOString()
       };
 
       const res = await fetch('/api/partner-registrations', {
@@ -287,7 +290,9 @@ export default function PartnerPortalHub({
         password: dPassword,
         businessPhoto: dVehiclePhoto || undefined,
         idPhoto: dSimPhoto || undefined,
-        status: 'PENDING'
+        status: 'PENDING',
+        contractVersion: OFFICIAL_DRIVER_CONTRACT_VERSION,
+        contractAgreedAt: new Date().toISOString()
       };
 
       const res = await fetch('/api/partner-registrations', {

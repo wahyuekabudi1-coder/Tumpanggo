@@ -229,6 +229,13 @@ authRouter.post(['/login', '/auth/login'], async (req: Request, res: Response) =
         });
       }
 
+      if (!merchant.active) {
+        return res.status(403).json({
+          error: 'Akun toko Anda dinonaktifkan atau belum disetujui oleh Administrator.',
+          code: 'MERCHANT_INACTIVE'
+        });
+      }
+
       let isPasswordValid = false;
       if (merchant.password) {
         const { valid, needsRehash } = verifyPassword(cleanPass, merchant.password);
@@ -289,6 +296,13 @@ authRouter.post(['/login', '/auth/login'], async (req: Request, res: Response) =
         });
       }
 
+      if (!driver.active) {
+        return res.status(403).json({
+          error: 'Akun kurir Anda dinonaktifkan atau belum disetujui oleh Administrator.',
+          code: 'DRIVER_INACTIVE'
+        });
+      }
+
       let isDriverPassValid = false;
       if ((driver as any).password) {
         const { valid, needsRehash } = verifyPassword(cleanPass, (driver as any).password);
@@ -339,7 +353,22 @@ authRouter.post(['/login', '/auth/login'], async (req: Request, res: Response) =
  * POST /api/merchants/register
  */
 authRouter.post('/merchants/register', async (req: Request, res: Response) => {
-  const { name, ownerName, phone, email, category, address, description, password } = req.body;
+  const { 
+    name, 
+    ownerName, 
+    phone, 
+    email, 
+    category, 
+    address, 
+    description, 
+    password,
+    contractVersion,
+    contractAgreedAt,
+    image,
+    businessPhoto,
+    idPhoto,
+    contractPhoto
+  } = req.body;
 
   if (!name || !ownerName || !phone || !password) {
     return res.status(400).json({ error: 'Mohon lengkapi Nama Toko, Nama Pemilik, No. WhatsApp, dan Kata Sandi.' });
@@ -350,53 +379,55 @@ authRouter.post('/merchants/register', async (req: Request, res: Response) => {
     const cleanEmail = email ? String(email).trim().toLowerCase() : '';
 
     const existingMerchants = foodDb.getMerchants();
-    const duplicate = existingMerchants.find(m =>
+    const duplicateMerchant = existingMerchants.find(m =>
       (m.phone && m.phone === cleanPhone) ||
       (cleanEmail && m.email && m.email.toLowerCase() === cleanEmail)
     );
 
-    if (duplicate) {
-      return res.status(400).json({ error: 'No. HP/WhatsApp atau Email ini sudah terdaftar sebagai Merchant.' });
+    if (duplicateMerchant) {
+      return res.status(400).json({ error: 'No. HP/WhatsApp atau Email ini sudah terdaftar sebagai Merchant aktif.' });
     }
 
-    const newMerchant = await foodDb.createMerchant('SYSTEM_REGISTER', {
-      name: String(name).trim(),
-      ownerName: String(ownerName).trim(),
+    const pendingRegs = foodDb.getPartnerRegistrations();
+    const duplicatePending = pendingRegs.find(r =>
+      r.status === 'PENDING' && (
+        (r.phone && r.phone === cleanPhone) ||
+        (cleanEmail && r.email && r.email.toLowerCase() === cleanEmail)
+      )
+    );
+
+    if (duplicatePending) {
+      return res.status(400).json({ 
+        error: 'Pendaftaran toko dengan nomor WhatsApp atau email ini sudah diajukan dan sedang menunggu persetujuan Admin.',
+        status: 'PENDING'
+      });
+    }
+
+    const newReg = await foodDb.createPartnerRegistration({
+      name: String(ownerName).trim(),
       phone: cleanPhone,
       email: cleanEmail || undefined,
+      type: 'MERCHANT',
+      storeName: String(name).trim(),
+      storeAddress: address ? String(address).trim() : 'Kecamatan Tumpang, Kabupaten Malang',
       category: category || 'Nasi & Lauk',
-      address: address ? String(address).trim() : 'Kecamatan Tumpang, Kabupaten Malang',
-      description: description ? String(description).trim() : 'Mitra Kuliner UMKM Kecamatan Tumpang',
-      image: 'https://images.unsplash.com/photo-1555396273-367ea4eb4db5?w=500&auto=format&fit=crop&q=60',
-      bannerImage: 'https://images.unsplash.com/photo-1504674900247-0877df9cc836?w=800&auto=format&fit=crop&q=60',
-      openTime: '08:00',
-      closeTime: '21:00',
-      bankName: 'Bank BRI',
-      bankAccount: '1234567890',
-      bankHolder: String(ownerName).trim(),
-      active: true,
-      isActivated: true,
-      cookTimeEstimate: '15-30 min',
+      description: description ? String(description).trim() : `Mitra Kuliner UMKM ${String(name).trim()}`,
       password: String(password).trim(),
-      latitude: -7.9482,
-      longitude: 112.7612
-    });
-
-    const token = createAuthToken({
-      userId: newMerchant.id,
-      role: 'MERCHANT',
-      email: newMerchant.email,
-      entityId: newMerchant.id
+      businessPhoto: image || businessPhoto || undefined,
+      idPhoto: idPhoto || undefined,
+      contractPhoto: contractPhoto || undefined,
+      contractVersion: contractVersion || 'PKS-TUMPANGGO-2026.1',
+      contractAgreedAt: contractAgreedAt || new Date().toISOString()
     });
 
     return res.status(201).json({
       success: true,
-      message: 'Pendaftaran Merchant berhasil!',
-      merchant: newMerchant,
-      token
+      message: 'Pendaftaran kemitraan toko berhasil diajukan dan sedang menunggu persetujuan Administrator tumpangGo.',
+      status: 'PENDING',
+      registration: newReg
     });
   } catch (e: any) {
-    return res.status(500).json({ error: e.message || 'Gagal mendaftarkan toko.' });
+    return res.status(500).json({ error: e.message || 'Gagal mengajukan pendaftaran toko.' });
   }
 });
 

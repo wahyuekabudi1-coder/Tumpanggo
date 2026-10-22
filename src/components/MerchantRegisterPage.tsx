@@ -7,8 +7,9 @@ import { useSEO } from '../hooks/useSEO.ts';
 import { 
   Store, User, Phone, Mail, MapPin, Tag, Lock, ArrowRight, CheckCircle2, 
   AlertCircle, Loader2, ArrowLeft, Clock, FileText, Camera, ShieldCheck, ExternalLink,
-  Eye, EyeOff
+  Eye, EyeOff, Download
 } from 'lucide-react';
+import { downloadPartnershipContractPdf, OFFICIAL_CONTRACT_VERSION } from '../utils/contractDocument.ts';
 
 interface MerchantRegisterPageProps {
   onBackToHome?: () => void;
@@ -78,13 +79,14 @@ export default function MerchantRegisterPage({ onBackToHome, onGoToLogin }: Merc
     }
 
     if (!agreeTerms) {
-      setError('Anda harus menyetujui Syarat & Ketentuan Kemitraan UMKM tumpangGo.');
+      setError('Anda harus menyetujui Perjanjian Kerja Sama Kemitraan UMKM tumpangGo.');
       return;
     }
 
     setLoading(true);
 
     try {
+      const contractAgreedAt = new Date().toISOString();
       const res = await fetch('/api/merchants/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -99,17 +101,32 @@ export default function MerchantRegisterPage({ onBackToHome, onGoToLogin }: Merc
           password,
           image: businessPhoto || 'https://images.unsplash.com/photo-1555396273-367ea4eb4db5?w=500&auto=format&fit=crop&q=60',
           bannerImage: businessPhoto || 'https://images.unsplash.com/photo-1504674900247-0877df9cc836?w=800&auto=format&fit=crop&q=60',
+          contractVersion: OFFICIAL_CONTRACT_VERSION,
+          contractAgreedAt
         }),
       });
 
       const data = await res.json();
       if (!res.ok || !data.success) {
-        throw new Error(data.error || 'Gagal mendaftarkan toko kuliner Anda.');
+        throw new Error(data.error || 'Gagal mengajukan pendaftaran toko kuliner Anda.');
       }
 
-      setSuccessData(data.merchant);
-      const authIdentifier = data.merchant.email || data.merchant.phone || data.merchant.id;
-      safeStorage.setItem('tumpang_auth_email', authIdentifier);
+      const reg = data.registration || {
+        storeName: storeName.trim(),
+        name: ownerName.trim(),
+        phone: phone.trim(),
+        email: email.trim(),
+        category,
+        status: 'PENDING',
+        contractVersion: OFFICIAL_CONTRACT_VERSION,
+        contractAgreedAt
+      };
+
+      setSuccessData(reg);
+      const authIdentifier = reg.email || reg.phone || reg.id;
+      if (authIdentifier) {
+        safeStorage.setItem('tumpang_auth_email', authIdentifier);
+      }
     } catch (err: any) {
       console.error('Merchant registration error:', err);
       setError(err.message || 'Terjadi kesalahan saat pendaftaran toko.');
@@ -175,57 +192,92 @@ export default function MerchantRegisterPage({ onBackToHome, onGoToLogin }: Merc
       {/* Main Container */}
       <main className="max-w-3xl mx-auto px-4 -mt-6 relative z-20">
         {successData ? (
-          /* SUCCESS SCREEN */
+          /* SUCCESS SCREEN (STATUS PENDING) */
           <div className="bg-white rounded-3xl p-6 sm:p-8 shadow-xl border border-slate-200 text-center flex flex-col items-center gap-4 animate-fadeIn">
-            <div className="w-20 h-20 rounded-3xl bg-emerald-50 border-2 border-emerald-500 text-emerald-600 flex items-center justify-center shadow-lg shadow-emerald-500/10 mb-1">
-              <CheckCircle2 className="w-12 h-12" />
+            <div className="w-20 h-20 rounded-3xl bg-amber-50 border-2 border-amber-500 text-amber-600 flex items-center justify-center shadow-lg shadow-amber-500/10 mb-1">
+              <Clock className="w-12 h-12" />
             </div>
 
-            <span className="bg-emerald-100 text-emerald-800 text-[10px] font-extrabold px-3 py-1 rounded-full uppercase tracking-wider">
-              Pendaftaran Berhasil!
+            <span className="bg-amber-100 text-amber-800 text-[10px] font-extrabold px-3 py-1 rounded-full uppercase tracking-wider">
+              Status: Menunggu Persetujuan Admin (PENDING)
             </span>
 
             <h2 className="font-display font-extrabold text-xl sm:text-2xl text-slate-900">
-              Selamat Datang, {successData.name}!
+              Pengajuan Mitra Toko Berhasil Dikirim!
             </h2>
 
             <p className="text-slate-600 text-xs sm:text-sm max-w-md leading-relaxed">
-              Toko kuliner Anda telah resmi terdaftar di platform tumpangGo. Anda dapat langsung masuk ke Portal Merchant untuk mengelola menu, harga, dan pesanan pelanggan.
+              Terima kasih, <strong>{successData.name || successData.ownerName}</strong>. Pengajuan toko kuliner <strong>{successData.storeName || successData.name}</strong> telah masuk ke antrean verifikasi Administrator tumpangGo. Akses login Portal Merchant akan dibuka setelah disetujui.
             </p>
 
             <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 w-full max-w-md text-left text-xs flex flex-col gap-2 my-2">
               <div className="flex justify-between py-1 border-b border-slate-200/60">
+                <span className="text-slate-500 font-medium">Nomor Registrasi:</span>
+                <span className="font-mono font-bold text-slate-800">{successData.id || 'reg_pending'}</span>
+              </div>
+              <div className="flex justify-between py-1 border-b border-slate-200/60">
                 <span className="text-slate-500 font-medium">Nama Toko:</span>
-                <span className="font-bold text-slate-800">{successData.name}</span>
+                <span className="font-bold text-slate-800">{successData.storeName || successData.name}</span>
               </div>
               <div className="flex justify-between py-1 border-b border-slate-200/60">
                 <span className="text-slate-500 font-medium">Pemilik:</span>
-                <span className="font-bold text-slate-800">{successData.ownerName}</span>
+                <span className="font-bold text-slate-800">{successData.name || successData.ownerName}</span>
               </div>
               <div className="flex justify-between py-1 border-b border-slate-200/60">
-                <span className="text-slate-500 font-medium">No. WhatsApp Login:</span>
+                <span className="text-slate-500 font-medium">No. WhatsApp:</span>
                 <span className="font-bold text-emerald-700">{successData.phone}</span>
               </div>
+              <div className="flex justify-between py-1 border-b border-slate-200/60">
+                <span className="text-slate-500 font-medium">Versi Kontrak:</span>
+                <span className="font-mono font-bold text-indigo-700">{successData.contractVersion || OFFICIAL_CONTRACT_VERSION}</span>
+              </div>
               <div className="flex justify-between py-1">
-                <span className="text-slate-500 font-medium">Kategori:</span>
-                <span className="font-bold text-slate-800">{successData.category}</span>
+                <span className="text-slate-500 font-medium">Status Toko:</span>
+                <span className="font-bold text-amber-700 bg-amber-50 px-2 py-0.5 rounded-md border border-amber-200">PENDING (Menunggu Verifikasi)</span>
               </div>
             </div>
+
+            {/* Contract Download Button */}
+            <button
+              type="button"
+              onClick={() => {
+                downloadPartnershipContractPdf({
+                  storeName: successData.storeName || successData.name,
+                  ownerName: successData.name || successData.ownerName,
+                  phone: successData.phone,
+                  email: successData.email,
+                  address: successData.storeAddress || address,
+                  role: 'MERCHANT'
+                });
+              }}
+              className="w-full max-w-md py-3 px-4 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 text-emerald-800 font-extrabold rounded-2xl transition-colors text-xs flex items-center justify-center gap-2 cursor-pointer shadow-xs"
+            >
+              <Download className="w-4 h-4 text-emerald-700" />
+              <span>Unduh Dokumen Kontrak Kerja Sama (PDF)</span>
+            </button>
 
             <div className="flex flex-col sm:flex-row gap-3 w-full max-w-md mt-2">
               <button
                 onClick={() => {
-                  window.location.href = '/?role=merchant';
+                  if (onGoToLogin) {
+                    onGoToLogin();
+                  } else {
+                    window.location.href = '/?role=merchant';
+                  }
                 }}
-                className="flex-1 py-3.5 bg-rose-600 hover:bg-rose-700 active:bg-rose-800 text-white font-extrabold rounded-2xl transition-all shadow-md shadow-rose-600/20 text-xs flex items-center justify-center gap-2 cursor-pointer"
+                className="flex-1 py-3.5 bg-slate-900 hover:bg-slate-800 text-white font-extrabold rounded-2xl transition-all shadow-md text-xs flex items-center justify-center gap-2 cursor-pointer"
               >
-                <span>MASUK PORTAL MERCHANT</span>
+                <span>Cek Status di Login Merchant</span>
                 <ArrowRight className="w-4 h-4" />
               </button>
               
               <button
                 onClick={() => {
-                  window.location.href = '/';
+                  if (onBackToHome) {
+                    onBackToHome();
+                  } else {
+                    window.location.href = '/';
+                  }
                 }}
                 className="py-3.5 px-5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-2xl transition-colors text-xs cursor-pointer"
               >
@@ -487,17 +539,58 @@ export default function MerchantRegisterPage({ onBackToHome, onGoToLogin }: Merc
               </div>
             </div>
 
-            {/* Terms Checkbox */}
-            <div className="pt-2">
-              <label className="flex items-start gap-2.5 cursor-pointer">
+            {/* SECTION 4: KONTRAK KERJA SAMA KEMITRAAN */}
+            <div className="flex flex-col gap-3 pt-2">
+              <div className="flex items-center gap-2 pb-2 border-b border-slate-100">
+                <FileText className="w-5 h-5 text-emerald-700" />
+                <h3 className="font-display font-bold text-sm text-slate-800 uppercase tracking-wider">
+                  4. Dokumen Kontrak Kerja Sama Kemitraan
+                </h3>
+              </div>
+
+              <div className="p-4 bg-emerald-50/60 border border-emerald-200/80 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] font-extrabold px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded-md border border-emerald-300 font-mono">
+                      {OFFICIAL_CONTRACT_VERSION}
+                    </span>
+                    <span className="text-xs font-bold text-slate-900">Perjanjian Kemitraan UMKM Kuliner tumpangGo</span>
+                  </div>
+                  <p className="text-[11px] text-slate-600 leading-relaxed">
+                    Mengatur hak & kewajiban: Ongkir Flat Rp 5.000 se-Kecamatan Tumpang, komisi platform 10%, pencairan H+1, dan standar mutu produk.
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    downloadPartnershipContractPdf({
+                      storeName: storeName.trim() || 'Toko Kuliner',
+                      ownerName: ownerName.trim() || 'Pemilik Toko',
+                      phone: phone.trim(),
+                      email: email.trim(),
+                      address: address.trim(),
+                      role: 'MERCHANT'
+                    });
+                  }}
+                  className="shrink-0 py-2.5 px-3.5 bg-white hover:bg-emerald-100 border border-emerald-300 text-emerald-800 font-bold rounded-xl text-xs flex items-center gap-1.5 transition-colors cursor-pointer shadow-xs"
+                >
+                  <Download className="w-4 h-4 text-emerald-700" />
+                  <span>Unduh Kontrak (PDF)</span>
+                </button>
+              </div>
+
+              {/* Mandatory Agreement Checkbox */}
+              <label className="flex items-start gap-2.5 cursor-pointer pt-1">
                 <input
                   type="checkbox"
+                  required
                   checked={agreeTerms}
                   onChange={(e) => setAgreeTerms(e.target.checked)}
-                  className="mt-0.5 rounded text-rose-600 focus:ring-rose-500 w-4 h-4"
+                  className="mt-0.5 rounded text-emerald-700 focus:ring-emerald-600 w-4 h-4 cursor-pointer"
                 />
-                <span className="text-xs text-slate-600 leading-relaxed font-medium">
-                  Saya menyatakan data yang diisi adalah benar dan menyetujui Ketentuan Kemitraan UMKM Kuliner tumpangGo.
+                <span className="text-xs text-slate-700 leading-relaxed font-medium">
+                  Saya menyatakan data yang diisi adalah sah dan benar, serta <strong>telah membaca, mengunduh, dan menyetujui seluruh ketentuan Perjanjian Kerja Sama Kemitraan UMKM Kuliner tumpangGo ({OFFICIAL_CONTRACT_VERSION})</strong>. <span className="text-rose-600 font-bold">*</span>
                 </span>
               </label>
             </div>

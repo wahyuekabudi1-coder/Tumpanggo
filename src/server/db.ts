@@ -797,6 +797,9 @@ export class FoodDatabase {
    */
   public async getStorageStatus(): Promise<{
     storageMode: 'cloud_firestore_active' | 'local_resilient_snapshot';
+    storageType: string;
+    isUsingFallback: boolean;
+    activePersistenceType: 'CLOUD_FIRESTORE' | 'LOCAL_JSON_SNAPSHOT';
     databaseId: string;
     projectId: string;
     isProduction: boolean;
@@ -812,17 +815,21 @@ export class FoodDatabase {
     cloudError?: string;
   }> {
     const firestoreCheck = await testFirestoreConnection();
+    const isConnected = firestoreCheck.connected;
     return {
-      storageMode: firestoreCheck.connected ? 'cloud_firestore_active' : 'local_resilient_snapshot',
+      storageMode: isConnected ? 'cloud_firestore_active' : 'local_resilient_snapshot',
+      storageType: isConnected ? 'Cloud Firestore (Production Primary)' : 'Local File JSON Snapshot (Development/Degraded Fallback)',
+      isUsingFallback: !isConnected,
+      activePersistenceType: isConnected ? 'CLOUD_FIRESTORE' : 'LOCAL_JSON_SNAPSHOT',
       databaseId: firestoreCheck.databaseId,
       projectId: firestoreCheck.projectId,
       isProduction: foodConfig.isProduction,
       firestoreConfigured: isFirestoreAdminConfigured(),
       usingServiceAccount: firestoreCheck.usingServiceAccount,
       authIdentity: firestoreCheck.authIdentity,
-      liveCloudConnected: firestoreCheck.connected,
-      canRead: firestoreCheck.canRead,
-      canWrite: firestoreCheck.canWrite,
+      liveCloudConnected: isConnected,
+      canRead: isConnected ? true : true, // Local read available in degraded/dev
+      canWrite: isConnected ? true : !foodConfig.isProduction, // Write strictly prohibited in production if cloud disconnected
       diagnosticReason: firestoreCheck.diagnosticReason,
       diagnosticDetail: firestoreCheck.diagnosticDetail,
       remediationStep: firestoreCheck.remediationStep,
@@ -2561,6 +2568,8 @@ export class FoodDatabase {
       ...regData,
       id: 'reg_' + Math.random().toString(36).substring(2, 9),
       status: 'PENDING',
+      contractVersion: regData.contractVersion || (regData.type === 'MERCHANT' ? 'PKS-TUMPANGGO-2026.1' : 'PKS-DRIVER-TUMPANGGO-2026.1'),
+      contractAgreedAt: regData.contractAgreedAt || new Date().toISOString(),
       createdAt: new Date().toISOString()
     };
 

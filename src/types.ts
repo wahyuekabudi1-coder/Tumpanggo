@@ -276,6 +276,8 @@ export interface PartnerRegistration {
   longitude?: number;
   password?: string;
   storeId?: string;
+  contractVersion?: string;
+  contractAgreedAt?: string;
 }
 
 export type ReviewCategory = 'merchant' | 'pelanggan' | 'umkm';
