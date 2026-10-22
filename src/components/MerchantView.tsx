@@ -21,7 +21,7 @@ import {
   Settings, LogOut, Plus, Check, X, Edit, Trash2, Layers,
   Phone, MapPin, AlertCircle, ChefHat, PackageCheck, RefreshCw, Upload,
   QrCode, ZoomIn, Receipt, Search, ExternalLink, ArrowRight, ShieldCheck,
-  CheckCircle2, AlertTriangle, Eye, Calendar
+  CheckCircle2, AlertTriangle, Eye, Calendar, Volume2, VolumeX, Bell, BellRing, BellOff
 } from 'lucide-react';
 import { useHiddenTrigger } from '../hooks/useHiddenTrigger.ts';
 import HiddenPortalBar from './HiddenPortalBar.tsx';
@@ -34,6 +34,7 @@ import {
   formatWibTime
 } from '../utils/cookingTimer.ts';
 import { useCookingTicker } from '../hooks/useCookingCountdown.ts';
+import { useOrderRingtone } from '../hooks/useOrderRingtone.ts';
 
 function MerchantCookingCard({
   order,
@@ -235,6 +236,16 @@ export default function MerchantView({ merchantId: rawMerchantId, onLogout, onSe
   const [rejectModal, setRejectModal] = useState<{ orderId: string; visible: boolean; reason: string } | null>(null);
   const [actionLoadingOrderId, setActionLoadingOrderId] = useState<string | null>(null);
   const cookingNow = useCookingTicker();
+  const {
+    isRinging,
+    isMuted,
+    isAudioUnlocked,
+    activeAlertOrderId,
+    dismissAlert,
+    toggleMute,
+    testRingtone,
+    unlockAudio
+  } = useOrderRingtone(orders);
 
   // Menu editor states
   const [selectedMenuCategory, setSelectedMenuCategory] = useState<string>('ALL');
@@ -734,78 +745,108 @@ export default function MerchantView({ merchantId: rawMerchantId, onLogout, onSe
     : menuItems.filter(m => m.categoryId === selectedMenuCategory);
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-800 font-sans pb-16">
+    <div className="min-h-screen bg-slate-50 text-slate-800 font-sans flex flex-col md:flex-row">
       
-      {/* Top Header - Mobile First, Clean & Sticky */}
-      <header className="bg-white border-b border-slate-200 sticky top-0 z-30 shadow-xs">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3 flex flex-wrap items-center justify-between gap-3">
-          
+      {/* =========================================================================
+          DESKTOP SIDEBAR (Kiri) - Tampil di md & lg
+          ========================================================================= */}
+      <aside className="hidden md:flex md:w-64 lg:w-72 bg-white border-r border-slate-200/80 sticky top-0 h-screen flex-col justify-between shrink-0 z-20 overflow-y-auto">
+        <div className="p-4 sm:p-5 space-y-5">
           {/* Outlet Info */}
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-600 to-emerald-800 text-white flex items-center justify-center shadow-xs shrink-0">
               <Store className="w-5 h-5" />
             </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <h1 className="font-display font-bold text-base sm:text-lg text-slate-900 tracking-tight leading-tight">
-                  {merchant?.name || 'Portal Mitra Toko'}
-                </h1>
-                <span className={`text-[10px] font-extrabold px-2 py-0.5 rounded-full border ${
+            <div className="min-w-0 flex-1">
+              <h1 className="font-display font-bold text-sm lg:text-base text-slate-900 truncate leading-tight">
+                {merchant?.name || 'Portal Mitra Toko'}
+              </h1>
+              <div className="flex items-center gap-1.5 mt-0.5">
+                <span className={`text-[10px] font-extrabold px-2 py-0.2 rounded-full border ${
                   merchant?.active ? 'bg-emerald-50 text-emerald-800 border-emerald-200' : 'bg-slate-100 text-slate-500 border-slate-200'
                 }`}>
-                  {merchant?.active ? 'Toko Buka' : 'Toko Tutup'}
+                  {merchant?.active ? '● Buka' : '○ Tutup'}
                 </span>
+                <span className="text-[10px] text-slate-400 font-mono truncate">ID: {effectiveMerchantId}</span>
               </div>
-              <p className="text-[11px] text-slate-500 flex items-center gap-1.5 mt-0.5">
-                <span>{merchant?.ownerName ? `Pemilik: ${merchant.ownerName}` : 'Dashboard UMKM'}</span>
-                <span>•</span>
-                <span className="font-mono text-slate-400">ID: {effectiveMerchantId}</span>
-              </p>
             </div>
           </div>
 
-          {/* Quick Header Actions */}
-          <div className="flex items-center gap-2">
-            <button
-              onClick={toggleOpenStatus}
-              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all shadow-xs cursor-pointer border ${
-                merchant?.active 
-                  ? 'bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-100' 
-                  : 'bg-emerald-50 text-emerald-800 border-emerald-200 hover:bg-emerald-100'
-              }`}
-            >
-              {merchant?.active ? 'Tutup Toko' : 'Buka Toko'}
-            </button>
+          {/* Quick Ringtone Audio Status Panel in Desktop Sidebar */}
+          <div className={`p-3 rounded-xl border transition-all ${
+            isRinging 
+              ? 'bg-rose-50 border-rose-300 ring-2 ring-rose-100 animate-pulse' 
+              : 'bg-slate-50 border-slate-200/80'
+          }`}>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                {isRinging ? (
+                  <BellRing className="w-4 h-4 text-rose-600 animate-bounce" />
+                ) : isMuted ? (
+                  <BellOff className="w-4 h-4 text-slate-400" />
+                ) : (
+                  <Bell className="w-4 h-4 text-emerald-600" />
+                )}
+                <div>
+                  <span className={`text-xs font-bold block leading-none ${isRinging ? 'text-rose-700' : 'text-slate-800'}`}>
+                    {isRinging ? 'Dering Pesanan Masuk!' : isMuted ? 'Dering Senyap' : 'Dering Aktif'}
+                  </span>
+                  <span className="text-[10px] text-slate-400">
+                    {isRinging ? 'Telepon berdering...' : isMuted ? 'Suara dinonaktifkan' : 'Siaga pesanan baru'}
+                  </span>
+                </div>
+              </div>
 
-            <button
-              onClick={() => fetchMerchantData(false)}
-              disabled={loading || isRefreshing}
-              className="p-2 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-700 transition-all cursor-pointer shadow-xs"
-              title="Perbarui Data Pesanan"
-            >
-              <RefreshCw className={`w-4 h-4 text-slate-600 ${isRefreshing || loading ? 'animate-spin text-emerald-600' : ''}`} />
-            </button>
+              <button
+                type="button"
+                onClick={toggleMute}
+                className={`p-1.5 rounded-lg border text-xs font-bold transition-all cursor-pointer ${
+                  isMuted 
+                    ? 'bg-rose-100/70 border-rose-200 text-rose-700 hover:bg-rose-200' 
+                    : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-100'
+                }`}
+                title={isMuted ? 'Aktifkan Suara Dering' : 'Senyapkan Suara Dering'}
+              >
+                {isMuted ? <VolumeX className="w-3.5 h-3.5" /> : <Volume2 className="w-3.5 h-3.5" />}
+              </button>
+            </div>
 
-            <button
-              onClick={onLogout}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold transition-all shadow-xs cursor-pointer"
-            >
-              <LogOut className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Keluar</span>
-            </button>
+            <div className="flex items-center justify-between text-[11px] pt-2 mt-2 border-t border-slate-200/60">
+              {isRinging ? (
+                <button
+                  type="button"
+                  onClick={dismissAlert}
+                  className="w-full py-1 text-center font-extrabold text-[11px] bg-rose-600 hover:bg-rose-700 text-white rounded-lg shadow-2xs cursor-pointer"
+                >
+                  Matikan Dering
+                </button>
+              ) : (
+                <>
+                  <span className="text-slate-500 text-[10px]">Tes nada telepon:</span>
+                  <button
+                    type="button"
+                    onClick={testRingtone}
+                    className="text-[10px] font-bold text-emerald-700 hover:text-emerald-800 hover:underline cursor-pointer"
+                  >
+                    Tes Dering
+                  </button>
+                </>
+              )}
+            </div>
           </div>
-        </div>
 
-        {/* Primary Tab Navigation (Unified & Zero Duplication) */}
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 border-t border-slate-100 overflow-x-auto scrollbar-none">
-          <nav className="flex space-x-1 sm:space-x-2 py-2">
+          {/* Navigation Menu (6 Tab Aktual) */}
+          <nav className="space-y-1">
+            <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400 px-3 block mb-2">
+              Menu Toko & Dapur
+            </span>
             {[
               { id: 'incoming', label: 'Pesanan Masuk', count: incomingOrders.length, highlight: incomingOrders.length > 0, icon: AlertCircle },
               { id: 'cooking', label: 'Sedang Diproses', count: cookingOrders.length, highlight: false, icon: ChefHat },
               { id: 'history', label: 'Riwayat Pesanan', count: undefined, highlight: false, icon: ClipboardList },
               { id: 'menu', label: 'Menu Produk', count: menuItems.length, highlight: false, icon: Utensils },
-              { id: 'dashboard', label: 'Dashboard', count: undefined, highlight: false, icon: TrendingUp },
-              { id: 'profile', label: 'Profil Toko', count: undefined, highlight: false, icon: Settings },
+              { id: 'dashboard', label: 'Dashboard & Rekap', count: undefined, highlight: false, icon: TrendingUp },
+              { id: 'profile', label: 'Profil & QRIS Toko', count: undefined, highlight: false, icon: Settings },
             ].map(tab => {
               const Icon = tab.icon;
               const isActive = activeTab === tab.id;
@@ -813,18 +854,20 @@ export default function MerchantView({ merchantId: rawMerchantId, onLogout, onSe
                 <button
                   key={tab.id}
                   onClick={() => setActiveTab(tab.id as MerchantTab)}
-                  className={`inline-flex items-center gap-1.5 px-3 sm:px-3.5 py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap cursor-pointer ${
-                    isActive 
-                      ? 'bg-emerald-600 text-white shadow-xs' 
+                  className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                    isActive
+                      ? 'bg-emerald-600 text-white shadow-xs font-extrabold'
                       : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
                   }`}
                 >
-                  <Icon className={`w-3.5 h-3.5 ${isActive ? 'text-white' : 'text-slate-400'}`} />
-                  <span>{tab.label}</span>
+                  <div className="flex items-center gap-2.5">
+                    <Icon className={`w-4 h-4 ${isActive ? 'text-white' : 'text-slate-400'}`} />
+                    <span>{tab.label}</span>
+                  </div>
                   {tab.count !== undefined && tab.count > 0 && (
-                    <span className={`text-[10px] font-extrabold px-1.5 py-0.2 rounded-full ${
-                      isActive 
-                        ? 'bg-white text-emerald-800' 
+                    <span className={`text-[10px] font-extrabold px-2 py-0.5 rounded-full ${
+                      isActive
+                        ? 'bg-white text-emerald-800'
                         : (tab.highlight ? 'bg-amber-100 text-amber-800 animate-pulse' : 'bg-slate-200 text-slate-700')
                     }`}>
                       {tab.count}
@@ -835,10 +878,236 @@ export default function MerchantView({ merchantId: rawMerchantId, onLogout, onSe
             })}
           </nav>
         </div>
-      </header>
 
-      {/* Main Container */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-6">
+        {/* Sidebar Footer Controls */}
+        <div className="p-4 border-t border-slate-200/80 space-y-2 bg-slate-50/50">
+          <button
+            onClick={toggleOpenStatus}
+            className={`w-full py-2 px-3 rounded-xl text-xs font-bold transition-all shadow-xs cursor-pointer border flex items-center justify-center gap-1.5 ${
+              merchant?.active 
+                ? 'bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-100' 
+                : 'bg-emerald-50 text-emerald-800 border-emerald-200 hover:bg-emerald-100'
+            }`}
+          >
+            {merchant?.active ? 'Tutup Toko Sementara' : 'Buka Toko Sekarang'}
+          </button>
+
+          <div className="flex gap-2">
+            <button
+              onClick={() => fetchMerchantData(false)}
+              disabled={loading || isRefreshing}
+              className="flex-1 py-2 px-3 rounded-xl border border-slate-200 bg-white hover:bg-slate-100 text-slate-700 text-xs font-bold transition-all cursor-pointer shadow-xs flex items-center justify-center gap-1.5"
+              title="Perbarui Data Pesanan"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 text-slate-600 ${isRefreshing || loading ? 'animate-spin text-emerald-600' : ''}`} />
+              <span>Refresh</span>
+            </button>
+            <button
+              onClick={onLogout}
+              className="py-2 px-3 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold transition-all shadow-xs cursor-pointer flex items-center justify-center gap-1.5"
+              title="Keluar dari Portal"
+            >
+              <LogOut className="w-3.5 h-3.5" />
+              <span>Keluar</span>
+            </button>
+          </div>
+        </div>
+      </aside>
+
+      {/* =========================================================================
+          RIGHT CONTENT AREA (Konten Halaman di Kanan)
+          ========================================================================= */}
+      <div className="flex-1 min-w-0 flex flex-col min-h-screen">
+        
+        {/* Mobile Header (< md) - Kompak & Operasional 1-Tangan */}
+        <header className="md:hidden bg-white border-b border-slate-200 sticky top-0 z-30 shadow-xs">
+          <div className="px-4 py-2.5 flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2 min-w-0">
+              <div className="w-8 h-8 rounded-lg bg-emerald-600 text-white flex items-center justify-center shadow-2xs shrink-0">
+                <Store className="w-4 h-4" />
+              </div>
+              <div className="min-w-0">
+                <h1 className="font-display font-bold text-sm text-slate-900 truncate">
+                  {merchant?.name || 'Portal Toko'}
+                </h1>
+                <div className="flex items-center gap-1.5 text-[10px]">
+                  <span className={`font-bold ${merchant?.active ? 'text-emerald-700' : 'text-slate-400'}`}>
+                    {merchant?.active ? '● Buka' : '○ Tutup'}
+                  </span>
+                  <span className="text-slate-300">•</span>
+                  <button
+                    onClick={toggleOpenStatus}
+                    className="text-[10px] text-slate-600 underline font-medium cursor-pointer"
+                  >
+                    {merchant?.active ? 'Tutup' : 'Buka'}
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-1.5 shrink-0">
+              {/* Mobile Ringtone toggle */}
+              <button
+                type="button"
+                onClick={toggleMute}
+                className={`p-2 rounded-xl border text-xs cursor-pointer transition-colors ${
+                  isRinging 
+                    ? 'bg-rose-600 text-white border-rose-600 animate-bounce' 
+                    : isMuted 
+                      ? 'bg-slate-100 text-slate-400 border-slate-200' 
+                      : 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                }`}
+                title={isMuted ? 'Aktifkan Suara' : 'Senyapkan Suara'}
+              >
+                {isMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
+              </button>
+
+              <button
+                onClick={() => fetchMerchantData(false)}
+                disabled={loading || isRefreshing}
+                className="p-2 rounded-xl border border-slate-200 bg-slate-50 text-slate-700 cursor-pointer"
+                title="Refresh"
+              >
+                <RefreshCw className={`w-4 h-4 ${isRefreshing || loading ? 'animate-spin text-emerald-600' : ''}`} />
+              </button>
+
+              <button
+                onClick={onLogout}
+                className="p-2 rounded-xl bg-slate-900 text-white cursor-pointer"
+                title="Keluar"
+              >
+                <LogOut className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+
+          {/* Mobile Horizontal Tabs (< md) */}
+          <div className="px-2 border-t border-slate-100 overflow-x-auto scrollbar-none bg-slate-50/80">
+            <nav className="flex space-x-1 py-1.5">
+              {[
+                { id: 'incoming', label: 'Pesanan Masuk', count: incomingOrders.length, highlight: incomingOrders.length > 0, icon: AlertCircle },
+                { id: 'cooking', label: 'Sedang Diproses', count: cookingOrders.length, highlight: false, icon: ChefHat },
+                { id: 'history', label: 'Riwayat', count: undefined, highlight: false, icon: ClipboardList },
+                { id: 'menu', label: 'Menu', count: menuItems.length, highlight: false, icon: Utensils },
+                { id: 'dashboard', label: 'Dashboard', count: undefined, highlight: false, icon: TrendingUp },
+                { id: 'profile', label: 'Profil Toko', count: undefined, highlight: false, icon: Settings },
+              ].map(tab => {
+                const Icon = tab.icon;
+                const isActive = activeTab === tab.id;
+                return (
+                  <button
+                    key={tab.id}
+                    onClick={() => setActiveTab(tab.id as MerchantTab)}
+                    className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap cursor-pointer shrink-0 ${
+                      isActive 
+                        ? 'bg-emerald-600 text-white shadow-2xs' 
+                        : 'text-slate-600 hover:bg-slate-200/60'
+                    }`}
+                  >
+                    <Icon className="w-3.5 h-3.5" />
+                    <span>{tab.label}</span>
+                    {tab.count !== undefined && tab.count > 0 && (
+                      <span className={`text-[10px] font-extrabold px-1.5 py-0.2 rounded-full ${
+                        isActive 
+                          ? 'bg-white text-emerald-800' 
+                          : (tab.highlight ? 'bg-amber-100 text-amber-800 animate-pulse' : 'bg-slate-200 text-slate-700')
+                      }`}>
+                        {tab.count}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </nav>
+          </div>
+        </header>
+
+        {/* Desktop Top Bar (di atas area kanan) */}
+        <header className="hidden md:flex bg-white border-b border-slate-200/80 px-6 lg:px-8 py-3.5 items-center justify-between sticky top-0 z-10 shadow-2xs">
+          <div>
+            <h2 className="font-display font-bold text-base text-slate-900 capitalize">
+              {activeTab === 'incoming' && 'Pesanan Masuk (Siap Dimasak)'}
+              {activeTab === 'cooking' && 'Sedang Diproses di Dapur'}
+              {activeTab === 'history' && 'Riwayat & Arsip Pesanan'}
+              {activeTab === 'menu' && 'Katalog Menu & Kategori'}
+              {activeTab === 'dashboard' && 'Ringkasan Omset & Settlement'}
+              {activeTab === 'profile' && 'Profil Outlet & QRIS Toko'}
+            </h2>
+            <p className="text-xs text-slate-400">
+              TumpangGo Food Merchant • Real-time sync • Terakhir dicek: {lastRefreshedAt.toLocaleTimeString('id-ID')} WIB
+            </p>
+          </div>
+
+          <div className="flex items-center gap-3">
+            {/* Quick Status Pill */}
+            <div className="flex items-center gap-2 px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs">
+              <span className={`w-2 h-2 rounded-full ${merchant?.active ? 'bg-emerald-500 animate-pulse' : 'bg-slate-400'}`} />
+              <span className="font-semibold text-slate-700">
+                {merchant?.active ? 'Menerima Pesanan' : 'Outlet Tutup'}
+              </span>
+            </div>
+
+            <button
+              onClick={() => fetchMerchantData(true)}
+              className="px-3 py-1.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-bold transition-all shadow-2xs cursor-pointer flex items-center gap-1.5"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin text-emerald-600' : 'text-slate-500'}`} />
+              <span>{isRefreshing ? 'Sinkronisasi...' : 'Sinkronkan'}</span>
+            </button>
+          </div>
+        </header>
+
+        {/* Audio Ringtone Incoming Call Banner (Menonjol saat telepon pesanan baru berdering!) */}
+        {isRinging && (
+          <div className="bg-gradient-to-r from-rose-600 via-rose-500 to-amber-600 text-white px-4 py-3 shadow-md flex flex-wrap items-center justify-between gap-3 sticky top-12 md:top-14 z-30 animate-pulse">
+            <div className="flex items-center gap-3">
+              <div className="w-9 h-9 rounded-full bg-white/20 flex items-center justify-center shrink-0">
+                <BellRing className="w-5 h-5 text-white animate-bounce" />
+              </div>
+              <div>
+                <span className="font-extrabold text-sm tracking-tight block">
+                  🔔 PANGGILAN PESANAN BARU MASUK!
+                </span>
+                <span className="text-xs text-rose-100">
+                  Dapur berdering. Segera konfirmasi pesanan pelanggan dan tentukan estimasi waktu memasak.
+                </span>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2">
+              {activeTab !== 'incoming' && (
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('incoming')}
+                  className="px-3 py-1.5 bg-white text-rose-700 rounded-xl font-extrabold text-xs shadow-xs hover:bg-rose-50 cursor-pointer"
+                >
+                  Buka Pesanan Masuk
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={dismissAlert}
+                className="px-3 py-1.5 bg-rose-900/40 hover:bg-rose-900/60 text-white rounded-xl font-bold text-xs border border-white/30 cursor-pointer"
+              >
+                Senyapkan Dering
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Browser Autoplay Permission Hint Bar if not yet unlocked */}
+        {!isAudioUnlocked && !isMuted && (
+          <div 
+            onClick={unlockAudio}
+            className="bg-amber-50 hover:bg-amber-100 border-b border-amber-200 px-4 py-1.5 text-center text-xs text-amber-800 font-semibold cursor-pointer transition-colors flex items-center justify-center gap-2"
+          >
+            <Bell className="w-3.5 h-3.5 text-amber-600" />
+            <span>Klik di sini untuk mengaktifkan notifikasi suara dering telepon saat ada pesanan baru masuk</span>
+          </div>
+        )}
+
+        {/* Main Content Body */}
+        <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 w-full flex-1">
 
         {/* 1. TAB: PESANAN MASUK (PAYMENT_VERIFIED - Siap Dimasak) */}
         {activeTab === 'incoming' && (
@@ -1792,6 +2061,7 @@ export default function MerchantView({ merchantId: rawMerchantId, onLogout, onSe
         </footer>
 
       </main>
+      </div>
 
       {/* --- MODALS --- */}
 
