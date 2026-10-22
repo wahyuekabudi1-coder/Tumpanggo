@@ -29,6 +29,7 @@ import {
   BookOpen, HelpCircle, ChevronDown, ChevronUp, Receipt, Copy
 } from 'lucide-react';
 import EReceiptModal from './EReceiptModal.tsx';
+import FloatingCart from './FloatingCart.tsx';
 import { calculateRemainingCooking, formatWibTime } from '../utils/cookingTimer.ts';
 import { useCookingTicker } from '../hooks/useCookingCountdown.ts';
 
@@ -3482,26 +3483,14 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
           </div>
         )}
 
-        {/* 3. CART SUMMARY */}
+        {/* 3. CART SUMMARY - Interactive Draggable & Dockable Floating Cart */}
         {cart.length > 0 && homeSubView === 'food' && activeTab !== 'checkout' && activeTab !== 'payment' && (
-          <div className="fixed bottom-[68px] left-4 right-4 max-w-sm mx-auto bg-slate-900 text-white p-3.5 rounded-2xl shadow-xl flex justify-between items-center z-[100] animate-bounce">
-            <div className="flex items-center gap-3">
-              <div className="p-2 bg-white/20 rounded-xl">
-                <ShoppingBag className="w-5 h-5 text-white" />
-              </div>
-              <div className="flex flex-col">
-                <span className="text-[10px] uppercase font-bold text-rose-300 tracking-wider">Keranjang {cartMerchant?.name?.split(' ')[0]}</span>
-                <span className="text-xs font-semibold">{cart.length} Item • Rp {getSubtotal().toLocaleString('id-ID')}</span>
-              </div>
-            </div>
-            <button
-              onClick={() => setActiveTab('checkout')}
-              className="bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold px-4 py-2.5 rounded-xl transition-all flex items-center gap-1 shadow-md shadow-rose-600/15"
-            >
-              Checkout
-              <ArrowRight className="w-3.5 h-3.5" />
-            </button>
-          </div>
+          <FloatingCart
+            cart={cart}
+            cartMerchant={cartMerchant}
+            subtotal={getSubtotal()}
+            onCheckout={() => setActiveTab('checkout')}
+          />
         )}
 
         {/* 4. CHECKOUT TAB */}
