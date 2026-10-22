@@ -17,7 +17,7 @@
  */
 
 import React, { useState } from 'react';
-import { Info, X, ExternalLink, ShieldCheck } from 'lucide-react';
+import { Info, X, ShieldCheck } from 'lucide-react';
 
 export interface SocialMediaConfig {
   tiktokUrl?: string;
@@ -63,12 +63,12 @@ export const SocialMediaButtons: React.FC<SocialMediaButtonsProps> = ({
       name: 'TikTok',
       url: config.tiktokUrl,
       colorClass: 'border-slate-700 bg-slate-900 text-white',
-      hoverClass: 'hover:bg-black hover:border-slate-500 hover:shadow-md hover:shadow-cyan-900/20',
+      hoverClass: 'hover:bg-black hover:border-slate-500 hover:shadow-lg hover:shadow-cyan-900/20',
       iconBgClass: 'bg-black text-white',
       ariaLabel: 'Kunjungi akun resmi TikTok TumpangGo',
       renderIcon: () => (
         <svg 
-          className="w-4 h-4 fill-current" 
+          className="w-5 h-5 fill-current shrink-0" 
           viewBox="0 0 24 24" 
           aria-hidden="true"
         >
@@ -80,13 +80,13 @@ export const SocialMediaButtons: React.FC<SocialMediaButtonsProps> = ({
       id: 'instagram',
       name: 'Instagram',
       url: config.instagramUrl,
-      colorClass: 'border-pink-200/50 bg-gradient-to-r from-purple-600 via-pink-600 to-amber-500 text-white',
-      hoverClass: 'hover:opacity-95 hover:shadow-md hover:shadow-pink-500/20',
+      colorClass: 'border-pink-300/40 bg-gradient-to-tr from-[#f09433] via-[#dc2743] to-[#bc1888] text-white',
+      hoverClass: 'hover:opacity-95 hover:shadow-lg hover:shadow-pink-500/25',
       iconBgClass: 'bg-white/20 text-white',
       ariaLabel: 'Kunjungi akun resmi Instagram TumpangGo',
       renderIcon: () => (
         <svg 
-          className="w-4 h-4 fill-current" 
+          className="w-5 h-5 fill-current shrink-0" 
           viewBox="0 0 24 24" 
           aria-hidden="true"
         >
@@ -98,13 +98,13 @@ export const SocialMediaButtons: React.FC<SocialMediaButtonsProps> = ({
       id: 'facebook',
       name: 'Facebook',
       url: config.facebookUrl,
-      colorClass: 'border-blue-600 bg-blue-600 text-white',
-      hoverClass: 'hover:bg-blue-700 hover:shadow-md hover:shadow-blue-600/20',
+      colorClass: 'border-blue-400/40 bg-[#1877F2] text-white',
+      hoverClass: 'hover:bg-[#166fe5] hover:shadow-lg hover:shadow-blue-600/25',
       iconBgClass: 'bg-white/20 text-white',
       ariaLabel: 'Kunjungi akun resmi Facebook TumpangGo',
       renderIcon: () => (
         <svg 
-          className="w-4 h-4 fill-current" 
+          className="w-5 h-5 fill-current shrink-0" 
           viewBox="0 0 24 24" 
           aria-hidden="true"
         >
@@ -121,60 +121,32 @@ export const SocialMediaButtons: React.FC<SocialMediaButtonsProps> = ({
     }
   };
 
+  // Determine uniform dimensions based on variant
+  const getButtonSizeClass = () => {
+    switch (variant) {
+      case 'compact':
+        return 'w-10 h-10 rounded-xl';
+      case 'footer':
+        return 'w-10 h-10 sm:w-11 sm:h-11 rounded-xl';
+      case 'default':
+      default:
+        return 'w-11 h-11 sm:w-12 sm:h-12 rounded-2xl';
+    }
+  };
+
+  const buttonSizeClass = getButtonSizeClass();
+
   return (
     <div className={`flex flex-col items-center ${className}`}>
-      {/* 3 Dedicated Social Buttons */}
-      <div className="flex flex-wrap items-center justify-center gap-2 sm:gap-3 w-full">
+      {/* Strictly Three Official Social Media Channels - Logo Only in a Single Row */}
+      <div 
+        className="flex flex-row items-center justify-center gap-3 w-auto flex-nowrap"
+        role="group"
+        aria-label="Kanal media sosial resmi TumpangGo"
+      >
         {channels.map((channel) => {
           const isConfigured = Boolean(channel.url && channel.url.trim() !== '');
 
-          if (variant === 'compact') {
-            return (
-              <a
-                key={channel.id}
-                href={isConfigured ? channel.url : '#'}
-                onClick={(e) => handleChannelClick(e, channel)}
-                target={isConfigured ? '_blank' : undefined}
-                rel={isConfigured ? 'noopener noreferrer' : undefined}
-                aria-label={channel.ariaLabel}
-                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-all duration-150 focus:outline-none focus:ring-2 focus:ring-emerald-500 ${channel.colorClass} ${channel.hoverClass}`}
-              >
-                {channel.renderIcon()}
-                <span>{channel.name}</span>
-                {!isConfigured && (
-                  <span className="text-[10px] px-1 py-0.2 rounded bg-black/30 font-mono">resmi</span>
-                )}
-              </a>
-            );
-          }
-
-          if (variant === 'footer') {
-            return (
-              <a
-                key={channel.id}
-                href={isConfigured ? channel.url : '#'}
-                onClick={(e) => handleChannelClick(e, channel)}
-                target={isConfigured ? '_blank' : undefined}
-                rel={isConfigured ? 'noopener noreferrer' : undefined}
-                aria-label={channel.ariaLabel}
-                className="group relative inline-flex items-center gap-2 px-3.5 py-2 rounded-xl bg-slate-800/90 hover:bg-slate-700/90 border border-slate-700/80 hover:border-slate-600 text-slate-200 transition-all duration-200 text-xs sm:text-sm font-medium shadow-sm hover:shadow"
-              >
-                <span className={`p-1.5 rounded-lg ${channel.iconBgClass} transition-transform group-hover:scale-105`}>
-                  {channel.renderIcon()}
-                </span>
-                <span className="font-semibold text-slate-100">{channel.name}</span>
-                {isConfigured ? (
-                  <ExternalLink className="w-3.5 h-3.5 text-slate-400 group-hover:text-white transition-colors ml-0.5" />
-                ) : (
-                  <span className="text-[10px] uppercase font-bold tracking-wider text-amber-300 bg-amber-950/60 px-1.5 py-0.5 rounded border border-amber-800/60 ml-0.5">
-                    Segera
-                  </span>
-                )}
-              </a>
-            );
-          }
-
-          // Default full variant (for CTA card)
           return (
             <a
               key={channel.id}
@@ -183,15 +155,12 @@ export const SocialMediaButtons: React.FC<SocialMediaButtonsProps> = ({
               target={isConfigured ? '_blank' : undefined}
               rel={isConfigured ? 'noopener noreferrer' : undefined}
               aria-label={channel.ariaLabel}
-              className={`flex-1 min-w-[120px] max-w-[170px] inline-flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl border text-xs sm:text-sm font-medium transition-all duration-200 shadow-sm active:scale-95 focus:outline-none focus:ring-2 focus:ring-emerald-500 ${channel.colorClass} ${channel.hoverClass}`}
+              title={channel.name}
+              className={`inline-flex items-center justify-center shrink-0 border transition-all duration-200 transform hover:scale-110 active:scale-95 cursor-pointer focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 ${buttonSizeClass} ${channel.colorClass} ${channel.hoverClass}`}
             >
               {channel.renderIcon()}
-              <span className="font-semibold">{channel.name}</span>
-              {!isConfigured && (
-                <span className="text-[10px] font-normal opacity-85 px-1 py-0.5 rounded bg-black/20">
-                  resmi
-                </span>
-              )}
+              {/* Screen reader only label - hidden visually to guarantee logo-only display */}
+              <span className="sr-only">{channel.name}</span>
             </a>
           );
         })}
@@ -214,7 +183,7 @@ export const SocialMediaButtons: React.FC<SocialMediaButtonsProps> = ({
                 type="button"
                 onClick={() => setActiveNoticeChannel(null)}
                 aria-label="Tutup pemberitahuan"
-                className="p-1 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
+                className="p-1 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors cursor-pointer"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -238,7 +207,7 @@ export const SocialMediaButtons: React.FC<SocialMediaButtonsProps> = ({
             <button
               type="button"
               onClick={() => setActiveNoticeChannel(null)}
-              className="w-full py-2.5 px-4 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-sm font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2"
+              className="w-full py-2.5 px-4 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-sm font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 cursor-pointer"
             >
               Mengerti & Kembali
             </button>

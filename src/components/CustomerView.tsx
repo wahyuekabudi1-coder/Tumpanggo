@@ -18,7 +18,6 @@ import { useSEO } from '../hooks/useSEO.ts';
 import UmkmEducationModule, { UMKM_ARTICLES } from './UmkmEducationModule.tsx';
 import UserTestimonialsSection from './UserTestimonialsSection.tsx';
 import { HelpCenterView } from './HelpCenterView.tsx';
-import { HelpCenterCTA } from './HelpCenterCTA.tsx';
 import { SocialMediaButtons } from './SocialMediaButtons.tsx';
 import { 
   Search, ShoppingBag, Store, MapPin, Clock, Star, ArrowLeft, Plus, Minus, Trash2, Check, 
@@ -2338,18 +2337,7 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
                 {/* 2. Section Cerita Pengguna TumpangGo */}
                 <UserTestimonialsSection />
 
-                {/* 3. Call to Action: Pusat Bantuan TumpangGo */}
-                <HelpCenterCTA 
-                  onOpenHelp={() => {
-                    setActiveTab('help');
-                    if (typeof window !== 'undefined') {
-                      window.scrollTo({ top: 0, behavior: 'smooth' });
-                    }
-                  }}
-                  className="my-4"
-                />
-
-                {/* 4. Footer Section */}
+                {/* 3. Footer Section */}
                 {renderFooter()}
 
               </div>

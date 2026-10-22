@@ -259,61 +259,8 @@ export class ShopMigrationRunner {
       ];
     }
 
-    if (!Array.isArray(db.products) || db.products.length === 0) {
-      db.products = [
-        {
-          id: 'sprod_beras_5kg',
-          sku: 'TS-SBK-001',
-          name: 'Beras Premium Petani Tumpang 5kg',
-          description: 'Beras pulen pilihan langsung dari petani lokal lereng Bromo Tumpang. Tanpa pengawet dan pemutih.',
-          price: 72000,
-          originalPrice: 75000,
-          stock: 45,
-          unit: 'karung 5kg',
-          categoryId: 'scat_sembako',
-          image: 'https://images.unsplash.com/photo-1586201375761-83865001e31c?auto=format&fit=crop&w=600&q=80',
-          images: ['https://images.unsplash.com/photo-1586201375761-83865001e31c?auto=format&fit=crop&w=600&q=80'],
-          isActive: true,
-          isFeatured: true,
-          minOrder: 1,
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString()
-        },
-        {
-          id: 'sprod_minyak_goreng_2l',
-          sku: 'TS-SBK-002',
-          name: 'Minyak Goreng Refill 2 Liter',
-          description: 'Minyak goreng sawit jernih kualitas prima untuk aneka gorengan renyah keluarga.',
-          price: 34000,
-          stock: 60,
-          unit: 'pouch 2L',
-          categoryId: 'scat_sembako',
-          image: 'https://images.unsplash.com/photo-1474979266404-7eaacbcd87c5?auto=format&fit=crop&w=600&q=80',
-          images: ['https://images.unsplash.com/photo-1474979266404-7eaacbcd87c5?auto=format&fit=crop&w=600&q=80'],
-          isActive: true,
-          isFeatured: true,
-          minOrder: 1,
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString()
-        },
-        {
-          id: 'sprod_kopi_dampit_250g',
-          sku: 'TS-KHS-001',
-          name: 'Kopi Robusta Lereng Semeru Tumpang 250g',
-          description: 'Biji kopi robusta pilihan dari perkebunan lereng Gunung Semeru. Aroma mantap, rasa legit cokelat khas Malang Timur.',
-          price: 38000,
-          stock: 30,
-          unit: 'pouch 250g',
-          categoryId: 'scat_khas',
-          image: 'https://images.unsplash.com/photo-1559056199-641a0ac8b55e?auto=format&fit=crop&w=600&q=80',
-          images: ['https://images.unsplash.com/photo-1559056199-641a0ac8b55e?auto=format&fit=crop&w=600&q=80'],
-          isActive: true,
-          isFeatured: true,
-          minOrder: 1,
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString()
-        }
-      ];
+    if (!Array.isArray(db.products)) {
+      db.products = [];
     }
 
     if (!Array.isArray(db.orders)) db.orders = [];

@@ -176,8 +176,21 @@ export class FoodDatabase {
         this.createBackup();
         console.log('[TumpangFood DB] Migration complete! Saved to tumpang_food_db.json.');
       } else {
-        // Fresh initial seed
-        this.seedInitial();
+        // Initialize fresh clean operational database without dummy merchants
+        this.data = {
+          merchants: [],
+          categories: [],
+          menuItems: [],
+          orders: [],
+          drivers: [],
+          settlements: [],
+          auditLogs: [],
+          systemConfig: { ...initialConfig },
+          partnerRegistrations: [],
+          testimonials: [],
+          pushSubscriptions: []
+        };
+        this.bootstrapMasterAccount();
         this.save();
         this.createBackup();
       }
@@ -193,7 +206,20 @@ export class FoodDatabase {
           // ignore
         }
       }
-      this.seedInitial();
+      this.data = {
+        merchants: [],
+        categories: [],
+        menuItems: [],
+        orders: [],
+        drivers: [],
+        settlements: [],
+        auditLogs: [],
+        systemConfig: { ...initialConfig },
+        partnerRegistrations: [],
+        testimonials: [],
+        pushSubscriptions: []
+      };
+      this.bootstrapMasterAccount();
       this.save();
     }
   }
@@ -289,10 +315,7 @@ export class FoodDatabase {
       this.save();
     }
 
-    if (this.data.merchants.length === 0) {
-      this.seedInitial();
-    }
-
+    // Master account credentials initialization (no auto-seed of dummy merchants)
     this.bootstrapMasterAccount();
   }
 

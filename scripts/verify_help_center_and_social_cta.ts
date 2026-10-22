@@ -57,7 +57,7 @@ function runVerification() {
   assert(helpCenterCode.includes('admin@tumpanggo.com'), 'Menampilkan kontak resmi terverifikasi');
 
   // 3. Audit Social Media Buttons
-  console.log('\n📦 3. AUDIT TEPAT TIGA TOMBOL MEDIA SOSIAL');
+  console.log('\n📦 3. AUDIT TEPAT TIGA TOMBOL MEDIA SOSIAL (LOGO-ONLY)');
   const socialPath = path.join(process.cwd(), 'src/components/SocialMediaButtons.tsx');
   assert(fs.existsSync(socialPath), 'Komponen SocialMediaButtons.tsx tersedia');
   const socialCode = fs.readFileSync(socialPath, 'utf-8');
@@ -67,13 +67,18 @@ function runVerification() {
   assert(socialCode.includes('name: \'Facebook\''), 'Menampilkan platform Facebook');
   assert(!socialCode.includes('twitter') && !socialCode.includes('YouTube') && !socialCode.includes('Telegram'), 'Tidak ada tombol Telegram, X/Twitter, YouTube, atau platform lain');
   assert(socialCode.includes('activeNoticeChannel'), 'Menyediakan proteksi modal informatif bila akun resmi belum dikonfigurasi (anti-halusinasi URL)');
+  assert(!socialCode.includes('<span>{channel.name}</span>'), 'Label teks nama platform tidak ditampilkan secara visual (logo-only)');
+  assert(socialCode.includes('sr-only'), 'Menyediakan label screen reader tersembunyi (sr-only) untuk aksesibilitas');
+  assert(socialCode.includes('aria-label={channel.ariaLabel}'), 'Atribut aria-label tetap terpasang pada setiap tombol');
+  assert(socialCode.includes('flex-nowrap'), 'Tombol dipertahankan dalam satu baris horizontal tanpa wrap canggung');
 
   // 4. Audit CustomerView Navigation & Floating Button
   console.log('\n📦 4. AUDIT NAVIGASI & FLOATING BUTTON CUSTOMER');
-  assert(customerViewCode.includes('HelpCenterCTA'), 'HelpCenterCTA dipasang pada alur utama beranda');
-  assert(customerViewCode.includes('HelpCenterView'), 'HelpCenterView dirender saat tab bantuan aktif');
+  assert(!customerViewCode.includes('<HelpCenterCTA'), 'Section promosi HelpCenterCTA di atas footer beranda telah dihapus');
+  assert(customerViewCode.includes('renderFooter()'), 'Footer langsung mengikuti konten beranda tanpa section perantara');
+  assert(customerViewCode.includes('HelpCenterView'), 'HelpCenterView tetap dirender saat tab bantuan aktif');
   assert(customerViewCode.includes('id="nav-help-center"'), 'Tersedia tombol Bantuan di bilah navigasi bawah');
-  assert(customerViewCode.includes('FLOATING PUSAT BANTUAN BUTTON'), 'Tombol mengambang (floating) diubah menjadi tombol Pusat Bantuan');
+  assert(customerViewCode.includes('FLOATING PUSAT BANTUAN BUTTON'), 'Tombol mengambang (floating) Pusat Bantuan tetap tersedia');
 
   console.log('\n====================================================');
   console.log(`🏁 HASIL VERIFIKASI: ${passed} PASS, ${failed} FAIL`);
