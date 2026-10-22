@@ -393,12 +393,14 @@ export class FoodDatabase {
       categoriesCount?: number;
       menuItemsCount: number;
       merchantPartnerRegistrationsCount: number;
+      ordersCount: number;
+      settlementsCount: number;
     };
     toPreserve: {
       categoriesCount?: number;
       driversCount: number;
-      ordersCount: number;
-      settlementsCount: number;
+      ordersCount?: number;
+      settlementsCount?: number;
       testimonialsCount: number;
       driverPartnerRegistrationsCount: number;
       systemConfigPreserved: boolean;
@@ -491,13 +493,13 @@ export class FoodDatabase {
       toPurge: {
         merchantsCount,
         menuItemsCount,
-        merchantPartnerRegistrationsCount
+        merchantPartnerRegistrationsCount,
+        ordersCount,
+        settlementsCount
       },
       toPreserve: {
         categoriesCount,
         driversCount,
-        ordersCount,
-        settlementsCount,
         testimonialsCount,
         driverPartnerRegistrationsCount,
         systemConfigPreserved: true,
@@ -535,12 +537,14 @@ export class FoodDatabase {
       categories?: number;
       menuItems: number;
       merchantRegistrations: number;
+      orders: number;
+      settlements: number;
     };
     preserved: {
       categories?: number;
       drivers: number;
-      orders: number;
-      settlements: number;
+      orders?: number;
+      settlements?: number;
       testimonials: number;
       driverRegistrations: number;
     };
@@ -551,6 +555,8 @@ export class FoodDatabase {
       categoriesDeleted?: number;
       menuItemsDeleted: number;
       merchantRegistrationsDeleted: number;
+      ordersDeleted: number;
+      settlementsDeleted: number;
     };
     localBackupPath: string;
   }> {
@@ -569,6 +575,8 @@ export class FoodDatabase {
     const initialCategoryCount = this.data.categories.length;
     const initialMenuItemCount = this.data.menuItems.length;
     const initialMerchantRegCount = this.data.partnerRegistrations.filter(r => r.type === 'MERCHANT').length;
+    const initialOrderCount = this.data.orders.length;
+    const initialSettlementCount = this.data.settlements.length;
 
     let firestorePurgeResult: any = undefined;
     let cloudBackupCreated = false;
@@ -579,11 +587,13 @@ export class FoodDatabase {
     if (isFirestoreAdminConfigured() && adminDb) {
       try {
         // Read full documents from Firestore before deletion for persistent backup
-        const [merchantsSnap, categoriesSnap, menuItemsSnap, regsSnap] = await Promise.all([
+        const [merchantsSnap, categoriesSnap, menuItemsSnap, regsSnap, ordersSnap, settlementsSnap] = await Promise.all([
           adminDb.collection('merchants').get(),
           adminDb.collection('categories').get(),
           adminDb.collection('menuItems').get(),
-          adminDb.collection('partnerRegistrations').where('type', '==', 'MERCHANT').get()
+          adminDb.collection('partnerRegistrations').where('type', '==', 'MERCHANT').get(),
+          adminDb.collection('orders').get(),
+          adminDb.collection('settlements').get()
         ]);
 
         cloudBackupCreated = await createFirestoreBackup(
@@ -595,13 +605,17 @@ export class FoodDatabase {
             categoriesCount: categoriesSnap.size,
             menuItemsCount: menuItemsSnap.size,
             registrationsCount: regsSnap.size,
+            ordersCount: ordersSnap.size,
+            settlementsCount: settlementsSnap.size,
             timestamp: new Date().toISOString()
           },
           {
             merchants: merchantsSnap.docs.map(d => ({ id: d.id, ...(d.data() || {}) })),
             categories: categoriesSnap.docs.map(d => ({ id: d.id, ...(d.data() || {}) })),
             menuItems: menuItemsSnap.docs.map(d => ({ id: d.id, ...(d.data() || {}) })),
-            partnerRegistrations: regsSnap.docs.map(d => ({ id: d.id, ...(d.data() || {}) }))
+            partnerRegistrations: regsSnap.docs.map(d => ({ id: d.id, ...(d.data() || {}) })),
+            orders: ordersSnap.docs.map(d => ({ id: d.id, ...(d.data() || {}) })),
+            settlements: settlementsSnap.docs.map(d => ({ id: d.id, ...(d.data() || {}) }))
           }
         );
 
@@ -611,21 +625,25 @@ export class FoodDatabase {
 
         // Subcollection-aware batch deletion in chunks of <= 400
         // NOTE: As strictly mandated, categories collection is PRESERVED and NOT deleted!
-        const [mDel, iDel, rDel] = await Promise.all([
+        const [mDel, iDel, rDel, oDel, sDel] = await Promise.all([
           safeAdminBatchDelete('merchants'),
           safeAdminBatchDelete('menuItems'),
-          safeAdminBatchDeleteQuery('partnerRegistrations', 'type', '==', 'MERCHANT')
+          safeAdminBatchDeleteQuery('partnerRegistrations', 'type', '==', 'MERCHANT'),
+          safeAdminBatchDelete('orders'),
+          safeAdminBatchDelete('settlements')
         ]);
 
-        if (!mDel.success || !iDel.success || !rDel.success) {
-          const failMsg = [mDel.error, iDel.error, rDel.error].filter(Boolean).join('; ');
+        if (!mDel.success || !iDel.success || !rDel.success || !oDel.success || !sDel.success) {
+          const failMsg = [mDel.error, iDel.error, rDel.error, oDel.error, sDel.error].filter(Boolean).join('; ');
           throw new Error(`Sebagian operasi batch delete Firestore gagal: ${failMsg || 'Firestore batch failure'}`);
         }
 
         firestorePurgeResult = {
           merchantsDeleted: mDel.count,
           menuItemsDeleted: iDel.count,
-          merchantRegistrationsDeleted: rDel.count
+          merchantRegistrationsDeleted: rDel.count,
+          ordersDeleted: oDel.count,
+          settlementsDeleted: sDel.count
         };
         console.log('[TumpangFood CleanSlate] Firestore purge completed successfully:', firestorePurgeResult);
       } catch (fsErr: any) {
@@ -635,17 +653,19 @@ export class FoodDatabase {
     }
 
     // 2. Synchronize in-memory and local disk
-    // Categories are preserved completely; only merchants, menu items, and merchant partner registrations are cleared.
+    // Categories are preserved completely; only merchants, menu items, merchant registrations, orders, and settlements are cleared.
     this.data.merchants = [];
     this.data.menuItems = [];
     this.data.partnerRegistrations = this.data.partnerRegistrations.filter(r => r.type !== 'MERCHANT');
+    this.data.orders = [];
+    this.data.settlements = [];
 
     this.save();
     this.createBackup();
 
     this.log(
       actorId,
-      `Clean Slate executed: Purged ${initialMerchantCount} merchants, ${initialMenuItemCount} menu items, and ${initialMerchantRegCount} merchant registrations. Categories preserved (${this.data.categories.length}). Cloud backup: ${cloudBackupCreated ? cloudBackupId : 'N/A'}.`,
+      `Clean Slate executed: Purged ${initialMerchantCount} merchants, ${initialMenuItemCount} menu items, ${initialMerchantRegCount} merchant registrations, ${initialOrderCount} orders, and ${initialSettlementCount} settlements. Categories preserved (${this.data.categories.length}). Cloud backup: ${cloudBackupCreated ? cloudBackupId : 'N/A'}.`,
       'MASTER_ADMIN'
     );
 
@@ -657,13 +677,13 @@ export class FoodDatabase {
       purged: {
         merchants: firestorePurgeResult ? firestorePurgeResult.merchantsDeleted : initialMerchantCount,
         menuItems: firestorePurgeResult ? firestorePurgeResult.menuItemsDeleted : initialMenuItemCount,
-        merchantRegistrations: firestorePurgeResult ? firestorePurgeResult.merchantRegistrationsDeleted : initialMerchantRegCount
+        merchantRegistrations: firestorePurgeResult ? firestorePurgeResult.merchantRegistrationsDeleted : initialMerchantRegCount,
+        orders: firestorePurgeResult ? firestorePurgeResult.ordersDeleted : initialOrderCount,
+        settlements: firestorePurgeResult ? firestorePurgeResult.settlementsDeleted : initialSettlementCount
       },
       preserved: {
         categories: this.data.categories.length,
         drivers: this.data.drivers.length,
-        orders: this.data.orders.length,
-        settlements: this.data.settlements.length,
         testimonials: this.data.testimonials.length,
         driverRegistrations: this.data.partnerRegistrations.filter(r => r.type === 'DRIVER').length
       },

@@ -158,7 +158,7 @@ export default function AdminView({ onLogout, systemConfig, onUpdateConfig, onSe
   };
 
   const handleExecuteCleanSlate = async () => {
-    if (!window.confirm('PERINGATAN FINAL MASTER ADMIN:\n\nApakah Anda yakin ingin menghapus SELURUH data merchant dan katalog makanan lama di database produksi Firestore (tumpanggo-70479)?\n\nSistem akan secara otomatis membuat backup cloud terlebih dahulu di Firestore sebelum penghapusan dilakukan.\n\nAkun admin, driver, pesanan, dan konfigurasi ongkir flat Rp5.000 tetap dipertahankan.')) {
+    if (!window.confirm('PERINGATAN FINAL MASTER ADMIN:\n\nApakah Anda yakin ingin menghapus SELURUH data dummy/testing di database produksi Firestore (tumpanggo-70479)?\n\nData yang dibersihkan:\n• Merchant/toko contoh & menu makanan terkait\n• Pendaftaran merchant dummy\n• Pesanan/order dummy & data testing terkait\n• Transaksi/settlement dummy testing\n\nSistem akan secara otomatis membuat backup cloud terlebih dahulu di Firestore sebelum penghapusan.\n\nKategori menu, Akun Master Admin, Driver, dan Tumpang Shop TETAP DIPERTAHANKAN.')) {
       return;
     }
     setExecutingCleanSlate(true);
@@ -172,7 +172,7 @@ export default function AdminView({ onLogout, systemConfig, onUpdateConfig, onSe
       setCleanSlateResult(data);
       fetchAdminData();
       fetchCleanSlatePlan();
-      alert('Pembersihan merchant dan katalog makanan selesai dengan sukses! Backup telah tersimpan di Cloud Firestore.');
+      alert('Pembersihan data dummy dan testing selesai dengan sukses! Backup telah tersimpan di Cloud Firestore.');
     } catch (err: any) {
       alert(`Gagal mengeksekusi Clean Slate: ${err.message}`);
     } finally {
@@ -2043,7 +2043,7 @@ export default function AdminView({ onLogout, systemConfig, onUpdateConfig, onSe
                   </div>
                 )}
 
-                <div className="grid grid-cols-3 gap-2 pt-2 border-t border-slate-200/60 text-center">
+                <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 pt-2 border-t border-slate-200/60 text-center">
                   <div className="p-2 bg-white rounded-lg border border-slate-200">
                     <div className="text-lg font-bold text-red-600">
                       {cleanSlatePlan?.toPurge?.merchantsCount ?? merchants.length}
@@ -2062,10 +2062,22 @@ export default function AdminView({ onLogout, systemConfig, onUpdateConfig, onSe
                     </div>
                     <div className="text-[10px] text-slate-500 font-medium">Pendaftaran Mitra</div>
                   </div>
+                  <div className="p-2 bg-white rounded-lg border border-slate-200">
+                    <div className="text-lg font-bold text-red-600">
+                      {cleanSlatePlan?.toPurge?.ordersCount ?? orders.length}
+                    </div>
+                    <div className="text-[10px] text-slate-500 font-medium">Pesanan Dummy</div>
+                  </div>
+                  <div className="p-2 bg-white rounded-lg border border-slate-200">
+                    <div className="text-lg font-bold text-red-600">
+                      {cleanSlatePlan?.toPurge?.settlementsCount ?? settlements.length}
+                    </div>
+                    <div className="text-[10px] text-slate-500 font-medium">Settlement Testing</div>
+                  </div>
                 </div>
 
                 <div className="p-2.5 bg-emerald-50 text-emerald-800 rounded-lg text-[11px] leading-relaxed">
-                  🛡️ <strong>Data Terlindungi &amp; Dipertahankan:</strong> Kategori Menu (<strong>{cleanSlatePlan?.toPreserve?.categoriesCount ?? 0} kategori tetap utuh</strong>), Akun Master Admin (<code className="font-mono text-[10px]">tumpanggo@gmail.com</code>), Driver, Pesanan (Orders), Settlement, dan Tumpang Shop <strong>TIDAK AKAN DIHAPUS</strong>.
+                  🛡️ <strong>Data Terlindungi &amp; Dipertahankan:</strong> Kategori Menu (<strong>{cleanSlatePlan?.toPreserve?.categoriesCount ?? 0} kategori tetap utuh</strong>), Akun Master Admin (<code className="font-mono text-[10px]">tumpanggo@gmail.com</code>), Mitra Driver &amp; Pendaftaran Driver, Testimoni Pengguna, dan Marketplace Tumpang Shop <strong>TIDAK AKAN DIHAPUS</strong>.
                 </div>
               </div>
 
@@ -2084,11 +2096,11 @@ export default function AdminView({ onLogout, systemConfig, onUpdateConfig, onSe
                 <button
                   type="button"
                   onClick={handleExecuteCleanSlate}
-                  disabled={executingCleanSlate || (cleanSlatePlan?.toPurge?.merchantsCount === 0 && merchants.length === 0)}
+                  disabled={executingCleanSlate || (cleanSlatePlan?.toPurge?.merchantsCount === 0 && merchants.length === 0 && orders.length === 0)}
                   className="flex-1 py-2.5 px-4 bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white font-bold text-xs rounded-xl transition-all shadow-xs cursor-pointer flex items-center justify-center gap-1.5"
                 >
                   <Trash2 className="w-4 h-4" />
-                  {executingCleanSlate ? 'Mengeksekusi Clean Slate...' : 'Bersihkan Seluruh Merchant & Katalog (Eksekusi)'}
+                  {executingCleanSlate ? 'Mengeksekusi Clean Slate...' : 'Bersihkan Seluruh Data Dummy & Testing (Eksekusi)'}
                 </button>
               </div>
 
@@ -2097,12 +2109,12 @@ export default function AdminView({ onLogout, systemConfig, onUpdateConfig, onSe
                 <div className="p-3.5 bg-emerald-50 border border-emerald-200 rounded-xl space-y-1.5 text-xs text-emerald-900">
                   <div className="font-bold flex items-center gap-1.5 text-emerald-700">
                     <CheckCircle2 className="w-4 h-4" />
-                    Pembersihan Merchant Berhasil Dieksekusi!
+                    Pembersihan Data Dummy Berhasil Dieksekusi!
                   </div>
                   <div className="text-[11px] text-emerald-800 space-y-0.5">
                     <div>• ID Backup Cloud: <code className="font-mono bg-white px-1.5 py-0.5 rounded border border-emerald-300 font-bold">{cleanSlateResult.cloudBackupId || 'Tersimpan'}</code></div>
-                    <div>• Dokumen Dihapus: {cleanSlateResult.purged?.merchants || 0} merchant, {cleanSlateResult.purged?.menuItems || 0} item menu, {cleanSlateResult.purged?.merchantRegistrations || 0} pendaftaran mitra.</div>
-                    <div>• Data Dipertahankan: {cleanSlateResult.preserved?.categories ?? cleanSlatePlan?.toPreserve?.categoriesCount ?? 0} kategori menu, akun master admin, driver, pesanan, dan settlement.</div>
+                    <div>• Dokumen Dihapus: {cleanSlateResult.purged?.merchants || 0} merchant, {cleanSlateResult.purged?.menuItems || 0} item menu, {cleanSlateResult.purged?.merchantRegistrations || 0} pendaftaran mitra, {cleanSlateResult.purged?.orders || 0} pesanan dummy, {cleanSlateResult.purged?.settlements || 0} settlement.</div>
+                    <div>• Data Dipertahankan: {cleanSlateResult.preserved?.categories ?? cleanSlatePlan?.toPreserve?.categoriesCount ?? 0} kategori menu, akun master admin, driver, dan Tumpang Shop.</div>
                   </div>
                 </div>
               )}
