@@ -222,6 +222,19 @@ export const foodConfig = {
     } catch {}
     return '(default)';
   })(),
+  projectId: (() => {
+    let pId = (process.env.FIREBASE_PROJECT_ID || process.env.GCP_PROJECT || '').trim();
+    if (!pId) {
+      try {
+        const configPath = path.join(process.cwd(), 'firebase-applet-config.json');
+        if (fs.existsSync(configPath)) {
+          const raw = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+          if (raw.projectId) pId = raw.projectId;
+        }
+      } catch {}
+    }
+    return pId || 'tumpanggo-70479';
+  })(),
   localDbFile,
   legacyDbFile: path.join(process.cwd(), 'tumpang_db.json'),
   

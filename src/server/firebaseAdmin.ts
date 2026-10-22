@@ -666,3 +666,240 @@ export async function runAdminTransaction<T>(
   }
   return await adminDb.runTransaction(updateFunction);
 }
+
+/**
+ * Recursively purges all subcollections of a Firestore DocumentReference in safe chunks of <= 400.
+ */
+async function recursivePurgeDocumentSubcollections(
+  db: Firestore,
+  docRef: FirebaseFirestore.DocumentReference
+): Promise<number> {
+  let deletedCount = 0;
+  const subcollections = await docRef.listCollections();
+  for (const subCol of subcollections) {
+    let hasMore = true;
+    while (hasMore) {
+      const snap = await subCol.limit(400).get();
+      if (snap.empty) {
+        hasMore = false;
+        break;
+      }
+      // Check for nested subcollections under each subcollection doc
+      for (const subDoc of snap.docs) {
+        deletedCount += await recursivePurgeDocumentSubcollections(db, subDoc.ref);
+      }
+      const batch = db.batch();
+      for (const subDoc of snap.docs) {
+        batch.delete(subDoc.ref);
+      }
+      await batch.commit();
+      deletedCount += snap.size;
+      if (snap.size < 400) {
+        hasMore = false;
+      }
+    }
+  }
+  return deletedCount;
+}
+
+/**
+ * Safely batch deletes documents in chunks of <= 400 (under Firestore 500 limit).
+ * Automatically discovers and purges any nested subcollections recursively.
+ */
+export async function safeAdminBatchDelete(
+  collectionName: string,
+  docIds?: string[]
+): Promise<{ count: number; subcollectionsPurged: number; success: boolean; error?: string }> {
+  if (!adminDb || !isConfiguredWithServiceAccount) return { count: 0, subcollectionsPurged: 0, success: false, error: 'Firebase Admin not configured' };
+  try {
+    let idsToDelete = docIds;
+    if (!idsToDelete) {
+      const snap = await adminDb.collection(collectionName).get();
+      idsToDelete = snap.docs.map(d => d.id);
+    }
+    if (idsToDelete.length === 0) return { count: 0, subcollectionsPurged: 0, success: true };
+
+    // 1. Recursive subcollection purge for all target documents
+    let totalSubcollectionsPurged = 0;
+    for (const id of idsToDelete) {
+      try {
+        const docRef = adminDb.collection(collectionName).doc(id);
+        totalSubcollectionsPurged += await recursivePurgeDocumentSubcollections(adminDb, docRef);
+      } catch (subErr: any) {
+        console.warn(`[TumpangFood Admin] Subcollection scan warning on ${collectionName}/${id}:`, sanitizeErrorMessage(subErr.message));
+      }
+    }
+
+    // 2. Main document batch deletion in chunks of <= 400
+    const CHUNK_SIZE = 400;
+    let totalDeleted = 0;
+    for (let i = 0; i < idsToDelete.length; i += CHUNK_SIZE) {
+      const chunk = idsToDelete.slice(i, i + CHUNK_SIZE);
+      const batch = adminDb.batch();
+      for (const id of chunk) {
+        batch.delete(adminDb.collection(collectionName).doc(id));
+      }
+      await batch.commit();
+      totalDeleted += chunk.length;
+    }
+    return { count: totalDeleted, subcollectionsPurged: totalSubcollectionsPurged, success: true };
+  } catch (err: any) {
+    const safeMsg = sanitizeErrorMessage(err.message || String(err));
+    console.error(`[TumpangFood Admin] safeAdminBatchDelete failed for ${collectionName}:`, safeMsg);
+    return { count: 0, subcollectionsPurged: 0, success: false, error: safeMsg };
+  }
+}
+
+/**
+ * Safely batch deletes documents matching a specific query filter.
+ */
+export async function safeAdminBatchDeleteQuery(
+  collectionName: string,
+  field: string,
+  operator: FirebaseFirestore.WhereFilterOp,
+  value: any
+): Promise<{ count: number; subcollectionsPurged: number; success: boolean; error?: string }> {
+  if (!adminDb || !isConfiguredWithServiceAccount) return { count: 0, subcollectionsPurged: 0, success: false, error: 'Firebase Admin not configured' };
+  try {
+    const snap = await adminDb.collection(collectionName).where(field, operator, value).get();
+    if (snap.empty) return { count: 0, subcollectionsPurged: 0, success: true };
+    const ids = snap.docs.map(d => d.id);
+    return await safeAdminBatchDelete(collectionName, ids);
+  } catch (err: any) {
+    const safeMsg = sanitizeErrorMessage(err.message || String(err));
+    console.error(`[TumpangFood Admin] safeAdminBatchDeleteQuery failed for ${collectionName}:`, safeMsg);
+    return { count: 0, subcollectionsPurged: 0, success: false, error: safeMsg };
+  }
+}
+
+/**
+ * Helper to strip any sensitive credentials, tokens, or passwords before saving to backup.
+ */
+function sanitizeBackupDoc(doc: any): any {
+  if (!doc || typeof doc !== 'object') return doc;
+  const clone = { ...doc };
+  delete clone.password;
+  delete clone.passwordHash;
+  delete clone.token;
+  delete clone.secret;
+  delete clone.apiKey;
+  delete clone.privateKey;
+  delete clone.private_key;
+  return removeUndefinedFields(clone);
+}
+
+/**
+ * Creates a persistent cloud backup under /admin_backups/{backupId}.
+ * Stores metadata and splits individual collection documents into dedicated subcollections
+ * to avoid the Firestore 1 MiB per-document limit.
+ */
+export async function createFirestoreBackup(
+  backupId: string,
+  metadata: Record<string, any>,
+  collections: Record<string, any[]>
+): Promise<boolean> {
+  if (!adminDb || !isConfiguredWithServiceAccount) return false;
+  try {
+    const summary: Record<string, number> = {};
+    for (const [colName, docs] of Object.entries(collections)) {
+      summary[colName] = docs.length;
+    }
+
+    // 1. Write the backup root metadata document
+    await adminDb.collection('admin_backups').doc(backupId).set({
+      id: backupId,
+      createdAt: new Date().toISOString(),
+      metadata: removeUndefinedFields(metadata),
+      summary
+    });
+
+    // 2. Write individual document records into subcollection admin_backups/{backupId}/records
+    // using chunks of 400 to prevent payload limits
+    const allRecords: { id: string; targetCollection: string; data: any }[] = [];
+    for (const [colName, docs] of Object.entries(collections)) {
+      for (const doc of docs) {
+        if (doc && doc.id) {
+          allRecords.push({
+            id: `${colName}__${doc.id}`,
+            targetCollection: colName,
+            data: sanitizeBackupDoc(doc)
+          });
+        }
+      }
+    }
+
+    const CHUNK_SIZE = 400;
+    for (let i = 0; i < allRecords.length; i += CHUNK_SIZE) {
+      const chunk = allRecords.slice(i, i + CHUNK_SIZE);
+      const batch = adminDb.batch();
+      for (const rec of chunk) {
+        const itemRef = adminDb.collection('admin_backups').doc(backupId).collection('records').doc(rec.id);
+        batch.set(itemRef, {
+          targetCollection: rec.targetCollection,
+          docId: rec.data.id,
+          payload: rec.data,
+          backedUpAt: new Date().toISOString()
+        });
+      }
+      await batch.commit();
+    }
+
+    console.log(`[TumpangFood Admin] Persistent Cloud Firestore backup created successfully: admin_backups/${backupId} (${allRecords.length} records)`);
+    return true;
+  } catch (err: any) {
+    console.error(`[TumpangFood Admin] Failed to create persistent Firestore backup:`, sanitizeErrorMessage(err.message));
+    return false;
+  }
+}
+
+/**
+ * Restores documents from a persistent Firestore backup into their target collections.
+ * Uses chunks of 400 and preserves existing non-target documents.
+ */
+export async function restoreFirestoreBackup(
+  backupId: string
+): Promise<{ success: boolean; restoredCount: number; summary: Record<string, number>; error?: string }> {
+  if (!adminDb || !isConfiguredWithServiceAccount) {
+    return { success: false, restoredCount: 0, summary: {}, error: 'Firebase Admin not configured' };
+  }
+  try {
+    const backupRef = adminDb.collection('admin_backups').doc(backupId);
+    const metaSnap = await backupRef.get();
+    if (!metaSnap.exists) {
+      return { success: false, restoredCount: 0, summary: {}, error: `Backup "${backupId}" tidak ditemukan.` };
+    }
+
+    const recordsSnap = await backupRef.collection('records').get();
+    if (recordsSnap.empty) {
+      return { success: true, restoredCount: 0, summary: {} };
+    }
+
+    const summary: Record<string, number> = {};
+    const CHUNK_SIZE = 400;
+    const docs = recordsSnap.docs;
+
+    for (let i = 0; i < docs.length; i += CHUNK_SIZE) {
+      const chunk = docs.slice(i, i + CHUNK_SIZE);
+      const batch = adminDb.batch();
+      for (const d of chunk) {
+        const item = d.data();
+        const targetCol = item.targetCollection;
+        const docId = item.docId;
+        const payload = item.payload;
+        if (targetCol && docId && payload) {
+          const targetRef = adminDb.collection(targetCol).doc(docId);
+          batch.set(targetRef, removeUndefinedFields(payload), { merge: true });
+          summary[targetCol] = (summary[targetCol] || 0) + 1;
+        }
+      }
+      await batch.commit();
+    }
+
+    console.log(`[TumpangFood Admin] Restored ${docs.length} records from backup ${backupId}:`, summary);
+    return { success: true, restoredCount: docs.length, summary };
+  } catch (err: any) {
+    const safeMsg = sanitizeErrorMessage(err.message || String(err));
+    console.error(`[TumpangFood Admin] restoreFirestoreBackup failed for ${backupId}:`, safeMsg);
+    return { success: false, restoredCount: 0, summary: {}, error: safeMsg };
+  }
+}

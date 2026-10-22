@@ -23,6 +23,10 @@ import {
   safeAdminDeleteDoc,
   safeAdminGetDoc,
   safeAdminGetDocs,
+  safeAdminBatchDelete,
+  safeAdminBatchDeleteQuery,
+  createFirestoreBackup,
+  restoreFirestoreBackup,
   runAdminTransaction,
   removeUndefinedFields,
   isFirestoreAdminConfigured,
@@ -367,6 +371,329 @@ export class FoodDatabase {
       success: true,
       message: 'Seluruh data dummy dan operasional berhasil dibersihkan. Akun admin dan konfigurasi sistem tetap dipertahankan.',
       backupPath
+    };
+  }
+
+  /**
+   * Generates a preview plan of Clean Slate for Merchant & Catalog data without modifying anything.
+   * Authoritatively queries Cloud Firestore directly when connected, preventing false-zero reporting.
+   */
+  public async getCleanSlatePlan(): Promise<{
+    targetProjectId: string;
+    targetDatabaseId: string;
+    storageMode: string;
+    liveCloudConnected: boolean;
+    isProduction: boolean;
+    authIdentity: string;
+    diagnosticReason: string;
+    diagnosticDetail: string;
+    remediationStep?: string;
+    toPurge: {
+      merchantsCount: number;
+      categoriesCount: number;
+      menuItemsCount: number;
+      merchantPartnerRegistrationsCount: number;
+    };
+    toPreserve: {
+      driversCount: number;
+      ordersCount: number;
+      settlementsCount: number;
+      testimonialsCount: number;
+      driverPartnerRegistrationsCount: number;
+      systemConfigPreserved: boolean;
+      masterAccountEmail: string;
+      flatDeliveryFee: number;
+      commissionPercent: number;
+      shopMarketplacePreserved: boolean;
+    };
+  }> {
+    const creds = getMasterAccountCredentials();
+    const probe = await testFirestoreConnection();
+    const adminDb = getAdminDb();
+
+    // Production strictness: Never return fallback counts in production if cloud is disconnected
+    if (foodConfig.isProduction && !probe.connected) {
+      throw new Error(`[Produksi] Koneksi Cloud Firestore tidak aktif (${probe.diagnosticReason}: ${probe.diagnosticDetail}). Dokumen produksi tidak dapat dibaca.`);
+    }
+
+    let merchantsCount = 0;
+    let categoriesCount = 0;
+    let menuItemsCount = 0;
+    let merchantPartnerRegistrationsCount = 0;
+
+    let driversCount = 0;
+    let ordersCount = 0;
+    let settlementsCount = 0;
+    let testimonialsCount = 0;
+    let driverPartnerRegistrationsCount = 0;
+
+    if (probe.connected && adminDb) {
+      // Query Cloud Firestore directly for authoritative cloud document counts
+      const [
+        mSnap,
+        cSnap,
+        iSnap,
+        mrSnap,
+        dSnap,
+        oSnap,
+        sSnap,
+        tSnap,
+        drSnap
+      ] = await Promise.all([
+        adminDb.collection('merchants').get(),
+        adminDb.collection('categories').get(),
+        adminDb.collection('menuItems').get(),
+        adminDb.collection('partnerRegistrations').where('type', '==', 'MERCHANT').get(),
+        adminDb.collection('drivers').get(),
+        adminDb.collection('orders').get(),
+        adminDb.collection('settlements').get(),
+        adminDb.collection('testimonials').get(),
+        adminDb.collection('partnerRegistrations').where('type', '==', 'DRIVER').get()
+      ]);
+
+      merchantsCount = mSnap.size;
+      categoriesCount = cSnap.size;
+      menuItemsCount = iSnap.size;
+      merchantPartnerRegistrationsCount = mrSnap.size;
+
+      driversCount = dSnap.size;
+      ordersCount = oSnap.size;
+      settlementsCount = sSnap.size;
+      testimonialsCount = tSnap.size;
+      driverPartnerRegistrationsCount = drSnap.size;
+    } else {
+      // Development mode fallback only - clearly labeled
+      merchantsCount = this.data.merchants.length;
+      categoriesCount = this.data.categories.length;
+      menuItemsCount = this.data.menuItems.length;
+      merchantPartnerRegistrationsCount = this.data.partnerRegistrations.filter(r => r.type === 'MERCHANT').length;
+
+      driversCount = this.data.drivers.length;
+      ordersCount = this.data.orders.length;
+      settlementsCount = this.data.settlements.length;
+      testimonialsCount = this.data.testimonials.length;
+      driverPartnerRegistrationsCount = this.data.partnerRegistrations.filter(r => r.type === 'DRIVER').length;
+    }
+
+    return {
+      targetProjectId: probe.projectId || foodConfig.projectId || 'tumpanggo-70479',
+      targetDatabaseId: probe.databaseId || foodConfig.databaseId || '(default)',
+      storageMode: probe.connected ? 'cloud_firestore_verified' : 'development_local_snapshot',
+      liveCloudConnected: probe.connected,
+      isProduction: foodConfig.isProduction,
+      authIdentity: probe.authIdentity,
+      diagnosticReason: probe.diagnosticReason,
+      diagnosticDetail: probe.connected 
+        ? 'Terhubung langsung ke Cloud Firestore. Hitungan dokumen berasal dari data cloud aktual.'
+        : `Server berjalan dalam mode pengembangan lokal (${probe.diagnosticReason}). Hitungan berasal dari snapshot lokal development, BUKAN database produksi.`,
+      remediationStep: probe.remediationStep,
+      toPurge: {
+        merchantsCount,
+        categoriesCount,
+        menuItemsCount,
+        merchantPartnerRegistrationsCount
+      },
+      toPreserve: {
+        driversCount,
+        ordersCount,
+        settlementsCount,
+        testimonialsCount,
+        driverPartnerRegistrationsCount,
+        systemConfigPreserved: true,
+        masterAccountEmail: creds.email,
+        flatDeliveryFee: this.data.systemConfig?.defaultDeliveryFee || 5000,
+        commissionPercent: this.data.systemConfig?.commissionPercent || 10,
+        shopMarketplacePreserved: true
+      }
+    };
+  }
+
+  /**
+   * Dedicated Clean Slate procedure for Merchant & Food Catalog data.
+   * Completely and idempotently purges:
+   * - merchants (and any nested subcollections)
+   * - categories
+   * - menuItems
+   * - merchant partnerRegistrations
+   * Creates a persistent Cloud Firestore backup in /admin_backups/{backupId} prior to purging.
+   * Preserves:
+   * - systemConfig (Master account credentials, delivery fee flat 5000, 10% commission, service fees)
+   * - drivers
+   * - orders (historical records)
+   * - settlements
+   * - testimonials
+   * - shop_* (Tumpang Shop)
+   */
+  public async cleanSlateMerchantCatalog(actorId = 'master-admin'): Promise<{
+    success: boolean;
+    timestamp: string;
+    targetProjectId: string;
+    targetDatabaseId: string;
+    purged: {
+      merchants: number;
+      categories: number;
+      menuItems: number;
+      merchantRegistrations: number;
+    };
+    preserved: {
+      drivers: number;
+      orders: number;
+      settlements: number;
+      testimonials: number;
+      driverRegistrations: number;
+    };
+    cloudBackupCreated: boolean;
+    cloudBackupId?: string;
+    firestorePurgeResult?: {
+      merchantsDeleted: number;
+      categoriesDeleted: number;
+      menuItemsDeleted: number;
+      merchantRegistrationsDeleted: number;
+    };
+    localBackupPath: string;
+  }> {
+    await this.ensureProductionCloudReady('Clean Slate Merchant & Katalog Makanan');
+
+    const localBackupPath = `${FOOD_DB_FILE}.cleanslate_backup_${Date.now()}.json`;
+    try {
+      if (fs.existsSync(FOOD_DB_FILE)) {
+        fs.copyFileSync(FOOD_DB_FILE, localBackupPath);
+      }
+    } catch (e: any) {
+      console.warn('[TumpangFood CleanSlate] Local backup warning:', e.message);
+    }
+
+    const initialMerchantCount = this.data.merchants.length;
+    const initialCategoryCount = this.data.categories.length;
+    const initialMenuItemCount = this.data.menuItems.length;
+    const initialMerchantRegCount = this.data.partnerRegistrations.filter(r => r.type === 'MERCHANT').length;
+
+    let firestorePurgeResult: any = undefined;
+    let cloudBackupCreated = false;
+    const cloudBackupId = `cleanslate_backup_${Date.now()}`;
+    const adminDb = getAdminDb();
+
+    // 1. Persistent Cloud Firestore Backup & Purge if configured
+    if (isFirestoreAdminConfigured() && adminDb) {
+      try {
+        // Read full documents from Firestore before deletion for persistent backup
+        const [merchantsSnap, categoriesSnap, menuItemsSnap, regsSnap] = await Promise.all([
+          adminDb.collection('merchants').get(),
+          adminDb.collection('categories').get(),
+          adminDb.collection('menuItems').get(),
+          adminDb.collection('partnerRegistrations').where('type', '==', 'MERCHANT').get()
+        ]);
+
+        cloudBackupCreated = await createFirestoreBackup(
+          cloudBackupId,
+          {
+            actorId,
+            type: 'PRE_CLEANSLATE_MERCHANT_CATALOG',
+            merchantsCount: merchantsSnap.size,
+            categoriesCount: categoriesSnap.size,
+            menuItemsCount: menuItemsSnap.size,
+            registrationsCount: regsSnap.size,
+            timestamp: new Date().toISOString()
+          },
+          {
+            merchants: merchantsSnap.docs.map(d => ({ id: d.id, ...(d.data() || {}) })),
+            categories: categoriesSnap.docs.map(d => ({ id: d.id, ...(d.data() || {}) })),
+            menuItems: menuItemsSnap.docs.map(d => ({ id: d.id, ...(d.data() || {}) })),
+            partnerRegistrations: regsSnap.docs.map(d => ({ id: d.id, ...(d.data() || {}) }))
+          }
+        );
+
+        if (!cloudBackupCreated) {
+          throw new Error('Gagal membuat cloud backup Firestore sebelum pembersihan. Operasi dibatalkan demi keamanan data.');
+        }
+
+        // Subcollection-aware batch deletion in chunks of <= 400
+        const [mDel, cDel, iDel, rDel] = await Promise.all([
+          safeAdminBatchDelete('merchants'),
+          safeAdminBatchDelete('categories'),
+          safeAdminBatchDelete('menuItems'),
+          safeAdminBatchDeleteQuery('partnerRegistrations', 'type', '==', 'MERCHANT')
+        ]);
+
+        if (!mDel.success || !cDel.success || !iDel.success || !rDel.success) {
+          const failMsg = [mDel.error, cDel.error, iDel.error, rDel.error].filter(Boolean).join('; ');
+          throw new Error(`Sebagian operasi batch delete Firestore gagal: ${failMsg || 'Firestore batch failure'}`);
+        }
+
+        firestorePurgeResult = {
+          merchantsDeleted: mDel.count,
+          categoriesDeleted: cDel.count,
+          menuItemsDeleted: iDel.count,
+          merchantRegistrationsDeleted: rDel.count
+        };
+        console.log('[TumpangFood CleanSlate] Firestore purge completed successfully:', firestorePurgeResult);
+      } catch (fsErr: any) {
+        console.error('[TumpangFood CleanSlate] Error during Firestore backup/purge:', fsErr.message);
+        throw new Error(`[Gagal Clean Slate] ${fsErr.message}`);
+      }
+    }
+
+    // 2. Synchronize in-memory and local disk
+    this.data.merchants = [];
+    this.data.categories = [];
+    this.data.menuItems = [];
+    this.data.partnerRegistrations = this.data.partnerRegistrations.filter(r => r.type !== 'MERCHANT');
+
+    this.save();
+    this.createBackup();
+
+    this.log(
+      actorId,
+      `Clean Slate executed: Purged ${initialMerchantCount} merchants, ${initialCategoryCount} categories, ${initialMenuItemCount} menu items, and ${initialMerchantRegCount} merchant registrations. Cloud backup: ${cloudBackupCreated ? cloudBackupId : 'N/A'}.`,
+      'MASTER_ADMIN'
+    );
+
+    return {
+      success: true,
+      timestamp: new Date().toISOString(),
+      targetProjectId: foodConfig.projectId || 'tumpanggo-70479',
+      targetDatabaseId: foodConfig.databaseId || '(default)',
+      purged: {
+        merchants: firestorePurgeResult ? firestorePurgeResult.merchantsDeleted : initialMerchantCount,
+        categories: firestorePurgeResult ? firestorePurgeResult.categoriesDeleted : initialCategoryCount,
+        menuItems: firestorePurgeResult ? firestorePurgeResult.menuItemsDeleted : initialMenuItemCount,
+        merchantRegistrations: firestorePurgeResult ? firestorePurgeResult.merchantRegistrationsDeleted : initialMerchantRegCount
+      },
+      preserved: {
+        drivers: this.data.drivers.length,
+        orders: this.data.orders.length,
+        settlements: this.data.settlements.length,
+        testimonials: this.data.testimonials.length,
+        driverRegistrations: this.data.partnerRegistrations.filter(r => r.type === 'DRIVER').length
+      },
+      cloudBackupCreated,
+      cloudBackupId: cloudBackupCreated ? cloudBackupId : undefined,
+      firestorePurgeResult,
+      localBackupPath
+    };
+  }
+
+  /**
+   * Restores merchant catalog from a previous persistent cloud backup in /admin_backups/{backupId}.
+   */
+  public async restoreMerchantCatalogFromBackup(actorId = 'master-admin', backupId: string): Promise<{
+    success: boolean;
+    restoredCount: number;
+    summary: Record<string, number>;
+  }> {
+    await this.ensureProductionCloudReady('Pemulihan Katalog Merchant dari Backup');
+    const result = await restoreFirestoreBackup(backupId);
+    if (!result.success) {
+      throw new Error(`Gagal memulihkan backup "${backupId}": ${result.error || 'Unknown error'}`);
+    }
+
+    // Refresh in-memory state from restored Firestore documents
+    await this.init();
+    this.log(actorId, `Restored ${result.restoredCount} catalog records from backup ${backupId}`, 'MASTER_ADMIN');
+    return {
+      success: true,
+      restoredCount: result.restoredCount,
+      summary: result.summary
     };
   }
 
@@ -1021,6 +1348,7 @@ export class FoodDatabase {
   }
 
   public async createCategory(merchantId: string, name: string): Promise<Category> {
+    await this.ensureProductionCloudReady('Penambahan Kategori');
     const existing = this.getCategories(merchantId);
     const orderIndex = existing.length > 0 ? Math.max(...existing.map(e => e.orderIndex)) + 1 : 1;
     const newCat: Category = {
@@ -1046,6 +1374,7 @@ export class FoodDatabase {
   }
 
   public async updateCategory(merchantId: string, id: string, name: string): Promise<Category> {
+    await this.ensureProductionCloudReady('Pembaruan Kategori');
     const cat = this.data.categories.find(c => c.id === id && c.merchantId === merchantId);
     if (!cat) throw new Error('Category not found');
     const prevName = cat.name;
@@ -1066,6 +1395,7 @@ export class FoodDatabase {
   }
 
   public async deleteCategory(merchantId: string, id: string): Promise<boolean> {
+    await this.ensureProductionCloudReady('Penghapusan Kategori');
     const index = this.data.categories.findIndex(c => c.id === id && c.merchantId === merchantId);
     if (index === -1) return false;
 
@@ -1094,6 +1424,7 @@ export class FoodDatabase {
   }
 
   public async createMenuItem(merchantId: string, itemData: Omit<MenuItem, 'id' | 'merchantId' | 'createdAt' | 'updatedAt'>): Promise<MenuItem> {
+    await this.ensureProductionCloudReady('Penambahan Item Menu');
     const newItem: MenuItem = {
       ...itemData,
       id: 'item_' + Math.random().toString(36).substring(2, 9),
@@ -1118,6 +1449,7 @@ export class FoodDatabase {
   }
 
   public async updateMenuItem(merchantId: string, id: string, updates: Partial<MenuItem>): Promise<MenuItem> {
+    await this.ensureProductionCloudReady('Pembaruan Item Menu');
     const index = this.data.menuItems.findIndex(i => i.id === id && i.merchantId === merchantId);
     if (index === -1) throw new Error('Menu item not found');
 
@@ -1144,6 +1476,7 @@ export class FoodDatabase {
   }
 
   public async deleteMenuItem(merchantId: string, id: string): Promise<boolean> {
+    await this.ensureProductionCloudReady('Penghapusan Item Menu');
     const index = this.data.menuItems.findIndex(i => i.id === id && i.merchantId === merchantId);
     if (index === -1) return false;
 
@@ -2240,6 +2573,7 @@ export class FoodDatabase {
   }
 
   public async createPartnerRegistration(regData: Omit<PartnerRegistration, 'id' | 'status' | 'createdAt'>): Promise<PartnerRegistration> {
+    await this.ensureProductionCloudReady('Pendaftaran Pengajuan Mitra');
     const newReg: PartnerRegistration = {
       ...regData,
       id: 'reg_' + Math.random().toString(36).substring(2, 9),
@@ -2263,6 +2597,7 @@ export class FoodDatabase {
   }
 
   public async approvePartnerRegistration(userId: string, id: string): Promise<{ success: boolean; error?: string; registration?: PartnerRegistration }> {
+    await this.ensureProductionCloudReady('Persetujuan Mitra');
     const reg = this.data.partnerRegistrations.find(r => r.id === id);
     if (!reg) return { success: false, error: 'Registration not found' };
     if (reg.status !== 'PENDING') return { success: false, error: 'Registration already processed' };

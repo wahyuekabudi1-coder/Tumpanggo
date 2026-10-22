@@ -126,6 +126,49 @@ adminRouter.post('/settlements/:id/confirm', requireRole(['ADMIN']), async (req:
   }
 });
 
+// --- CLEAN SLATE DATA MERCHANT & KATALOG (Master Admin Only) ---
+// Preview Clean Slate Plan (Read-Only)
+adminRouter.get('/clean-slate-plan', requireRole(['MASTER_ADMIN']), async (req: Request, res: Response) => {
+  try {
+    const plan = await foodDb.getCleanSlatePlan();
+    if (plan.isProduction && !plan.liveCloudConnected) {
+      return res.status(503).json({
+        error: 'Koneksi Cloud Firestore produksi tidak tersedia.',
+        plan
+      });
+    }
+    res.json(plan);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Gagal memuat rencana clean slate' });
+  }
+});
+
+// Execute Clean Slate (Master Admin Only)
+adminRouter.post('/clean-slate-merchants', requireRole(['MASTER_ADMIN']), async (req: Request, res: Response) => {
+  try {
+    const actorId = req.user?.userId || req.user?.email || 'master-admin';
+    const result = await foodDb.cleanSlateMerchantCatalog(actorId);
+    res.json(result);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Gagal mengeksekusi clean slate data merchant' });
+  }
+});
+
+// Restore Clean Slate from Backup (Master Admin Only)
+adminRouter.post('/clean-slate-restore', requireRole(['MASTER_ADMIN']), async (req: Request, res: Response) => {
+  try {
+    const actorId = req.user?.userId || req.user?.email || 'master-admin';
+    const { backupId } = req.body;
+    if (!backupId || typeof backupId !== 'string') {
+      return res.status(400).json({ error: 'Parameter backupId wajib diisi.' });
+    }
+    const result = await foodDb.restoreMerchantCatalogFromBackup(actorId, backupId.trim());
+    res.json(result);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Gagal memulihkan katalog merchant dari backup' });
+  }
+});
+
 // --- AUDIT LOGS (Admin Only) ---
 adminRouter.get('/logs', requireRole(['ADMIN']), (req: Request, res: Response) => {
   res.json(foodDb.getLogs());
