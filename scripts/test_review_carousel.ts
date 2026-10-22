@@ -1,16 +1,16 @@
 /**
- * Test Suite: Verifikasi Final Section Review & Testimoni TumpangGo
+ * Test Suite: Verifikasi Section Review & Testimoni TumpangGo (Clean State & Carousel Verification)
  * 
  * Memverifikasi:
- * 1. Terdapat tepat 10 item review dengan komposisi 6 Merchant dan 4 Pelanggan
- * 2. Slider memiliki tepat 5 slide dengan masing-masing 2 review per slide
- * 3. Isi review singkat, natural, dan sesuai peran Merchant dan Pelanggan
- * 4. Slider berpindah otomatis setiap 5 detik secara siklis (1 -> 2 -> 3 -> 4 -> 5 -> 1)
- * 5. Urutan review diacak (Fisher-Yates) saat inisialisasi awal tanpa re-shuffle di setiap slide
- * 6. Tidak ada ulasan ganda dalam satu siklus 5 slide (seluruh 10 ulasan ditampilkan sebelum berulang)
- * 7. Indikator 5 titik bulat kecil di posisi tengah horizontal tanpa teks atau angka
- * 8. Dukungan gestur swipe dan reset timer interval saat navigasi manual
- * 9. Label identitas konsisten dan data contoh ditandai isExample: true
+ * 1. Tidak ada review dummy hardcoded yang tampil ke pengguna (DEFAULT_DEMO_REVIEWS = [])
+ * 2. Empty state rapi dan profesional tampil ketika database review masih kosong
+ * 3. Alur penulisan review baru via form tetap tersedia
+ * 4. Logika carousel bekerja optimal saat data review nyata terisi:
+ *    - Pembagian 2 review per slide
+ *    - Indikator titik slide sesuai jumlah slide
+ *    - Transisi otomatis setiap 5 detik
+ *    - Pengacakan Fisher-Yates shuffle tanpa duplikasi dalam 1 siklus
+ *    - Dukungan sentuh (touch swipe gestures) dan reset timer pada navigasi manual
  */
 
 import fs from 'fs';
@@ -32,79 +32,53 @@ function assert(condition: boolean, title: string, detail: string = '') {
 
 async function runTests() {
   console.log('======================================================================');
-  console.log('🚀 PENGUJIAN FINAL SECTION REVIEW TUMPANGGO');
+  console.log('🚀 PENGUJIAN SECTION REVIEW TUMPANGGO (CLEAN DATA & CAROUSEL WORKFLOW)');
   console.log('======================================================================\n');
 
-  // --- 1. Tepat 10 Item Review: 6 Merchant & 4 Pelanggan ---
-  console.log('📦 1. UJI JUMLAH TOTAL & KOMPOSISI REVIEW (10 ITEM: 6 MERCHANT & 4 PELANGGAN)');
+  // --- 1. Uji Lingkungan Bersih Tanpa Data Dummy Hardcoded ---
+  console.log('📦 1. UJI ZERO DUMMY DATA PADA KOMPONEN REVIEW');
   assert(
-    DEFAULT_DEMO_REVIEWS.length === 10,
-    'Terdapat tepat 10 item review',
-    `Ditemukan: ${DEFAULT_DEMO_REVIEWS.length} review`
+    DEFAULT_DEMO_REVIEWS.length === 0,
+    'DEFAULT_DEMO_REVIEWS kosong (tidak menampilkan review dummy fiktif)',
+    `Jumlah: ${DEFAULT_DEMO_REVIEWS.length} item`
   );
 
-  const merchantReviews = DEFAULT_DEMO_REVIEWS.filter(r => r.role === 'Merchant');
-  const pelangganReviews = DEFAULT_DEMO_REVIEWS.filter(r => r.role === 'Pelanggan');
+  // --- 2. Uji Fixture Pengujian Lokal untuk Algoritma Carousel (10 Item: 6 Merchant & 4 Pelanggan) ---
+  console.log('\n📦 2. UJI LOGIKA PEMBAGIAN SLIDE (FIXTURE PENGUJIAN 10 ITEM @ 2 PER SLIDE)');
+  const localTestFixture: ReviewItem[] = [
+    { id: 't1', name: 'Mitra A', role: 'Merchant', content: 'Ulasan mitra pertama.', rating: 5 },
+    { id: 't2', name: 'Mitra B', role: 'Merchant', content: 'Ulasan mitra kedua.', rating: 5 },
+    { id: 't3', name: 'Mitra C', role: 'Merchant', content: 'Ulasan mitra ketiga.', rating: 5 },
+    { id: 't4', name: 'Mitra D', role: 'Merchant', content: 'Ulasan mitra keempat.', rating: 5 },
+    { id: 't5', name: 'Mitra E', role: 'Merchant', content: 'Ulasan mitra kelima.', rating: 5 },
+    { id: 't6', name: 'Mitra F', role: 'Merchant', content: 'Ulasan mitra keenam.', rating: 5 },
+    { id: 't7', name: 'Pelanggan G', role: 'Pelanggan', content: 'Ulasan pelanggan pertama.', rating: 5 },
+    { id: 't8', name: 'Pelanggan H', role: 'Pelanggan', content: 'Ulasan pelanggan kedua.', rating: 5 },
+    { id: 't9', name: 'Pelanggan I', role: 'Pelanggan', content: 'Ulasan pelanggan ketiga.', rating: 5 },
+    { id: 't10', name: 'Pelanggan J', role: 'Pelanggan', content: 'Ulasan pelanggan keempat.', rating: 5 }
+  ];
 
-  assert(
-    merchantReviews.length === 6,
-    'Komposisi mitra Merchant tepat 6 review',
-    `Jumlah: ${merchantReviews.length}`
-  );
-  assert(
-    pelangganReviews.length === 4,
-    'Komposisi pembeli Pelanggan tepat 4 review',
-    `Jumlah: ${pelangganReviews.length}`
-  );
+  const merchantCount = localTestFixture.filter(r => r.role === 'Merchant').length;
+  const pelangganCount = localTestFixture.filter(r => r.role === 'Pelanggan').length;
+  assert(merchantCount === 6, 'Komposisi pengujian merchant tepat 6', `Jumlah: ${merchantCount}`);
+  assert(pelangganCount === 4, 'Komposisi pengujian pelanggan tepat 4', `Jumlah: ${pelangganCount}`);
 
-  // --- 2. Pembagian Tepat 5 Slide (Masing-masing 2 Review per Slide) ---
-  console.log('\n📦 2. UJI PEMBAGIAN SLIDE (5 SLIDE @ 2 REVIEW)');
-  const slide1 = DEFAULT_DEMO_REVIEWS.slice(0, 2);
-  const slide2 = DEFAULT_DEMO_REVIEWS.slice(2, 4);
-  const slide3 = DEFAULT_DEMO_REVIEWS.slice(4, 6);
-  const slide4 = DEFAULT_DEMO_REVIEWS.slice(6, 8);
-  const slide5 = DEFAULT_DEMO_REVIEWS.slice(8, 10);
-
-  assert(slide1.length === 2, 'Slide 1 berisi tepat 2 review', `Jumlah: ${slide1.length}`);
-  assert(slide2.length === 2, 'Slide 2 berisi tepat 2 review', `Jumlah: ${slide2.length}`);
-  assert(slide3.length === 2, 'Slide 3 berisi tepat 2 review', `Jumlah: ${slide3.length}`);
-  assert(slide4.length === 2, 'Slide 4 berisi tepat 2 review', `Jumlah: ${slide4.length}`);
-  assert(slide5.length === 2, 'Slide 5 berisi tepat 2 review', `Jumlah: ${slide5.length}`);
-
-  // --- 3. Konsistensi Format Nama, Identitas & Isi Review Natural ---
-  console.log('\n📦 3. UJI FORMAT NAMA, RATING, DAN NATURALITAS KOMENTAR');
-  let allRatingsValid = true;
-  let allContentsValid = true;
-  let allRolesValid = true;
-
-  for (const r of DEFAULT_DEMO_REVIEWS) {
-    if (r.role !== 'Merchant' && r.role !== 'Pelanggan') allRolesValid = false;
-    if (typeof r.rating !== 'number' || r.rating !== 5) allRatingsValid = false;
-    if (!r.content || r.content.trim().length < 10) allContentsValid = false;
+  // Hitung slide dengan 2 review per slide
+  const slides: ReviewItem[][] = [];
+  for (let i = 0; i < localTestFixture.length; i += 2) {
+    slides.push(localTestFixture.slice(i, i + 2));
   }
 
-  assert(allRolesValid, 'Label identitas hanya Merchant atau Pelanggan');
-  assert(allRatingsValid, 'Komponen rating bintang 5 valid untuk seluruh 10 review');
-  assert(allContentsValid, 'Seluruh isi komentar singkat, padat, dan natural');
+  assert(slides.length === 5, '10 review terbagi menjadi tepat 5 slide', `Jumlah slide: ${slides.length}`);
+  assert(slides.every(s => s.length === 2), 'Setiap slide berisi tepat 2 review');
 
-  // Verifikasi contoh gaya penulisan Merchant & Pelanggan
-  const andi = DEFAULT_DEMO_REVIEWS.find(r => r.name === 'Andi Saputra');
-  const siti = DEFAULT_DEMO_REVIEWS.find(r => r.name === 'Siti Aminah');
-  const budi = DEFAULT_DEMO_REVIEWS.find(r => r.name === 'Budi Santoso');
-  const joko = DEFAULT_DEMO_REVIEWS.find(r => r.name.includes('Joko'));
-
-  assert(Boolean(andi && andi.role === 'Merchant'), 'Andi Saputra berlabel Merchant');
-  assert(Boolean(siti && siti.role === 'Pelanggan'), 'Siti Aminah berlabel Pelanggan');
-  assert(Boolean(budi && budi.role === 'Pelanggan'), 'Budi Santoso berlabel Pelanggan');
-  assert(Boolean(joko && joko.role === 'Merchant'), 'Pak Joko berlabel Merchant');
-
-  // --- 4. Uji Pengacakan (Fisher-Yates Shuffle) ---
-  console.log('\n📦 4. UJI PENGACAKAN REVIEW (SHUFFLE)');
-  const originalIds = DEFAULT_DEMO_REVIEWS.map(r => r.id).join(',');
+  // --- 3. Uji Pengacakan (Fisher-Yates Shuffle) & Bebas Duplikasi ---
+  console.log('\n📦 3. UJI PENGACAKAN REVIEW (SHUFFLE) & BEBAS DUPLIKASI');
+  const originalIds = localTestFixture.map(r => r.id).join(',');
   let differentOrderObserved = false;
 
   for (let trial = 0; trial < 10; trial++) {
-    const shuffled = shuffleReviews(DEFAULT_DEMO_REVIEWS);
+    const shuffled = shuffleReviews(localTestFixture);
     const shuffledIds = shuffled.map(r => r.id).join(',');
     if (shuffledIds !== originalIds) {
       differentOrderObserved = true;
@@ -114,62 +88,36 @@ async function runTests() {
 
   assert(differentOrderObserved, 'Pengacakan urutan review berhasil menghasilkan permutasi dinamis');
 
-  // --- 5. Uji Bebas Duplikasi dalam 1 Siklus 5 Slide ---
-  console.log('\n📦 5. UJI BEBAS DUPLIKASI DALAM SATU SIKLUS (5 SLIDE)');
-  const testShuffled = shuffleReviews(DEFAULT_DEMO_REVIEWS);
+  const testShuffled = shuffleReviews(localTestFixture);
   const setOfIds = new Set(testShuffled.map(r => r.id));
+  assert(setOfIds.size === 10, 'Semua review memiliki ID unik dalam hasil pengacakan (tanpa duplikasi)');
 
-  assert(setOfIds.size === 10, 'Semua 10 review memiliki ID unik dalam hasil pengacakan');
-
-  const s1 = testShuffled.slice(0, 2);
-  const s2 = testShuffled.slice(2, 4);
-  const s3 = testShuffled.slice(4, 6);
-  const s4 = testShuffled.slice(6, 8);
-  const s5 = testShuffled.slice(8, 10);
-
-  const combinedIds = [
-    ...s1.map(r => r.id),
-    ...s2.map(r => r.id),
-    ...s3.map(r => r.id),
-    ...s4.map(r => r.id),
-    ...s5.map(r => r.id)
-  ];
-  const duplicates = combinedIds.filter((id, index) => combinedIds.indexOf(id) !== index);
-
-  assert(duplicates.length === 0, 'Tidak ada review yang muncul dua kali dalam satu siklus 5 slide');
-  assert(combinedIds.length === 10, 'Seluruh 10 review ditampilkan sebelum siklus berulang');
-
-  // --- 6. Uji Penanda Data Contoh / Demo ---
-  console.log('\n📦 6. UJI PENANDA DATA CONTOH (DEMO)');
-  const allMarkedAsExample = DEFAULT_DEMO_REVIEWS.every(r => r.isExample === true);
-  assert(allMarkedAsExample, 'Data contoh ditandai dengan isExample: true agar tidak disalahartikan sebagai ulasan riil');
-
-  // --- 7. Static Code Audit: UserTestimonialsSection.tsx ---
-  console.log('\n📦 7. AUDIT KODE KOMPONEN, INDIKATOR, & FITUR SLIDER');
+  // --- 4. Static Code Audit: UserTestimonialsSection.tsx ---
+  console.log('\n📦 4. AUDIT KODE KOMPONEN, EMPTY STATE, INDIKATOR, & FITUR SLIDER');
   const compPath = path.resolve(process.cwd(), 'src/components/UserTestimonialsSection.tsx');
   assert(fs.existsSync(compPath), 'File UserTestimonialsSection.tsx tersedia');
 
   const compCode = fs.readFileSync(compPath, 'utf-8');
 
+  // Empty state present
+  const hasEmptyState = compCode.includes('Belum Ada Ulasan yang Dipublikasikan');
+  assert(hasEmptyState, 'Tersedia tampilan empty state yang rapi saat belum ada ulasan publik');
+
+  // Form submission button present
+  const hasWriteReviewBtn = compCode.includes('+ Tulis Review');
+  assert(hasWriteReviewBtn, 'Tersedia tombol aksi untuk menulis review baru');
+
   // Slider timing 5 detik
   const has5sTimer = compCode.includes('5000');
   assert(has5sTimer, 'Slider otomatis menggunakan jeda waktu 5000 ms (5 detik)');
 
-  // Looping cyclis 5 slide: (prev + 1) % 5
-  const hasCyclicSlide = compCode.includes('(prev + 1) % 5');
-  assert(hasCyclicSlide, 'Slider berpindah secara siklis dan berulang dari slide 1 ke 2 ke 3 ke 4 ke 5 lalu kembali ke 1');
+  // Looping cyclis dinamis: (prev + 1) % totalSlides
+  const hasCyclicSlide = compCode.includes('(prev + 1) % totalSlides');
+  assert(hasCyclicSlide, 'Slider berpindah secara siklis dan dinamis berulang kembali ke slide 1');
 
-  // Indikator 5 titik
-  const has5Dots = compCode.includes('[0, 1, 2, 3, 4].map');
-  assert(has5Dots, 'Tersedia tepat 5 indikator titik (dots) untuk menunjukkan slide aktif');
-
-  // Tidak ada teks atau angka slide ("Slide X dari Y" atau sejenisnya)
-  const hasNoSlideText = !compCode.includes('Slide {activeSlide + 1}') && !compCode.includes('Slide 1 dari');
-  assert(hasNoSlideText, 'Indikator bersih tanpa teks atau angka slide');
-
-  // Indikator di posisi tengah horizontal
-  const hasCenteredDots = compCode.includes('justify-center');
-  assert(hasCenteredDots, 'Indikator 5 titik diposisikan di tengah horizontal (justify-center)');
+  // Indikator titik dinamis
+  const hasDynamicDots = compCode.includes('Array.from({ length: totalSlides })');
+  assert(hasDynamicDots, 'Indikator titik (dots) dirender dinamis sesuai jumlah slide aktif');
 
   // Touch gestures (swipe)
   const hasTouchSupport = compCode.includes('onTouchStart') && compCode.includes('onTouchEnd');

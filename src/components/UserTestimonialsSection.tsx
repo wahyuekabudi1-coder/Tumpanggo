@@ -40,94 +40,11 @@ export interface ReviewItem {
  * Sesuai ketentuan, data ini ditandai sebagai contoh/demo agar tidak dianggap
  * sebagai testimoni pelanggan sungguhan saat database ulasan belum terisi.
  */
-export const DEFAULT_DEMO_REVIEWS: ReviewItem[] = [
-  // 6 Review Mitra Merchant
-  {
-    id: 'demo-rev-1',
-    name: 'Andi Saputra',
-    role: 'Merchant',
-    content: 'Sekarang pesanan pelanggan lebih mudah kami pantau.',
-    rating: 5,
-    isExample: true
-  },
-  {
-    id: 'demo-rev-2',
-    name: 'Rina Wulandari',
-    role: 'Merchant',
-    content: 'Membantu usaha kami dikenal pelanggan di sekitar Tumpang.',
-    rating: 5,
-    isExample: true
-  },
-  {
-    id: 'demo-rev-3',
-    name: 'Hendra Pratama',
-    role: 'Merchant',
-    content: 'Pengelolaan pesanan jadi lebih praktis.',
-    rating: 5,
-    isExample: true
-  },
-  {
-    id: 'demo-rev-4',
-    name: 'Agus Setiawan',
-    role: 'Merchant',
-    content: 'Pelanggan lebih mudah menemukan menu yang kami jual.',
-    rating: 5,
-    isExample: true
-  },
-  {
-    id: 'demo-rev-5',
-    name: 'Pak Joko',
-    role: 'Merchant',
-    content: 'Cukup membantu kami menerima pesanan secara digital.',
-    rating: 5,
-    isExample: true
-  },
-  {
-    id: 'demo-rev-6',
-    name: 'Bu Sri Mulyani',
-    role: 'Merchant',
-    content: 'Semoga makin banyak warga yang mengenal usaha lokal.',
-    rating: 5,
-    isExample: true
-  },
-  // 4 Review Pelanggan
-  {
-    id: 'demo-rev-7',
-    name: 'Siti Aminah',
-    role: 'Pelanggan',
-    content: 'Praktis untuk mencari makanan di sekitar rumah.',
-    rating: 5,
-    isExample: true
-  },
-  {
-    id: 'demo-rev-8',
-    name: 'Budi Santoso',
-    role: 'Pelanggan',
-    content: 'Bisa menemukan pilihan makanan lokal dengan mudah.',
-    rating: 5,
-    isExample: true
-  },
-  {
-    id: 'demo-rev-9',
-    name: 'Dwi Kurniawan',
-    role: 'Pelanggan',
-    content: 'Proses pemesanan terasa sederhana.',
-    rating: 5,
-    isExample: true
-  },
-  {
-    id: 'demo-rev-10',
-    name: 'Maya Kusuma',
-    role: 'Pelanggan',
-    content: 'Mendukung usaha makanan di sekitar Tumpang jadi lebih mudah.',
-    rating: 5,
-    isExample: true
-  }
-];
+export const DEFAULT_DEMO_REVIEWS: ReviewItem[] = [];
 
 /**
  * Fisher-Yates Shuffle untuk mengacak urutan ulasan
- * Dilakukan 1 kali pada saat inisialisasi agar susunan slide bervariasi tanpa berkedip.
+ * Dilakukan 1 kali pada saat inisialisasi / data dimuat agar susunan slide bervariasi tanpa berkedip.
  */
 export function shuffleReviews(items: ReviewItem[]): ReviewItem[] {
   const shuffled = [...items];
@@ -145,8 +62,8 @@ interface UserTestimonialsSectionProps {
 type SubmissionRole = 'merchant' | 'pelanggan' | null;
 
 export default function UserTestimonialsSection({ className = '' }: UserTestimonialsSectionProps) {
-  // Inisialisasi 10 review teracak pada saat inisialisasi / mount (sekali saja)
-  const [reviewsList, setReviewsList] = useState<ReviewItem[]>(() => shuffleReviews(DEFAULT_DEMO_REVIEWS));
+  // Inisialisasi daftar review kosong (lingkungan bersih tanpa data dummy)
+  const [reviewsList, setReviewsList] = useState<ReviewItem[]>([]);
   const [activeSlide, setActiveSlide] = useState<number>(0);
   const [isPaused, setIsPaused] = useState<boolean>(false);
   const sliderIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -167,7 +84,7 @@ export default function UserTestimonialsSection({ className = '' }: UserTestimon
   const [submitting, setSubmitting] = useState<boolean>(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
 
-  // Cek apakah ada ulasan asli yang dipublikasikan dari backend
+  // Ambil ulasan asli yang dipublikasikan dari backend
   useEffect(() => {
     let isMounted = true;
     const fetchPublishedReviews = async () => {
@@ -175,9 +92,8 @@ export default function UserTestimonialsSection({ className = '' }: UserTestimon
         const res = await fetch('/api/reviews');
         if (res.ok) {
           const data = await res.json();
-          if (Array.isArray(data) && data.length >= 10 && isMounted) {
-            // Gunakan 10 review terpublikasi asli dari database jika tersedia minimal 10
-            const mapped: ReviewItem[] = data.slice(0, 10).map((t: any) => ({
+          if (Array.isArray(data) && isMounted) {
+            const mapped: ReviewItem[] = data.map((t: any) => ({
               id: t.id || `rev-${Math.random()}`,
               name: t.userName || 'Pengguna TumpangGo',
               role: (t.category === 'merchant' || t.category === 'umkm') ? 'Merchant' : 'Pelanggan',
@@ -189,7 +105,7 @@ export default function UserTestimonialsSection({ className = '' }: UserTestimon
           }
         }
       } catch {
-        // Fallback tetap menggunakan 10 demo reviews yang sudah teracak
+        // Jangan gunakan data dummy saat terjadi kendala jaringan
       }
     };
 
@@ -199,18 +115,24 @@ export default function UserTestimonialsSection({ className = '' }: UserTestimon
     };
   }, []);
 
-  // Pembagian 10 review menjadi tepat 5 slide (2 review per slide)
+  // Pembagian review menjadi slide (masing-masing 2 review per slide)
   const slides = useMemo(() => {
-    // Pastikan tepat 10 item
-    const exact10 = reviewsList.slice(0, 10);
-    return [
-      exact10.slice(0, 2), // Slide 1 (Item 0, 1)
-      exact10.slice(2, 4), // Slide 2 (Item 2, 3)
-      exact10.slice(4, 6), // Slide 3 (Item 4, 5)
-      exact10.slice(6, 8), // Slide 4 (Item 6, 7)
-      exact10.slice(8, 10) // Slide 5 (Item 8, 9)
-    ];
+    if (reviewsList.length === 0) return [];
+    const result: ReviewItem[][] = [];
+    for (let i = 0; i < reviewsList.length; i += 2) {
+      result.push(reviewsList.slice(i, i + 2));
+    }
+    return result;
   }, [reviewsList]);
+
+  const totalSlides = slides.length;
+
+  // Pastikan activeSlide tidak melampaui totalSlides
+  useEffect(() => {
+    if (totalSlides > 0 && activeSlide >= totalSlides) {
+      setActiveSlide(0);
+    }
+  }, [totalSlides, activeSlide]);
 
   // Helper untuk me-reset timer auto slide 5 detik ketika pengguna berinteraksi manual
   const resetAutoSlideTimer = () => {
@@ -218,16 +140,16 @@ export default function UserTestimonialsSection({ className = '' }: UserTestimon
       clearInterval(sliderIntervalRef.current);
       sliderIntervalRef.current = null;
     }
-    if (formStep === 'idle' && !isPaused) {
+    if (formStep === 'idle' && !isPaused && totalSlides > 1) {
       sliderIntervalRef.current = setInterval(() => {
-        setActiveSlide((prev) => (prev + 1) % 5);
+        setActiveSlide((prev) => (prev + 1) % totalSlides);
       }, 5000);
     }
   };
 
-  // Otomatis berpindah slide setiap 5 detik (slide 1 -> 2 -> 3 -> 4 -> 5 -> 1 -> ...)
+  // Otomatis berpindah slide setiap 5 detik (slide 1 -> 2 -> ... -> 1) jika ada lebih dari 1 slide
   useEffect(() => {
-    if (formStep !== 'idle' || isPaused) {
+    if (formStep !== 'idle' || isPaused || totalSlides <= 1) {
       if (sliderIntervalRef.current) {
         clearInterval(sliderIntervalRef.current);
         sliderIntervalRef.current = null;
@@ -236,7 +158,7 @@ export default function UserTestimonialsSection({ className = '' }: UserTestimon
     }
 
     sliderIntervalRef.current = setInterval(() => {
-      setActiveSlide((prev) => (prev + 1) % 5);
+      setActiveSlide((prev) => (prev + 1) % totalSlides);
     }, 5000);
 
     return () => {
@@ -245,21 +167,23 @@ export default function UserTestimonialsSection({ className = '' }: UserTestimon
         sliderIntervalRef.current = null;
       }
     };
-  }, [formStep, isPaused]);
+  }, [formStep, isPaused, totalSlides]);
 
   // Handler navigasi slide manual (reset timer 5s agar tidak langsung terloncat)
   const handleNextSlide = () => {
-    setActiveSlide((prev) => (prev + 1) % 5);
+    if (totalSlides <= 1) return;
+    setActiveSlide((prev) => (prev + 1) % totalSlides);
     resetAutoSlideTimer();
   };
 
   const handlePrevSlide = () => {
-    setActiveSlide((prev) => (prev === 0 ? 4 : prev - 1));
+    if (totalSlides <= 1) return;
+    setActiveSlide((prev) => (prev === 0 ? totalSlides - 1 : prev - 1));
     resetAutoSlideTimer();
   };
 
   const handleGoToSlide = (index: number) => {
-    if (index >= 0 && index < 5) {
+    if (index >= 0 && index < totalSlides) {
       setActiveSlide(index);
       resetAutoSlideTimer();
     }
@@ -632,7 +556,7 @@ export default function UserTestimonialsSection({ className = '' }: UserTestimon
       )}
 
       {/* =========================================================================
-          VIEW UTAMA: CAROUSEL 5 SLIDE (MASING-MASING 2 REVIEW, TOTAL 10 REVIEW)
+          VIEW UTAMA: CAROUSEL SLIDE REVIEW (2 REVIEW PER SLIDE)
           ========================================================================= */}
       {formStep === 'idle' && (
         <>
@@ -653,25 +577,29 @@ export default function UserTestimonialsSection({ className = '' }: UserTestimon
 
             {/* Slider Navigation Buttons & "+ Tulis Review" */}
             <div className="flex items-center gap-1.5 shrink-0">
-              <button
-                type="button"
-                onClick={handlePrevSlide}
-                aria-label="Slide sebelumnya"
-                className="w-7 h-7 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-600 flex items-center justify-center transition-colors cursor-pointer"
-                title="Slide sebelumnya"
-              >
-                <ChevronLeft className="w-4 h-4" />
-              </button>
+              {totalSlides > 1 && (
+                <>
+                  <button
+                    type="button"
+                    onClick={handlePrevSlide}
+                    aria-label="Slide sebelumnya"
+                    className="w-7 h-7 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-600 flex items-center justify-center transition-colors cursor-pointer"
+                    title="Slide sebelumnya"
+                  >
+                    <ChevronLeft className="w-4 h-4" />
+                  </button>
 
-              <button
-                type="button"
-                onClick={handleNextSlide}
-                aria-label="Slide berikutnya"
-                className="w-7 h-7 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-600 flex items-center justify-center transition-colors cursor-pointer"
-                title="Slide berikutnya"
-              >
-                <ChevronRight className="w-4 h-4" />
-              </button>
+                  <button
+                    type="button"
+                    onClick={handleNextSlide}
+                    aria-label="Slide berikutnya"
+                    className="w-7 h-7 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-600 flex items-center justify-center transition-colors cursor-pointer"
+                    title="Slide berikutnya"
+                  >
+                    <ChevronRight className="w-4 h-4" />
+                  </button>
+                </>
+              )}
 
               <button
                 type="button"
@@ -684,116 +612,145 @@ export default function UserTestimonialsSection({ className = '' }: UserTestimon
             </div>
           </div>
 
-          {/* CAROUSEL CONTAINER (PAUSE ON HOVER + TOUCH SWIPE GESTURES) */}
-          <div 
-            className="relative overflow-hidden w-full select-none"
-            onMouseEnter={() => setIsPaused(true)}
-            onMouseLeave={() => setIsPaused(false)}
-            onTouchStart={handleTouchStart}
-            onTouchMove={handleTouchMove}
-            onTouchEnd={handleTouchEnd}
-          >
-            {/* Sliding Track: exactly 5 slides, each width 100% */}
-            <div 
-              className="flex w-full transition-transform duration-500 ease-in-out"
-              style={{ transform: `translateX(-${activeSlide * 100}%)` }}
-            >
-              {slides.map((slideItems, slideIdx) => (
+          {/* State Kosong (Empty State) jika belum ada review yang disetujui / dipublikasikan */}
+          {reviewsList.length === 0 ? (
+            <div className="bg-slate-50/70 border border-dashed border-slate-200 rounded-2xl p-6 sm:p-8 text-center flex flex-col items-center justify-center gap-3 animate-fadeIn my-1">
+              <div className="w-12 h-12 rounded-2xl bg-emerald-50 border border-emerald-100 text-emerald-800 flex items-center justify-center">
+                <MessageSquarePlus className="w-6 h-6 text-emerald-700" />
+              </div>
+              <div className="max-w-md">
+                <h3 className="font-display font-extrabold text-sm sm:text-base text-slate-800">
+                  Belum Ada Ulasan yang Dipublikasikan
+                </h3>
+                <p className="text-xs text-slate-500 mt-1 leading-relaxed">
+                  Belum ada ulasan yang dipublikasikan. Jadilah yang pertama membagikan pengalaman Anda bersama TumpangGo!
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setFormStep('role-selection')}
+                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-emerald-800 hover:bg-emerald-900 text-white font-bold text-xs transition-all shadow-2xs cursor-pointer active:scale-95"
+              >
+                <MessageSquarePlus className="w-3.5 h-3.5" />
+                <span>+ Tulis Ulasan Sekarang</span>
+              </button>
+            </div>
+          ) : (
+            <>
+              {/* CAROUSEL CONTAINER (PAUSE ON HOVER + TOUCH SWIPE GESTURES) */}
+              <div 
+                className="relative overflow-hidden w-full select-none"
+                onMouseEnter={() => setIsPaused(true)}
+                onMouseLeave={() => setIsPaused(false)}
+                onTouchStart={handleTouchStart}
+                onTouchMove={handleTouchMove}
+                onTouchEnd={handleTouchEnd}
+              >
+                {/* Sliding Track */}
                 <div 
-                  key={`slide-${slideIdx}`}
-                  className="w-full min-w-full flex-shrink-0 grid grid-cols-1 sm:grid-cols-2 gap-3.5 sm:gap-4.5"
+                  className="flex w-full transition-transform duration-500 ease-in-out"
+                  style={{ transform: `translateX(-${activeSlide * 100}%)` }}
                 >
-                  {slideItems.map((review) => {
-                    const isMerchant = review.role === 'Merchant';
+                  {slides.map((slideItems, slideIdx) => (
+                    <div 
+                      key={`slide-${slideIdx}`}
+                      className="w-full min-w-full flex-shrink-0 grid grid-cols-1 sm:grid-cols-2 gap-3.5 sm:gap-4.5"
+                    >
+                      {slideItems.map((review) => {
+                        const isMerchant = review.role === 'Merchant';
 
-                    return (
-                      <article
-                        key={review.id}
-                        className="bg-white border border-slate-200/90 hover:border-slate-300 rounded-2xl p-4 sm:p-5 transition-all shadow-2xs hover:shadow-xs flex flex-col justify-between gap-3 h-full"
-                      >
-                        <div>
-                          {/* Nama Pemberi Review & Identitas Peran */}
-                          <div className="flex items-center justify-between gap-2 mb-2.5">
-                            <div className="flex items-center gap-2 flex-wrap min-w-0">
-                              <span className="font-extrabold text-xs sm:text-sm text-slate-900 truncate">
-                                {review.name}
-                              </span>
-                              <span className="text-slate-300 font-bold text-xs">·</span>
-                              <span className={`inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-md ${
-                                isMerchant
-                                  ? 'bg-amber-100 text-amber-900 border border-amber-200/80'
-                                  : 'bg-emerald-100 text-emerald-900 border border-emerald-200/80'
-                              }`}>
-                                {isMerchant ? (
-                                  <Store className="w-3 h-3 text-amber-700" />
-                                ) : (
-                                  <Users className="w-3 h-3 text-emerald-700" />
-                                )}
-                                <span>{review.role}</span>
-                              </span>
+                        return (
+                          <article
+                            key={review.id}
+                            className="bg-white border border-slate-200/90 hover:border-slate-300 rounded-2xl p-4 sm:p-5 transition-all shadow-2xs hover:shadow-xs flex flex-col justify-between gap-3 h-full"
+                          >
+                            <div>
+                              {/* Nama Pemberi Review & Identitas Peran */}
+                              <div className="flex items-center justify-between gap-2 mb-2.5">
+                                <div className="flex items-center gap-2 flex-wrap min-w-0">
+                                  <span className="font-extrabold text-xs sm:text-sm text-slate-900 truncate">
+                                    {review.name}
+                                  </span>
+                                  <span className="text-slate-300 font-bold text-xs">·</span>
+                                  <span className={`inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-md ${
+                                    isMerchant
+                                      ? 'bg-amber-100 text-amber-900 border border-amber-200/80'
+                                      : 'bg-emerald-100 text-emerald-900 border border-emerald-200/80'
+                                  }`}>
+                                    {isMerchant ? (
+                                      <Store className="w-3 h-3 text-amber-700" />
+                                    ) : (
+                                      <Users className="w-3 h-3 text-emerald-700" />
+                                    )}
+                                    <span>{review.role}</span>
+                                  </span>
+                                </div>
+
+                                {/* 5-Star Rating */}
+                                <div className="flex items-center gap-0.5 shrink-0" aria-label={`Rating ${review.rating} dari 5 bintang`}>
+                                  {Array.from({ length: 5 }).map((_, sIdx) => (
+                                    <Star
+                                      key={sIdx}
+                                      className={`w-3.5 h-3.5 ${
+                                        sIdx < review.rating
+                                          ? 'text-amber-500 fill-amber-400'
+                                          : 'text-slate-200'
+                                      }`}
+                                    />
+                                  ))}
+                                </div>
+                              </div>
+
+                              {/* Isi Review Singkat dan Natural */}
+                              <p className="text-xs sm:text-[13px] text-slate-700 leading-relaxed font-normal">
+                                "{review.content}"
+                              </p>
                             </div>
 
-                            {/* 5-Star Rating */}
-                            <div className="flex items-center gap-0.5 shrink-0" aria-label={`Rating ${review.rating} dari 5 bintang`}>
-                              {Array.from({ length: 5 }).map((_, sIdx) => (
-                                <Star
-                                  key={sIdx}
-                                  className={`w-3.5 h-3.5 ${
-                                    sIdx < review.rating
-                                      ? 'text-amber-500 fill-amber-400'
-                                      : 'text-slate-200'
-                                  }`}
-                                />
-                              ))}
+                            {/* Footer Card */}
+                            <div className="pt-2.5 border-t border-slate-100 flex items-center justify-between text-[11px] text-slate-400">
+                              <span className="flex items-center gap-1 text-emerald-700 font-medium">
+                                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                                {review.isExample ? 'Contoh Ulasan Komunitas' : 'Ulasan Terverifikasi'}
+                              </span>
+                              <span>Kecamatan Tumpang</span>
                             </div>
-                          </div>
-
-                          {/* Isi Review Singkat dan Natural */}
-                          <p className="text-xs sm:text-[13px] text-slate-700 leading-relaxed font-normal">
-                            "{review.content}"
-                          </p>
-                        </div>
-
-                        {/* Footer Card */}
-                        <div className="pt-2.5 border-t border-slate-100 flex items-center justify-between text-[11px] text-slate-400">
-                          <span className="flex items-center gap-1 text-emerald-700 font-medium">
-                            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                            {review.isExample ? 'Contoh Ulasan Komunitas' : 'Ulasan Terverifikasi'}
-                          </span>
-                          <span>Kecamatan Tumpang</span>
-                        </div>
-                      </article>
-                    );
-                  })}
+                          </article>
+                        );
+                      })}
+                    </div>
+                  ))}
                 </div>
-              ))}
-            </div>
-          </div>
+              </div>
 
-          {/* SLIDE INDICATOR (5 TITIK BULAT KECIL DI POSISI TENGAH HORIZONTAL - TANPA TEKS / ANGKA) */}
-          <div className="flex items-center justify-center pt-2">
-            <div 
-              className="flex items-center gap-2"
-              role="tablist"
-              aria-label="Indikator Slide Review"
-            >
-              {[0, 1, 2, 3, 4].map((slideIndex) => (
-                <button
-                  key={slideIndex}
-                  type="button"
-                  role="tab"
-                  aria-selected={activeSlide === slideIndex}
-                  aria-label={`Buka Slide ${slideIndex + 1}`}
-                  onClick={() => handleGoToSlide(slideIndex)}
-                  className={`h-2 rounded-full transition-all duration-300 cursor-pointer ${
-                    activeSlide === slideIndex
-                      ? 'w-6 bg-emerald-800 shadow-xs'
-                      : 'w-2 bg-slate-300 hover:bg-slate-400'
-                  }`}
-                />
-              ))}
-            </div>
-          </div>
+              {/* SLIDE INDICATOR (TITIK BULAT KECIL DI POSISI TENGAH HORIZONTAL JIKA > 1 SLIDE) */}
+              {totalSlides > 1 && (
+                <div className="flex items-center justify-center pt-2">
+                  <div 
+                    className="flex items-center gap-2"
+                    role="tablist"
+                    aria-label="Indikator Slide Review"
+                  >
+                    {Array.from({ length: totalSlides }).map((_, slideIndex) => (
+                      <button
+                        key={slideIndex}
+                        type="button"
+                        role="tab"
+                        aria-selected={activeSlide === slideIndex}
+                        aria-label={`Buka Slide ${slideIndex + 1}`}
+                        onClick={() => handleGoToSlide(slideIndex)}
+                        className={`h-2 rounded-full transition-all duration-300 cursor-pointer ${
+                          activeSlide === slideIndex
+                            ? 'w-6 bg-emerald-800 shadow-xs'
+                            : 'w-2 bg-slate-300 hover:bg-slate-400'
+                        }`}
+                      />
+                    ))}
+                  </div>
+                </div>
+              )}
+            </>
+          )}
         </>
       )}
     </section>
