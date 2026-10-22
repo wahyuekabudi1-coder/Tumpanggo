@@ -390,11 +390,12 @@ export class FoodDatabase {
     remediationStep?: string;
     toPurge: {
       merchantsCount: number;
-      categoriesCount: number;
+      categoriesCount?: number;
       menuItemsCount: number;
       merchantPartnerRegistrationsCount: number;
     };
     toPreserve: {
+      categoriesCount?: number;
       driversCount: number;
       ordersCount: number;
       settlementsCount: number;
@@ -489,11 +490,11 @@ export class FoodDatabase {
       remediationStep: probe.remediationStep,
       toPurge: {
         merchantsCount,
-        categoriesCount,
         menuItemsCount,
         merchantPartnerRegistrationsCount
       },
       toPreserve: {
+        categoriesCount,
         driversCount,
         ordersCount,
         settlementsCount,
@@ -531,11 +532,12 @@ export class FoodDatabase {
     targetDatabaseId: string;
     purged: {
       merchants: number;
-      categories: number;
+      categories?: number;
       menuItems: number;
       merchantRegistrations: number;
     };
     preserved: {
+      categories?: number;
       drivers: number;
       orders: number;
       settlements: number;
@@ -546,7 +548,7 @@ export class FoodDatabase {
     cloudBackupId?: string;
     firestorePurgeResult?: {
       merchantsDeleted: number;
-      categoriesDeleted: number;
+      categoriesDeleted?: number;
       menuItemsDeleted: number;
       merchantRegistrationsDeleted: number;
     };
@@ -608,21 +610,20 @@ export class FoodDatabase {
         }
 
         // Subcollection-aware batch deletion in chunks of <= 400
-        const [mDel, cDel, iDel, rDel] = await Promise.all([
+        // NOTE: As strictly mandated, categories collection is PRESERVED and NOT deleted!
+        const [mDel, iDel, rDel] = await Promise.all([
           safeAdminBatchDelete('merchants'),
-          safeAdminBatchDelete('categories'),
           safeAdminBatchDelete('menuItems'),
           safeAdminBatchDeleteQuery('partnerRegistrations', 'type', '==', 'MERCHANT')
         ]);
 
-        if (!mDel.success || !cDel.success || !iDel.success || !rDel.success) {
-          const failMsg = [mDel.error, cDel.error, iDel.error, rDel.error].filter(Boolean).join('; ');
+        if (!mDel.success || !iDel.success || !rDel.success) {
+          const failMsg = [mDel.error, iDel.error, rDel.error].filter(Boolean).join('; ');
           throw new Error(`Sebagian operasi batch delete Firestore gagal: ${failMsg || 'Firestore batch failure'}`);
         }
 
         firestorePurgeResult = {
           merchantsDeleted: mDel.count,
-          categoriesDeleted: cDel.count,
           menuItemsDeleted: iDel.count,
           merchantRegistrationsDeleted: rDel.count
         };
@@ -634,8 +635,8 @@ export class FoodDatabase {
     }
 
     // 2. Synchronize in-memory and local disk
+    // Categories are preserved completely; only merchants, menu items, and merchant partner registrations are cleared.
     this.data.merchants = [];
-    this.data.categories = [];
     this.data.menuItems = [];
     this.data.partnerRegistrations = this.data.partnerRegistrations.filter(r => r.type !== 'MERCHANT');
 
@@ -644,7 +645,7 @@ export class FoodDatabase {
 
     this.log(
       actorId,
-      `Clean Slate executed: Purged ${initialMerchantCount} merchants, ${initialCategoryCount} categories, ${initialMenuItemCount} menu items, and ${initialMerchantRegCount} merchant registrations. Cloud backup: ${cloudBackupCreated ? cloudBackupId : 'N/A'}.`,
+      `Clean Slate executed: Purged ${initialMerchantCount} merchants, ${initialMenuItemCount} menu items, and ${initialMerchantRegCount} merchant registrations. Categories preserved (${this.data.categories.length}). Cloud backup: ${cloudBackupCreated ? cloudBackupId : 'N/A'}.`,
       'MASTER_ADMIN'
     );
 
@@ -655,11 +656,11 @@ export class FoodDatabase {
       targetDatabaseId: foodConfig.databaseId || '(default)',
       purged: {
         merchants: firestorePurgeResult ? firestorePurgeResult.merchantsDeleted : initialMerchantCount,
-        categories: firestorePurgeResult ? firestorePurgeResult.categoriesDeleted : initialCategoryCount,
         menuItems: firestorePurgeResult ? firestorePurgeResult.menuItemsDeleted : initialMenuItemCount,
         merchantRegistrations: firestorePurgeResult ? firestorePurgeResult.merchantRegistrationsDeleted : initialMerchantRegCount
       },
       preserved: {
+        categories: this.data.categories.length,
         drivers: this.data.drivers.length,
         orders: this.data.orders.length,
         settlements: this.data.settlements.length,

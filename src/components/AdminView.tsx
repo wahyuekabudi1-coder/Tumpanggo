@@ -2043,18 +2043,12 @@ export default function AdminView({ onLogout, systemConfig, onUpdateConfig, onSe
                   </div>
                 )}
 
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-2 border-t border-slate-200/60 text-center">
+                <div className="grid grid-cols-3 gap-2 pt-2 border-t border-slate-200/60 text-center">
                   <div className="p-2 bg-white rounded-lg border border-slate-200">
                     <div className="text-lg font-bold text-red-600">
                       {cleanSlatePlan?.toPurge?.merchantsCount ?? merchants.length}
                     </div>
-                    <div className="text-[10px] text-slate-500 font-medium">Merchant</div>
-                  </div>
-                  <div className="p-2 bg-white rounded-lg border border-slate-200">
-                    <div className="text-lg font-bold text-red-600">
-                      {cleanSlatePlan?.toPurge?.categoriesCount ?? '-'}
-                    </div>
-                    <div className="text-[10px] text-slate-500 font-medium">Kategori</div>
+                    <div className="text-[10px] text-slate-500 font-medium">Merchant Palsu</div>
                   </div>
                   <div className="p-2 bg-white rounded-lg border border-slate-200">
                     <div className="text-lg font-bold text-red-600">
@@ -2071,7 +2065,7 @@ export default function AdminView({ onLogout, systemConfig, onUpdateConfig, onSe
                 </div>
 
                 <div className="p-2.5 bg-emerald-50 text-emerald-800 rounded-lg text-[11px] leading-relaxed">
-                  🛡️ <strong>Data Terlindungi:</strong> Akun Master Admin (<code className="font-mono text-[10px]">tumpanggo@gmail.com</code>), Driver, Pesanan (Orders), Settlement, dan Tumpang Shop <strong>TIDAK AKAN DIHAPUS</strong>.
+                  🛡️ <strong>Data Terlindungi &amp; Dipertahankan:</strong> Kategori Menu (<strong>{cleanSlatePlan?.toPreserve?.categoriesCount ?? 0} kategori tetap utuh</strong>), Akun Master Admin (<code className="font-mono text-[10px]">tumpanggo@gmail.com</code>), Driver, Pesanan (Orders), Settlement, dan Tumpang Shop <strong>TIDAK AKAN DIHAPUS</strong>.
                 </div>
               </div>
 
@@ -2107,7 +2101,8 @@ export default function AdminView({ onLogout, systemConfig, onUpdateConfig, onSe
                   </div>
                   <div className="text-[11px] text-emerald-800 space-y-0.5">
                     <div>• ID Backup Cloud: <code className="font-mono bg-white px-1.5 py-0.5 rounded border border-emerald-300 font-bold">{cleanSlateResult.cloudBackupId || 'Tersimpan'}</code></div>
-                    <div>• Dokumen Dihapus: {cleanSlateResult.purged?.merchants || 0} merchant, {cleanSlateResult.purged?.categories || 0} kategori, {cleanSlateResult.purged?.menuItems || 0} item menu, {cleanSlateResult.purged?.merchantRegistrations || 0} pendaftaran mitra.</div>
+                    <div>• Dokumen Dihapus: {cleanSlateResult.purged?.merchants || 0} merchant, {cleanSlateResult.purged?.menuItems || 0} item menu, {cleanSlateResult.purged?.merchantRegistrations || 0} pendaftaran mitra.</div>
+                    <div>• Data Dipertahankan: {cleanSlateResult.preserved?.categories ?? cleanSlatePlan?.toPreserve?.categoriesCount ?? 0} kategori menu, akun master admin, driver, pesanan, dan settlement.</div>
                   </div>
                 </div>
               )}
