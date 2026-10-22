@@ -25,12 +25,46 @@ export interface SocialMediaConfig {
   facebookUrl?: string;
 }
 
+/**
+ * Validates that a URL matches the platform domain and has a valid structure.
+ */
+export function validateSocialUrl(platform: 'tiktok' | 'instagram' | 'facebook', url?: string): string | null {
+  if (!url || typeof url !== 'string') return null;
+  const trimmed = url.trim();
+  if (!trimmed) return null;
+
+  try {
+    const parsed = new URL(trimmed.startsWith('http://') || trimmed.startsWith('https://') ? trimmed : `https://${trimmed}`);
+    const host = parsed.hostname.toLowerCase();
+
+    switch (platform) {
+      case 'tiktok':
+        if (host === 'tiktok.com' || host.endsWith('.tiktok.com')) {
+          return parsed.toString();
+        }
+        return null;
+      case 'instagram':
+        if (host === 'instagram.com' || host.endsWith('.instagram.com')) {
+          return parsed.toString();
+        }
+        return null;
+      case 'facebook':
+        if (host === 'facebook.com' || host.endsWith('.facebook.com') || host === 'fb.com' || host.endsWith('.fb.com')) {
+          return parsed.toString();
+        }
+        return null;
+    }
+  } catch {
+    return null;
+  }
+}
+
 // Default configuration: empty strings signify pending official handle verification.
-// Replace with verified official account URLs when verified by administration.
+// Can also be configured via environment variables (VITE_TIKTOK_URL, VITE_INSTAGRAM_URL, VITE_FACEBOOK_URL).
 export const OFFICIAL_SOCIAL_CONFIG: SocialMediaConfig = {
-  tiktokUrl: '',     // e.g. 'https://www.tiktok.com/@tumpanggo.official'
-  instagramUrl: '',  // e.g. 'https://www.instagram.com/tumpanggo.official'
-  facebookUrl: '',   // e.g. 'https://www.facebook.com/tumpanggo.official'
+  tiktokUrl: (typeof import.meta !== 'undefined' && import.meta.env?.VITE_TIKTOK_URL) || '',
+  instagramUrl: (typeof import.meta !== 'undefined' && import.meta.env?.VITE_INSTAGRAM_URL) || '',
+  facebookUrl: (typeof import.meta !== 'undefined' && import.meta.env?.VITE_FACEBOOK_URL) || '',
 };
 
 interface SocialMediaButtonsProps {
@@ -61,7 +95,7 @@ export const SocialMediaButtons: React.FC<SocialMediaButtonsProps> = ({
     {
       id: 'tiktok',
       name: 'TikTok',
-      url: config.tiktokUrl,
+      url: validateSocialUrl('tiktok', config.tiktokUrl) || undefined,
       colorClass: 'border-slate-700 bg-slate-900 text-white',
       hoverClass: 'hover:bg-black hover:border-slate-500 hover:shadow-lg hover:shadow-cyan-900/20',
       iconBgClass: 'bg-black text-white',
@@ -79,7 +113,7 @@ export const SocialMediaButtons: React.FC<SocialMediaButtonsProps> = ({
     {
       id: 'instagram',
       name: 'Instagram',
-      url: config.instagramUrl,
+      url: validateSocialUrl('instagram', config.instagramUrl) || undefined,
       colorClass: 'border-pink-300/40 bg-gradient-to-tr from-[#f09433] via-[#dc2743] to-[#bc1888] text-white',
       hoverClass: 'hover:opacity-95 hover:shadow-lg hover:shadow-pink-500/25',
       iconBgClass: 'bg-white/20 text-white',
@@ -97,7 +131,7 @@ export const SocialMediaButtons: React.FC<SocialMediaButtonsProps> = ({
     {
       id: 'facebook',
       name: 'Facebook',
-      url: config.facebookUrl,
+      url: validateSocialUrl('facebook', config.facebookUrl) || undefined,
       colorClass: 'border-blue-400/40 bg-[#1877F2] text-white',
       hoverClass: 'hover:bg-[#166fe5] hover:shadow-lg hover:shadow-blue-600/25',
       iconBgClass: 'bg-white/20 text-white',

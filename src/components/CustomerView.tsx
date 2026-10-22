@@ -85,9 +85,9 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
   const [payBalance, setPayBalance] = useState<number>(() => {
     try {
       const saved = safeStorage.getItem('tumpang_pay_balance');
-      return saved ? Number(saved) : 150000;
+      return saved ? Number(saved) : 0;
     } catch {
-      return 150000;
+      return 0;
     }
   });
 
@@ -95,12 +95,7 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
     try {
       const saved = safeStorage.getItem('tumpang_pay_transactions');
       const parsed = saved ? JSON.parse(saved) : null;
-      return Array.isArray(parsed) ? parsed : [
-        { id: 'tx_1', title: 'Top Up via Agen Tumpang', amount: 50000, type: 'in', date: 'Hari ini, 09:30', category: 'topup' },
-        { id: 'tx_2', title: 'Pembayaran Bakso Solo Mas Tumpang', amount: 25000, type: 'out', date: 'Kemarin, 13:15', category: 'food' },
-        { id: 'tx_3', title: 'Transfer dari Sdr. Slamet', amount: 100000, type: 'in', date: '19 Jul 2026, 18:00', category: 'transfer' },
-        { id: 'tx_4', title: 'Sewa Tumpang Taksi ke Pasar', amount: 12000, type: 'out', date: '18 Jul 2026, 08:45', category: 'taxi' }
-      ];
+      return Array.isArray(parsed) ? parsed : [];
     } catch {
       return [];
     }
@@ -118,7 +113,7 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
   const [payLastTransaction, setPayLastTransaction] = useState<any | null>(null);
 
   // buylink.id/tumpangGo store states
-  const [buylinkPhone, setBuylinkPhone] = useState<string>('081234567890');
+  const [buylinkPhone, setBuylinkPhone] = useState<string>('');
 
   // Secret Portal Access State (Managed cleanly via useHiddenTrigger: 10-13 clicks active, 14 reset, resets on reload)
   const { isUnlocked: portalAccessUnlocked, handleCopyrightClick } = useHiddenTrigger();
@@ -190,16 +185,9 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
   const [shopCustomerPhone, setShopCustomerPhone] = useState<string>('');
   const [shopCustomerAddress, setShopCustomerAddress] = useState<string>('');
 
-  const TUMPANG_SHOP_ITEMS = [
-    { id: 'ts_1', name: 'Minyak Goreng Kita 1L', price: 16000, category: 'sembako', description: 'Minyak goreng subsidi kualitas premium.', image: 'https://images.unsplash.com/photo-1474979266404-7eaacbcd87c5?w=500&auto=format&fit=crop&q=60' },
-    { id: 'ts_2', name: 'Beras Premium Tumpang 5kg', price: 72500, category: 'sembako', description: 'Beras putih pulen hasil panen petani lokal Tumpang.', image: 'https://images.unsplash.com/photo-1586201375761-83865001e31c?w=500&auto=format&fit=crop&q=60' },
-    { id: 'ts_3', name: 'Gula Pasir Rose Brand 1kg', price: 17500, category: 'sembako', description: 'Gula pasir tebu murni, manis & bersih.', image: 'https://images.unsplash.com/photo-1581798459219-318e76aecc7b?w=500&auto=format&fit=crop&q=60' },
-    { id: 'ts_4', name: 'Kopi Dampit Tumpang 250g', price: 29000, category: 'khas', description: 'Kopi bubuk robusta premium khas lereng Gunung Semeru.', image: 'https://images.unsplash.com/photo-1514432324607-a09d9b4aefdd?w=500&auto=format&fit=crop&q=60' },
-    { id: 'ts_5', name: 'Keripik Tempe Sagu Tumpang', price: 15000, category: 'khas', description: 'Keripik tempe sagu khas Tumpang yang super renyah & gurih.', image: 'https://images.unsplash.com/photo-1613758201502-bd79b54a4181?w=500&auto=format&fit=crop&q=60' },
-    { id: 'ts_6', name: 'Sabun Cair Nuvo Family 450ml', price: 21000, category: 'kebersihan', description: 'Sabun mandi cair antibakteri, perlindungan keluarga.', image: 'https://images.unsplash.com/photo-1608571423902-eed4a5ad8108?w=500&auto=format&fit=crop&q=60' }
-  ];
+  const TUMPANG_SHOP_ITEMS: { id: string; name: string; price: number; category: string; description: string; image: string }[] = [];
 
-  const handleAddToShopCart = (item: typeof TUMPANG_SHOP_ITEMS[0]) => {
+  const handleAddToShopCart = (item: { id: string; name: string; price: number; category?: string; description?: string; image?: string }) => {
     setShopCart(prev => {
       const existing = prev.find(i => i.id === item.id);
       if (existing) {
@@ -242,13 +230,7 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
     { id: 'jeru', name: 'Desa Wisata Jeru', address: 'Jeru, Kecamatan Tumpang', lat: -7.9550, lng: 112.7410 }
   ];
 
-  const LOCAL_TAXI_DRIVERS = [
-    { id: 'td_1', name: 'Pak Agus Tumpang', phone: '081234567801', vehicle: 'Supra X (N 4321 AA)', rating: 4.9, avatar: '👨‍✈️' },
-    { id: 'td_2', name: 'Mas Budi Jeru', phone: '081234567802', vehicle: 'Vario 150 (N 9876 AB)', rating: 4.8, avatar: '🧑‍✈️' },
-    { id: 'td_3', name: 'Pak Slamet Slamet', phone: '081234567803', vehicle: 'Avanza Silver (N 1234 C)', rating: 5.0, avatar: '👨‍💼' },
-    { id: 'td_4', name: 'Mas Dedi Kidal', phone: '081234567804', vehicle: 'Beat Street (N 5678 XY)', rating: 4.7, avatar: '👦' },
-    { id: 'td_5', name: 'Pak Jono Gubugklakah', phone: '081234567805', vehicle: 'Xenia Hitam (N 7788 B)', rating: 4.9, avatar: '🧔' }
-  ];
+  const LOCAL_TAXI_DRIVERS: { id: string; name: string; phone: string; vehicle: string; rating: number; avatar: string }[] = [];
 
   const calculateDistance = (loc1Id: string, loc2Id: string) => {
     const l1 = TUMPANG_LOCATIONS.find(l => l.id === loc1Id);
@@ -2039,80 +2021,99 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
                   </div>
 
                   {/* Merchant Cards Grid */}
-                  <div className="grid grid-cols-2 gap-3 sm:gap-4">
-                    {(Array.isArray(merchants) ? merchants : []).slice(0, 4).map((merchant, idx) => (
-                      <div 
-                        key={`featured-${merchant.id}`}
-                        onClick={() => {
-                          loadMerchantDetail(merchant);
-                          setActiveTab('merchant-detail');
-                        }}
-                        className="bg-white border border-slate-100 rounded-2xl overflow-hidden shadow-xs hover:shadow-md transition-all cursor-pointer group flex flex-col relative"
+                  {merchants.length === 0 ? (
+                    <div className="text-center py-7 px-4 bg-slate-50/80 rounded-2xl border border-slate-100 flex flex-col items-center justify-center gap-2">
+                      <Store className="w-8 h-8 text-slate-300" />
+                      <p className="text-xs font-bold text-slate-700">Belum ada mitra kuliner terdaftar</p>
+                      <p className="text-[11px] text-slate-500 max-w-xs leading-relaxed">
+                        Saat ini belum ada toko makanan yang terdaftar. Pemilik usaha kuliner di Kecamatan Tumpang dapat mendaftar langsung untuk mulai berjualan.
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => onSelectRole?.('MERCHANT', undefined, 'login')}
+                        className="mt-1 px-4 py-2 bg-[#185338] hover:bg-[#154a32] text-white text-xs font-bold rounded-xl shadow-xs transition-all cursor-pointer"
                       >
-                        {/* Image Container */}
-                        <div className="relative h-32 sm:h-40 bg-slate-100 overflow-hidden">
-                          <img 
-                            src={merchant.bannerImage || merchant.image} 
-                            alt={merchant.name} 
-                            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" 
-                            onError={(e) => {
-                              e.currentTarget.src = 'https://images.unsplash.com/photo-1541832676-9b763b0239ab?w=600&auto=format&fit=crop&q=80';
+                        Daftar Sebagai Mitra UMKM
+                      </button>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="grid grid-cols-2 gap-3 sm:gap-4">
+                        {merchants.slice(0, 4).map((merchant, idx) => (
+                          <div 
+                            key={`featured-${merchant.id}`}
+                            onClick={() => {
+                              loadMerchantDetail(merchant);
+                              setActiveTab('merchant-detail');
                             }}
-                          />
-                          {/* Top-Left Pilihan badge */}
-                          <div className="absolute top-2.5 left-2.5 bg-emerald-800/90 text-white text-[9px] sm:text-[10px] font-black px-2 py-0.5 rounded-full flex items-center gap-1 shadow-md">
-                            <span>Favorit</span>
-                          </div>
-                          {/* Top-Right Favorite button */}
-                          <button 
-                            onClick={(e) => {
-                              e.stopPropagation();
-                            }}
-                            className="absolute top-2.5 right-2.5 w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-slate-900/30 backdrop-blur-md flex items-center justify-center text-white hover:bg-slate-900/50 hover:scale-110 transition-all cursor-pointer"
+                            className="bg-white border border-slate-100 rounded-2xl overflow-hidden shadow-xs hover:shadow-md transition-all cursor-pointer group flex flex-col relative"
                           >
-                            <Heart className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-white" />
-                          </button>
-                        </div>
+                            {/* Image Container */}
+                            <div className="relative h-32 sm:h-40 bg-slate-100 overflow-hidden">
+                              <img 
+                                src={merchant.bannerImage || merchant.image} 
+                                alt={merchant.name} 
+                                className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" 
+                                onError={(e) => {
+                                  e.currentTarget.src = 'https://images.unsplash.com/photo-1541832676-9b763b0239ab?w=600&auto=format&fit=crop&q=80';
+                                }}
+                              />
+                              {/* Top-Left Pilihan badge */}
+                              <div className="absolute top-2.5 left-2.5 bg-emerald-800/90 text-white text-[9px] sm:text-[10px] font-black px-2 py-0.5 rounded-full flex items-center gap-1 shadow-md">
+                                <span>Favorit</span>
+                              </div>
+                              {/* Top-Right Favorite button */}
+                              <button 
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                }}
+                                className="absolute top-2.5 right-2.5 w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-slate-900/30 backdrop-blur-md flex items-center justify-center text-white hover:bg-slate-900/50 hover:scale-110 transition-all cursor-pointer"
+                              >
+                                <Heart className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-white" />
+                              </button>
+                            </div>
 
-                        {/* Card Details */}
-                        <div className="p-3 sm:p-3.5 flex-1 flex flex-col justify-between bg-white">
-                          <div>
-                            <h5 className="font-extrabold text-xs sm:text-sm text-slate-900 line-clamp-1 group-hover:text-emerald-800 transition-colors">
-                              {merchant.name}
-                            </h5>
-                            
-                            {/* Status, Distance, Rating */}
-                            <div className="flex items-center gap-1.5 mt-1.5 text-[10px] sm:text-xs">
-                              <span className="bg-emerald-50 text-emerald-700 font-extrabold px-1.5 py-0.5 rounded-md border border-emerald-200/50 shrink-0 text-[9px] sm:text-[10px]">
-                                Buka
-                              </span>
-                              <span className="text-slate-400 font-medium shrink-0">
-                                • {idx === 0 ? '500 m' : '700 m'}
-                              </span>
-                              <div className="ml-auto flex items-center gap-0.5 sm:gap-1 text-slate-800 font-extrabold">
-                                <Star className="w-3 h-3 sm:w-3.5 sm:h-3.5 fill-amber-400 text-amber-400 shrink-0" />
-                                <span>{merchant.rating ? merchant.rating.toFixed(1) : '4.9'}</span>
-                                <span className="text-slate-400 font-normal text-[9px] sm:text-[10px]">({idx === 0 ? '128' : '96'})</span>
+                            {/* Card Details */}
+                            <div className="p-3 sm:p-3.5 flex-1 flex flex-col justify-between bg-white">
+                              <div>
+                                <h5 className="font-extrabold text-xs sm:text-sm text-slate-900 line-clamp-1 group-hover:text-emerald-800 transition-colors">
+                                  {merchant.name}
+                                </h5>
+                                
+                                {/* Status, Distance, Rating */}
+                                <div className="flex items-center gap-1.5 mt-1.5 text-[10px] sm:text-xs">
+                                  <span className="bg-emerald-50 text-emerald-700 font-extrabold px-1.5 py-0.5 rounded-md border border-emerald-200/50 shrink-0 text-[9px] sm:text-[10px]">
+                                    Buka
+                                  </span>
+                                  <span className="text-slate-400 font-medium shrink-0">
+                                    • {idx === 0 ? '500 m' : '700 m'}
+                                  </span>
+                                  <div className="ml-auto flex items-center gap-0.5 sm:gap-1 text-slate-800 font-extrabold">
+                                    <Star className="w-3 h-3 sm:w-3.5 sm:h-3.5 fill-amber-400 text-amber-400 shrink-0" />
+                                    <span>{merchant.rating ? merchant.rating.toFixed(1) : '4.9'}</span>
+                                    <span className="text-slate-400 font-normal text-[9px] sm:text-[10px]">({idx === 0 ? '128' : '96'})</span>
+                                  </div>
+                                </div>
+                              </div>
+
+                              {/* Time estimate */}
+                              <div className="mt-2.5 pt-2 border-t border-slate-100 flex items-center gap-1.5 text-[10px] sm:text-xs text-slate-500 font-medium">
+                                <Clock className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-slate-400 shrink-0" />
+                                <span>{merchant.cookTimeEstimate || (idx === 0 ? '30 - 40 menit' : '20 - 30 menit')}</span>
                               </div>
                             </div>
                           </div>
-
-                          {/* Time estimate */}
-                          <div className="mt-2.5 pt-2 border-t border-slate-100 flex items-center gap-1.5 text-[10px] sm:text-xs text-slate-500 font-medium">
-                            <Clock className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-slate-400 shrink-0" />
-                            <span>{merchant.cookTimeEstimate || (idx === 0 ? '30 - 40 menit' : '20 - 30 menit')}</span>
-                          </div>
-                        </div>
+                        ))}
                       </div>
-                    ))}
-                  </div>
 
-                  {/* Pagination Dots */}
-                  <div className="flex justify-center items-center gap-1.5 mt-3.5">
-                    <span className="w-2.5 h-2.5 rounded-full bg-[#185338]"></span>
-                    <span className="w-2 h-2 rounded-full bg-slate-200"></span>
-                    <span className="w-2 h-2 rounded-full bg-slate-200"></span>
-                  </div>
+                      {/* Pagination Dots */}
+                      <div className="flex justify-center items-center gap-1.5 mt-3.5">
+                        <span className="w-2.5 h-2.5 rounded-full bg-[#185338]"></span>
+                        <span className="w-2 h-2 rounded-full bg-slate-200"></span>
+                        <span className="w-2 h-2 rounded-full bg-slate-200"></span>
+                      </div>
+                    </>
+                  )}
 
                 </div>
 
@@ -2134,47 +2135,49 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
                 </div>
 
                 {/* Rekomendasi UMKM Kuliner Terpopuler */}
-                <div className="flex flex-col gap-3">
-                  <div className="flex justify-between items-center">
-                    <h4 className="font-display font-extrabold text-xs text-slate-400 uppercase tracking-wider">Rekomendasi Kuliner Terlaris</h4>
-                    <button 
-                      onClick={() => setHomeSubView('food')} 
-                      className="text-[10px] text-emerald-700 font-bold hover:underline flex items-center gap-0.5"
-                    >
-                      Lihat Semua <ArrowRight className="w-3 h-3" />
-                    </button>
-                  </div>
-
-                  <div className="grid grid-cols-3 gap-2 sm:gap-3">
-                    {(Array.isArray(merchants) ? merchants : []).slice(0, 3).map(m => (
-                      <div 
-                        key={m.id}
-                        onClick={() => {
-                          loadMerchantDetail(m);
-                          setActiveTab('merchant-detail');
-                        }}
-                        className="bg-white border border-slate-100 rounded-2xl overflow-hidden shadow-sm hover:shadow-md transition-all cursor-pointer group flex flex-col"
+                {merchants.length > 0 && (
+                  <div className="flex flex-col gap-3">
+                    <div className="flex justify-between items-center">
+                      <h4 className="font-display font-extrabold text-xs text-slate-400 uppercase tracking-wider">Rekomendasi Kuliner Terlaris</h4>
+                      <button 
+                        onClick={() => setHomeSubView('food')} 
+                        className="text-[10px] text-emerald-700 font-bold hover:underline flex items-center gap-0.5"
                       >
-                        <div className="relative h-20 sm:h-24 bg-slate-100 overflow-hidden">
-                          <img src={m.image} alt={m.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" referrerPolicy="no-referrer" />
-                          <div className="absolute top-1.5 right-1.5 sm:top-2 sm:right-2 bg-slate-900/70 backdrop-blur-sm text-amber-400 text-[9px] sm:text-[10px] px-1.5 py-0.5 rounded-md flex items-center gap-0.5 font-bold">
-                            <Star className="w-2.5 h-2.5 sm:w-3 sm:h-3 fill-amber-400 stroke-amber-400" />
-                            <span>{m.rating.toFixed(1)}</span>
+                        Lihat Semua <ArrowRight className="w-3 h-3" />
+                      </button>
+                    </div>
+
+                    <div className="grid grid-cols-3 gap-2 sm:gap-3">
+                      {merchants.slice(0, 3).map(m => (
+                        <div 
+                          key={m.id}
+                          onClick={() => {
+                            loadMerchantDetail(m);
+                            setActiveTab('merchant-detail');
+                          }}
+                          className="bg-white border border-slate-100 rounded-2xl overflow-hidden shadow-sm hover:shadow-md transition-all cursor-pointer group flex flex-col"
+                        >
+                          <div className="relative h-20 sm:h-24 bg-slate-100 overflow-hidden">
+                            <img src={m.image} alt={m.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" referrerPolicy="no-referrer" />
+                            <div className="absolute top-1.5 right-1.5 sm:top-2 sm:right-2 bg-slate-900/70 backdrop-blur-sm text-amber-400 text-[9px] sm:text-[10px] px-1.5 py-0.5 rounded-md flex items-center gap-0.5 font-bold">
+                              <Star className="w-2.5 h-2.5 sm:w-3 sm:h-3 fill-amber-400 stroke-amber-400" />
+                              <span>{m.rating.toFixed(1)}</span>
+                            </div>
+                          </div>
+                          <div className="p-2 sm:p-3 flex-1 flex flex-col justify-between">
+                            <div>
+                              <h5 className="font-bold text-[11px] sm:text-xs text-slate-800 line-clamp-1 group-hover:text-rose-600 transition-colors">{m.name}</h5>
+                              <p className="text-[9px] sm:text-[10px] text-slate-400 line-clamp-1 mt-0.5">{m.description}</p>
+                            </div>
+                            <span className="text-[9px] text-slate-500 font-bold mt-1.5 sm:mt-2 flex items-center gap-1">
+                              <Clock className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-slate-300" /> {m.openTime} - {m.closeTime}
+                            </span>
                           </div>
                         </div>
-                        <div className="p-2 sm:p-3 flex-1 flex flex-col justify-between">
-                          <div>
-                            <h5 className="font-bold text-[11px] sm:text-xs text-slate-800 line-clamp-1 group-hover:text-rose-600 transition-colors">{m.name}</h5>
-                            <p className="text-[9px] sm:text-[10px] text-slate-400 line-clamp-1 mt-0.5">{m.description}</p>
-                          </div>
-                          <span className="text-[9px] text-slate-500 font-bold mt-1.5 sm:mt-2 flex items-center gap-1">
-                            <Clock className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-slate-300" /> {m.openTime} - {m.closeTime}
-                          </span>
-                        </div>
-                      </div>
-                    ))}
+                      ))}
+                    </div>
                   </div>
-                </div>
+                )}
 
                 {/* Section Edukasi & Strategi UMKM Naik Kelas */}
                 <section aria-labelledby="section-edukasi-title" className="bg-white rounded-3xl border border-slate-100 p-4 sm:p-5 shadow-xs flex flex-col gap-3.5 my-2">
