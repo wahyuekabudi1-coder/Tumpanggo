@@ -847,100 +847,66 @@ export class FoodDatabase {
         console.warn('[TumpangFood DB] Failed to sync systemConfig with Firestore:', e.message);
       }
 
-      // Merchants (Firestore as Primary Store)
+      // Merchants (Firestore as Primary Store - Authoritative)
       try {
         const remoteMerchants = await safeAdminGetDocs('merchants');
-        if (remoteMerchants.length > 0) {
-          this.data.merchants = remoteMerchants as Merchant[];
-          this.ensureStructure();
-        } else if (this.data.merchants.length > 0) {
-          for (const m of this.data.merchants) {
-            await safeAdminSetDoc('merchants', m.id, m);
-          }
-        }
+        this.data.merchants = (remoteMerchants as Merchant[]) || [];
+        this.ensureStructure();
       } catch (e: any) {
         console.warn('[TumpangFood DB] Failed to sync merchants with Firestore:', e.message);
       }
 
-      // Categories
+      // Categories (Authoritative from Firestore)
       try {
         const remoteCats = await safeAdminGetDocs('categories');
-        if (remoteCats.length > 0) {
-          this.data.categories = remoteCats as Category[];
-        } else if (this.data.categories.length > 0) {
-          for (const c of this.data.categories) {
-            await safeAdminSetDoc('categories', c.id, c);
-          }
-        }
+        this.data.categories = (remoteCats as Category[]) || [];
       } catch (e: any) {
         console.warn('[TumpangFood DB] Failed to sync categories with Firestore:', e.message);
       }
 
-      // Menu Items
+      // Menu Items (Authoritative from Firestore)
       try {
         const remoteItems = await safeAdminGetDocs('menuItems');
-        if (remoteItems.length > 0) {
-          this.data.menuItems = remoteItems as MenuItem[];
-        } else if (this.data.menuItems.length > 0) {
-          for (const i of this.data.menuItems) {
-            await safeAdminSetDoc('menuItems', i.id, i);
-          }
-        }
+        this.data.menuItems = (remoteItems as MenuItem[]) || [];
       } catch (e: any) {
         console.warn('[TumpangFood DB] Failed to sync menuItems with Firestore:', e.message);
       }
 
-      // Drivers
+      // Drivers (Preserved & Authoritative)
       try {
         const remoteDrivers = await safeAdminGetDocs('drivers');
         if (remoteDrivers.length > 0) {
           this.data.drivers = remoteDrivers as Driver[];
-        } else if (this.data.drivers.length > 0) {
-          for (const d of this.data.drivers) {
-            await safeAdminSetDoc('drivers', d.id, d);
-          }
         }
       } catch (e: any) {
         console.warn('[TumpangFood DB] Failed to sync drivers with Firestore:', e.message);
       }
 
-      // Orders
+      // Orders (Preserved & Authoritative)
       try {
         const remoteOrders = await safeAdminGetDocs('orders');
         if (remoteOrders.length > 0) {
           this.data.orders = (remoteOrders as Order[]).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-        } else if (this.data.orders.length > 0) {
-          for (const o of this.data.orders) {
-            await safeAdminSetDoc('orders', o.id, o);
-          }
         }
       } catch (e: any) {
         console.warn('[TumpangFood DB] Failed to sync orders with Firestore:', e.message);
       }
 
-      // Settlements
+      // Settlements (Preserved & Authoritative)
       try {
         const remoteSets = await safeAdminGetDocs('settlements');
         if (remoteSets.length > 0) {
           this.data.settlements = remoteSets as Settlement[];
-        } else if (this.data.settlements.length > 0) {
-          for (const s of this.data.settlements) {
-            await safeAdminSetDoc('settlements', s.id, s);
-          }
         }
       } catch (e: any) {
         console.warn('[TumpangFood DB] Failed to sync settlements with Firestore:', e.message);
       }
 
-      // Partner Registrations
+      // Partner Registrations (Authoritative from Firestore)
       try {
         const remoteRegs = await safeAdminGetDocs('partnerRegistrations');
         if (remoteRegs.length > 0) {
           this.data.partnerRegistrations = remoteRegs as PartnerRegistration[];
-        } else if (this.data.partnerRegistrations.length > 0) {
-          for (const r of this.data.partnerRegistrations) {
-            await safeAdminSetDoc('partnerRegistrations', r.id, r);
-          }
         }
       } catch (e: any) {
         console.warn('[TumpangFood DB] Failed to sync partnerRegistrations with Firestore:', e.message);
@@ -951,10 +917,6 @@ export class FoodDatabase {
         const remoteTestis = await safeAdminGetDocs('testimonials');
         if (remoteTestis.length > 0) {
           this.data.testimonials = remoteTestis as Testimonial[];
-        } else if (this.data.testimonials && this.data.testimonials.length > 0) {
-          for (const t of this.data.testimonials) {
-            await safeAdminSetDoc('testimonials', t.id, t);
-          }
         }
       } catch (e: any) {
         console.warn('[TumpangFood DB] Failed to sync testimonials with Firestore:', e.message);

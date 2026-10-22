@@ -11,7 +11,7 @@ import { foodDb } from './db';
 import { foodConfig } from './config';
 import { shopApp } from '../services/shop/api/shopApp';
 import { shopApiClient } from '../services/shop/client/shopApiClient';
-import { isFirestoreAdminConfigured, isUsingServiceAccount, testFirestoreConnection, getFirestoreDiagnosticStatus } from './firebaseAdmin';
+import { isFirestoreAdminConfigured, isUsingServiceAccount, testFirestoreConnection, getFirestoreDiagnosticStatus, getAdminDb } from './firebaseAdmin';
 import { authenticateToken } from './auth';
 import { authRouter } from './routes/authRoutes';
 import { merchantRouter } from './routes/merchantRoutes';
@@ -188,6 +188,71 @@ app.get('/api/health/firestore-probe', async (req, res) => {
       error: err.message || 'Diagnostic probe error',
       timestamp: new Date().toISOString()
     });
+  }
+});
+
+// Safe diagnostic endpoint to verify live Firestore document counts without exposing secrets
+app.get('/api/health/catalog-status', async (req, res) => {
+  try {
+    const probe = await testFirestoreConnection();
+    const adminDb = getAdminDb();
+
+    let merchantsCount = 0;
+    let categoriesCount = 0;
+    let menuItemsCount = 0;
+    let merchantRegistrationsCount = 0;
+    let driversCount = 0;
+    let ordersCount = 0;
+    let settlementsCount = 0;
+
+    if (probe.connected && adminDb) {
+      const [mSnap, cSnap, iSnap, mrSnap, dSnap, oSnap, sSnap] = await Promise.all([
+        adminDb.collection('merchants').get(),
+        adminDb.collection('categories').get(),
+        adminDb.collection('menuItems').get(),
+        adminDb.collection('partnerRegistrations').where('type', '==', 'MERCHANT').get(),
+        adminDb.collection('drivers').get(),
+        adminDb.collection('orders').get(),
+        adminDb.collection('settlements').get()
+      ]);
+      merchantsCount = mSnap.size;
+      categoriesCount = cSnap.size;
+      menuItemsCount = iSnap.size;
+      merchantRegistrationsCount = mrSnap.size;
+      driversCount = dSnap.size;
+      ordersCount = oSnap.size;
+      settlementsCount = sSnap.size;
+    } else {
+      const rawData = (foodDb as any).data;
+      merchantsCount = rawData?.merchants?.length || 0;
+      categoriesCount = rawData?.categories?.length || 0;
+      menuItemsCount = rawData?.menuItems?.length || 0;
+      merchantRegistrationsCount = rawData?.partnerRegistrations?.filter((r: any) => r.type === 'MERCHANT').length || 0;
+      driversCount = rawData?.drivers?.length || 0;
+      ordersCount = rawData?.orders?.length || 0;
+      settlementsCount = rawData?.settlements?.length || 0;
+    }
+
+    res.status(probe.connected ? 200 : (foodConfig.isProduction ? 503 : 200)).json({
+      system: 'tumpang-food',
+      projectId: probe.projectId || foodConfig.projectId || 'tumpanggo-70479',
+      databaseId: probe.databaseId || foodConfig.databaseId || '(default)',
+      storageMode: probe.connected ? 'cloud_firestore_verified' : 'local_snapshot',
+      liveCloudConnected: probe.connected,
+      isProduction: foodConfig.isProduction,
+      liveFirestoreCounts: {
+        merchantsCount,
+        categoriesCount,
+        menuItemsCount,
+        merchantRegistrationsCount,
+        driversCount,
+        ordersCount,
+        settlementsCount
+      },
+      timestamp: new Date().toISOString()
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Diagnostic catalog count error' });
   }
 });
 
