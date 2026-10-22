@@ -87,7 +87,7 @@ class PushNotificationService {
       await this.sendToMerchant(order.merchantId, {
         title: `🔔 Pesanan Baru Masuk! #${orderNum}`,
         body: `${itemCount} item siap dimasak (${subtotalFormatted}) dari ${order.customerName}. Buka dapur TumpangGo sekarang!`,
-        url: `/?role=MERCHANT&id=${encodeURIComponent(order.merchantId)}`,
+        url: `/merchant?id=${encodeURIComponent(order.merchantId)}`,
         tag: `order-${order.id}`,
         data: {
           orderId: order.id,
@@ -109,7 +109,7 @@ class PushNotificationService {
       await this.sendToDriver(driverId, {
         title: `🛵 Tugas Pengantaran Baru! #${orderNum}`,
         body: `Antar pesanan dari ${order.merchantName} ke ${order.deliveryAddress}. Buka aplikasi driver Anda.`,
-        url: `/?role=DRIVER&id=${encodeURIComponent(driverId)}`,
+        url: `/driver?id=${encodeURIComponent(driverId)}`,
         tag: `driver-order-${order.id}`,
         data: {
           orderId: order.id,

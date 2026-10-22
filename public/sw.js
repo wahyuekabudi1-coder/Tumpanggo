@@ -8,10 +8,12 @@
  * Strictly bypasses API requests, authentication, and QRIS endpoints to prevent stale data.
  */
 
-const CACHE_NAME = 'tumpanggo-pwa-v11';
+const CACHE_NAME = 'tumpanggo-pwa-v12';
 const STATIC_ASSETS = [
   '/',
   '/index.html',
+  '/merchant',
+  '/driver',
   '/manifest.json',
   '/manifest-merchant.json',
   '/manifest-driver.json',
@@ -158,9 +160,17 @@ self.addEventListener('notificationclick', (event) => {
 
   event.waitUntil(
     clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
-      // If a window is already open at matching URL, focus it
+      // Find matching portal window (merchant, driver, or customer)
       for (const client of clientList) {
-        if (client.url && client.url.includes(targetUrl.split('?')[0]) && 'focus' in client) {
+        if (!client.url || !('focus' in client)) continue;
+        const cUrl = client.url.toLowerCase();
+        if (targetUrl.includes('merchant') && (cUrl.includes('/merchant') || cUrl.includes('role=merchant'))) {
+          return client.focus();
+        }
+        if (targetUrl.includes('driver') && (cUrl.includes('/driver') || cUrl.includes('role=driver'))) {
+          return client.focus();
+        }
+        if (!targetUrl.includes('merchant') && !targetUrl.includes('driver') && !cUrl.includes('/merchant') && !cUrl.includes('/driver')) {
           return client.focus();
         }
       }

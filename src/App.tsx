@@ -131,10 +131,14 @@ export default function App() {
       setCurrentRole('SHOP_ADMIN');
     } else if (roleParam && ['CUSTOMER', 'MERCHANT', 'DRIVER', 'ADMIN', 'SHOP_ADMIN'].includes(roleParam)) {
       setCurrentRole(roleParam as any);
-      if (roleParam === 'MERCHANT' && idParam) {
-        setActiveMerchantId(idParam);
-      } else if (roleParam === 'DRIVER' && idParam) {
-        setActiveDriverId(idParam);
+      if (roleParam === 'MERCHANT') {
+        if (idParam) setActiveMerchantId(idParam);
+        const newUrl = idParam ? `/merchant?id=${encodeURIComponent(idParam)}` : '/merchant';
+        window.history.replaceState(null, '', newUrl);
+      } else if (roleParam === 'DRIVER') {
+        if (idParam) setActiveDriverId(idParam);
+        const newUrl = idParam ? `/driver?id=${encodeURIComponent(idParam)}` : '/driver';
+        window.history.replaceState(null, '', newUrl);
       }
     }
 
@@ -359,10 +363,24 @@ export default function App() {
       setActiveMerchantId(targetMId);
       if (targetMId) safeStorage.setItem('tumpang_active_merchant_id', targetMId);
       setMerchantPortalTab(initialTab || 'login');
+      if (typeof window !== 'undefined' && window.location.pathname !== '/merchant') {
+        window.history.pushState(null, '', targetMId ? `/merchant?id=${encodeURIComponent(targetMId)}` : '/merchant');
+      }
     } else if (role === 'DRIVER') {
       const targetDId = id || activeDriverId || safeStorage.getItem('tumpang_active_driver_id') || (drivers[0]?.id || '');
       setActiveDriverId(targetDId);
       if (targetDId) safeStorage.setItem('tumpang_active_driver_id', targetDId);
+      if (typeof window !== 'undefined' && window.location.pathname !== '/driver') {
+        window.history.pushState(null, '', targetDId ? `/driver?id=${encodeURIComponent(targetDId)}` : '/driver');
+      }
+    } else if (role === 'ADMIN') {
+      if (typeof window !== 'undefined' && window.location.pathname !== '/admin') {
+        window.history.pushState(null, '', '/admin');
+      }
+    } else if (role === 'CUSTOMER') {
+      if (typeof window !== 'undefined' && window.location.pathname !== '/') {
+        window.history.pushState(null, '', '/');
+      }
     }
     setShowAuthModal(false);
   };
@@ -380,6 +398,9 @@ export default function App() {
     setActiveMerchantId('');
     setActiveDriverId('');
     setCurrentRole('CUSTOMER');
+    if (typeof window !== 'undefined' && window.location.pathname !== '/') {
+      window.history.pushState(null, '', '/');
+    }
   };
 
   const handleInstantDashboardAccess = (role: 'ADMIN' | 'MERCHANT' | 'DRIVER') => {

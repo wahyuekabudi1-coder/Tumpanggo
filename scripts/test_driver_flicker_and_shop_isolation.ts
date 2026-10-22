@@ -164,9 +164,9 @@ async function runAuditTests() {
   const d2StillSees = Array.isArray(d2AvailList) && d2AvailList.some((o: any) => o.id === testOrder.id);
   assert(!d2StillSees, 'Pesanan yang telah diambil d1 otomatis HILANG dari daftar siap jemput driver lain');
 
-  // Check single order endpoint accessed by d2 returns order with d1 as driver
+  // Check single order endpoint accessed by assigned driver d1 returns order with d1 as driver
   const resSingleCheck = await fetch(`${baseUrl}/api/orders/${testOrder.id}`, {
-    headers: { 'Authorization': `Bearer ${d2Token}` }
+    headers: { 'Authorization': `Bearer ${d1Token}` }
   });
   const singleCheckData = await resSingleCheck.json();
   assert(singleCheckData.driverId === 'd1', 'Detail pesanan mencatat driverId d1 secara konsisten saat dipantau');

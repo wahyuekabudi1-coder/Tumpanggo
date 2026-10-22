@@ -1,10 +1,10 @@
 {
-  "id": "/?role=MERCHANT",
+  "id": "/merchant",
   "name": "TumpangGo Merchant",
   "short_name": "TG Merchant",
   "description": "Aplikasi Pengelolaan Pesanan & Dapur Mitra Toko TumpangGo",
-  "start_url": "/?role=MERCHANT",
-  "scope": "/",
+  "start_url": "/merchant",
+  "scope": "/merchant",
   "display": "standalone",
   "orientation": "portrait",
   "theme_color": "#15803D",
