@@ -17,6 +17,9 @@ import { calculateDeliveryFee, FLAT_TUMPANG_DELIVERY_FEE, isDestinationInKecamat
 import { useSEO } from '../hooks/useSEO.ts';
 import UmkmEducationModule, { UMKM_ARTICLES } from './UmkmEducationModule.tsx';
 import UserTestimonialsSection from './UserTestimonialsSection.tsx';
+import { HelpCenterView } from './HelpCenterView.tsx';
+import { HelpCenterCTA } from './HelpCenterCTA.tsx';
+import { SocialMediaButtons } from './SocialMediaButtons.tsx';
 import { 
   Search, ShoppingBag, Store, MapPin, Clock, Star, ArrowLeft, Plus, Minus, Trash2, Check, 
   CheckCircle2, ArrowRight, Share2, Phone, Calendar, ClipboardList, RefreshCw, X,
@@ -48,8 +51,17 @@ export const CULINARY_CATEGORIES = [
 ];
 
 export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthModal, onSelectRole, onInstantDashboard, initialTab }: CustomerViewProps) {
-  // Navigation / Tab state: 'home' | 'merchant-detail' | 'cart' | 'checkout' | 'payment' | 'tracking' | 'history' | 'partner-register' | 'edukasi'
-  const [activeTab, setActiveTab] = useState<string>(initialTab || 'home');
+  // Navigation / Tab state: 'home' | 'merchant-detail' | 'cart' | 'checkout' | 'payment' | 'tracking' | 'history' | 'partner-register' | 'edukasi' | 'help'
+  const [activeTab, setActiveTab] = useState<string>(() => {
+    if (initialTab) return initialTab;
+    if (typeof window !== 'undefined') {
+      const p = new URLSearchParams(window.location.search).get('page');
+      if (p === 'bantuan' || p === 'help' || p === 'pusat-bantuan') return 'help';
+      if (p === 'edukasi') return 'edukasi';
+      if (p === 'merchant-register' || p === 'partner-register') return 'partner-register';
+    }
+    return 'home';
+  });
   const [openFaqIndex, setOpenFaqIndex] = useState<number | null>(null);
   const cookingTickerNow = useCookingTicker();
 
@@ -141,13 +153,6 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
   const [driverVehicle, setDriverVehicle] = useState<'motorcycle' | 'car'>('motorcycle');
   const [driverPlate, setDriverPlate] = useState<string>('');
   const [driverRegSubmitted, setDriverRegSubmitted] = useState<boolean>(false);
-
-  const [isWaChatOpen, setIsWaChatOpen] = useState<boolean>(false);
-  const [currentWaInput, setCurrentWaInput] = useState<string>('');
-  const [isWaTyping, setIsWaTyping] = useState<boolean>(false);
-  const [waMessages, setWaMessages] = useState<any[]>([
-    { sender: 'bot', text: 'Halo! Selamat datang di WhatsApp Center Tumpang Go. Ada yang bisa kami bantu hari ini? 😊', time: 'Hari ini' }
-  ]);
   const [isDriverLicUploaded, setIsDriverLicUploaded] = useState<boolean>(false);
 
   const [isApkModalOpen, setIsApkModalOpen] = useState<boolean>(false);
@@ -218,10 +223,12 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
 
   const shopCartTotal = shopCart.reduce((acc, curr) => acc + (curr.price * curr.qty), 0);
 
-  // WhatsApp Direct Action
-  const handleOpenWhatsApp = () => {
-    const text = encodeURIComponent("Hello my client, I need information about this service.");
-    window.open(`https://wa.me/628123456789?text=${text}`, '_blank', 'noopener,noreferrer');
+  // Pusat Bantuan Direct Action
+  const handleOpenHelpCenter = () => {
+    setActiveTab('help');
+    if (typeof window !== 'undefined') {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
   };
 
   const TUMPANG_LOCATIONS = [
@@ -445,8 +452,8 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
 
   // Dynamic SEO Synchronization
   useSEO({
-    title: isBantuanPage
-      ? 'Pusat Bantuan & Tanya Jawab Layanan | TumpangGo'
+    title: (isBantuanPage || activeTab === 'help')
+      ? 'Pusat Bantuan Resmi & Panduan Layanan | TumpangGo'
       : activeTab === 'edukasi'
       ? 'Panduan & Edukasi Digitalisasi UMKM Lokal | TumpangGo'
       : activeTab === 'partner-register'
@@ -456,8 +463,8 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
           : homeSubView === 'food'
             ? 'Pesan Kuliner Lokal Tumpang Online | Menu Favorit UMKM – TumpangGo'
             : 'TumpangGo – Saatnya Usaha Lokal Naik Kelas | Kuliner & Layanan Digital Tumpang Malang',
-    description: isBantuanPage
-      ? 'Pusat informasi dan tanya jawab layanan TumpangGo: ongkir flat hemat Rp 5.000 se-Kecamatan Tumpang, pembayaran QRIS, serta kemitraan UMKM.'
+    description: (isBantuanPage || activeTab === 'help')
+      ? 'Pusat Bantuan TumpangGo: Temukan informasi dan panduan menggunakan TumpangGo, FAQ pelanggan, panduan kemitraan UMKM, tarif ongkir flat hemat Rp 5.000, serta pelaporan kendala.'
       : activeTab === 'edukasi'
       ? 'Pelajari strategi digital marketing, konsistensi rasa kuliner, dan panduan adopsi teknologi bagi UMKM lokal dan pengusaha milenial di Tumpang.'
       : activeTab === 'partner-register'
@@ -467,7 +474,7 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
           : homeSubView === 'food'
             ? 'Temukan kuliner khas Kecamatan Tumpang Malang dari resto dan warung UMKM terdekat. Pesan mudah dengan ongkir hemat flat Rp 5.000.'
             : 'TumpangGo hadir mendukung usaha lokal naik kelas di era digital. Pesan kuliner lokal Tumpang Malang dengan ongkir hemat flat Rp 5.000 dan pembayaran QRIS praktis.',
-    canonicalPath: isBantuanPage
+    canonicalPath: (isBantuanPage || activeTab === 'help')
       ? '/?page=bantuan'
       : activeTab === 'edukasi'
       ? '/?page=edukasi'
@@ -1555,57 +1562,25 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
       <div className="py-3 px-4 flex flex-col items-center justify-center text-center bg-white gap-2">
         <Logo size={96} />
 
-        {/* Social Media Links - Icon only */}
-        <div className="flex items-center justify-center gap-2 mt-0.5">
-          <button 
+        {/* Pusat Bantuan Quick Navigation */}
+        <div className="flex flex-col items-center gap-2 mt-1 w-full max-w-sm">
+          <button
             type="button"
-            onClick={handleOpenWhatsApp}
-            title="WhatsApp Tumpang Go"
-            aria-label="WhatsApp"
-            className="w-7 h-7 rounded-full bg-[#25D366]/10 border border-[#25D366]/30 hover:bg-[#25D366]/20 text-[#25D366] flex items-center justify-center transition-all cursor-pointer shadow-2xs hover:scale-105 active:scale-95"
+            onClick={() => {
+              setActiveTab('help');
+              if (typeof window !== 'undefined') {
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+              }
+            }}
+            className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-xs font-semibold border border-emerald-200 transition-colors shadow-2xs cursor-pointer"
           >
-            <svg className="w-4 h-4 fill-current" viewBox="0 0 24 24"><path d="M.057 24l1.687-6.163c-1.041-1.804-1.588-3.849-1.587-5.946.003-6.556 5.338-11.891 11.893-11.891 3.181.001 6.167 1.24 8.413 3.488 2.245 2.248 3.481 5.236 3.48 8.414-.003 6.557-5.338 11.892-11.893 11.892-1.99-.001-3.951-.5-5.688-1.448l-6.205 1.654zm6.597-3.807c1.676.995 3.276 1.591 5.392 1.592 5.448 0 9.886-4.434 9.889-9.885.002-5.462-4.415-9.89-9.881-9.892-5.452 0-9.887 4.434-9.889 9.884-.001 2.225.651 3.891 1.746 5.634l-.999 3.648 3.742-.981zm11.387-5.464c-.285-.143-1.689-.833-1.951-.928-.262-.095-.453-.143-.645.143-.19.285-.74.928-.908 1.118-.168.19-.335.214-.62.071-.285-.143-1.205-.444-2.296-1.416-.848-.757-1.421-1.692-1.588-1.978-.168-.285-.018-.439.125-.581.128-.128.285-.335.428-.501.142-.167.19-.285.285-.476.095-.19.047-.357-.024-.501-.071-.143-.645-1.571-.884-2.143-.233-.557-.47-.481-.645-.49-.168-.008-.359-.01-.55-.01-.191 0-.501.071-.763.357-.262.285-.999.977-.999 2.38 0 1.404 1.023 2.76 1.166 2.951.143.19 2.013 3.074 4.877 4.312.681.294 1.213.47 1.628.601.684.217 1.307.186 1.8.113.55-.082 1.689-.69 1.927-1.356.238-.666.238-1.237.167-1.356-.07-.12-.262-.19-.547-.333z"/></svg>
+            <HelpCircle className="w-3.5 h-3.5 text-emerald-600" />
+            <span>Pusat Bantuan TumpangGo</span>
           </button>
-          <a 
-            href="https://facebook.com" 
-            target="_blank" 
-            rel="noopener noreferrer" 
-            title="Facebook"
-            aria-label="Facebook"
-            className="w-7 h-7 rounded-full bg-slate-50 border border-slate-200/90 hover:bg-slate-100/90 text-slate-600 flex items-center justify-center transition-all cursor-pointer shadow-2xs hover:scale-105 active:scale-95"
-          >
-            <svg className="w-3.5 h-3.5 text-[#1877F2]" fill="currentColor" viewBox="0 0 24 24"><path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/></svg>
-          </a>
-          <a 
-            href="https://instagram.com" 
-            target="_blank" 
-            rel="noopener noreferrer" 
-            title="Instagram"
-            aria-label="Instagram"
-            className="w-7 h-7 rounded-full bg-slate-50 border border-slate-200/90 hover:bg-slate-100/90 text-slate-600 flex items-center justify-center transition-all cursor-pointer shadow-2xs hover:scale-105 active:scale-95"
-          >
-            <svg className="w-3.5 h-3.5 text-[#E4405F]" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zm0-2.163c-3.259 0-3.667.014-4.947.072-4.358.2-6.78 2.618-6.98 6.98-.059 1.281-.073 1.689-.073 4.948 0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98 1.281.058 1.689.072 4.948.072 3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98-1.281-.059-1.69-.073-4.949-.073zm0 5.838c-3.403 0-6.162 2.759-6.162 6.162s2.759 6.163 6.162 6.163 6.162-2.759 6.162-6.163c0-3.403-2.759-6.162-6.162-6.162zm0 10.162c-2.209 0-4-1.79-4-4 0-2.209 1.791-4 4-4s4 1.791 4 4c0 2.21-1.791 4-4 4zm6.406-11.845c-.796 0-1.441.645-1.441 1.44s.645 1.44 1.441 1.44c.795 0 1.439-.645 1.439-1.44s-.644-1.44-1.439-1.44z"/></svg>
-          </a>
-          <a 
-            href="https://tiktok.com" 
-            target="_blank" 
-            rel="noopener noreferrer" 
-            title="TikTok"
-            aria-label="TikTok"
-            className="w-7 h-7 rounded-full bg-slate-50 border border-slate-200/90 hover:bg-slate-100/90 text-slate-600 flex items-center justify-center transition-all cursor-pointer shadow-2xs hover:scale-105 active:scale-95"
-          >
-            <svg className="w-3.5 h-3.5 text-black" fill="currentColor" viewBox="0 0 24 24"><path d="M12.525.02c1.31-.02 2.61-.01 3.91-.02.08 1.53.63 3.09 1.75 4.17 1.12 1.11 2.7 1.62 4.24 1.79v4.03c-1.44-.05-2.89-.35-4.2-.97-.57-.26-1.1-.59-1.62-.98-.01 2.92.01 5.84-.02 8.75-.08 1.4-.54 2.79-1.35 3.94-1.31 1.92-3.58 3.17-5.91 3.21-1.43.08-2.86-.31-4.08-1.03-2.02-1.19-3.44-3.37-3.65-5.71-.02-.5-.03-1-.01-1.49.18-1.9 1.12-3.72 2.58-4.96 1.66-1.44 3.98-2.13 6.15-1.72.02 1.48-.04 2.96-.04 4.44-.99-.32-2.15-.23-3.02.37-.82.57-1.31 1.53-1.33 2.53-.01.8.31 1.59.88 2.13.62.59 1.5.9 2.34.82 1.05-.04 2.02-.67 2.47-1.6.22-.44.33-.94.33-1.43.02-4.27.01-8.54.01-12.81z"/></svg>
-          </a>
-          <a 
-            href="https://linkedin.com" 
-            target="_blank" 
-            rel="noopener noreferrer" 
-            title="LinkedIn"
-            aria-label="LinkedIn"
-            className="w-7 h-7 rounded-full bg-slate-50 border border-slate-200/90 hover:bg-slate-100/90 text-slate-600 flex items-center justify-center transition-all cursor-pointer shadow-2xs hover:scale-105 active:scale-95"
-          >
-            <svg className="w-3.5 h-3.5 text-[#0A66C2]" fill="currentColor" viewBox="0 0 24 24"><path d="M19 3a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h14m-.5 15.5v-5.3a3.26 3.26 0 0 0-3.26-3.26c-.85 0-1.84.52-2.28 1.3v-1.11h-2.79v8.37h2.79v-4.93c0-.77.62-1.4 1.39-1.4a1.4 1.4 0 0 1 1.4 1.4v4.93h2.75M6.88 8.56a1.68 1.68 0 0 0 1.68-1.68c0-.93-.75-1.69-1.68-1.69a1.69 1.69 0 0 0-1.69 1.69c0 .93.76 1.68 1.69 1.68m1.39 9.94v-8.37H5.5v8.37h2.77z"/></svg>
-          </a>
+          
+          <div className="pt-0.5">
+            <SocialMediaButtons variant="compact" />
+          </div>
         </div>
       </div>
 
@@ -2363,7 +2338,18 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
                 {/* 2. Section Cerita Pengguna TumpangGo */}
                 <UserTestimonialsSection />
 
-                {/* 3. Footer Section */}
+                {/* 3. Call to Action: Pusat Bantuan TumpangGo */}
+                <HelpCenterCTA 
+                  onOpenHelp={() => {
+                    setActiveTab('help');
+                    if (typeof window !== 'undefined') {
+                      window.scrollTo({ top: 0, behavior: 'smooth' });
+                    }
+                  }}
+                  className="my-4"
+                />
+
+                {/* 4. Footer Section */}
                 {renderFooter()}
 
               </div>
@@ -3790,7 +3776,7 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
 
           const handleRetryQris = () => {
             if (qrisRetryCount >= 3) {
-              alert('Batas maksimal muat ulang (3x) tercapai. Silakan periksa koneksi internet Anda atau hubungi Bantuan WhatsApp Admin.');
+              alert('Batas maksimal muat ulang (3x) tercapai. Silakan periksa koneksi internet Anda atau kunjungi Pusat Bantuan TumpangGo.');
               return;
             }
             setQrisRetryCount(prev => prev + 1);
@@ -4103,7 +4089,7 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
                         }
                       </p>
                       <p className="text-[11px] text-amber-700 mt-1">
-                        Silakan coba muat ulang atau hubungi WhatsApp Bantuan Admin TumpangGo untuk konfirmasi pembayaran.
+                        Silakan coba muat ulang atau buka Pusat Bantuan TumpangGo untuk panduan dan verifikasi pembayaran.
                       </p>
                     </div>
                   </div>
@@ -4117,15 +4103,19 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
                       <RefreshCw className="w-3.5 h-3.5" />
                       <span>Coba Muat Ulang QRIS {qrisRetryCount > 0 ? `(${qrisRetryCount}/3)` : ''}</span>
                     </button>
-                    <a
-                      href={`https://wa.me/6281234567891?text=${encodeURIComponent(`Halo Admin TumpangGo, saya ingin bertanya mengenai pembayaran QRIS untuk pesanan #${activeOrder.id} pada toko ${activeOrder.merchantName}.`)}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="flex-1 py-2.5 px-3 bg-amber-600 hover:bg-amber-700 text-white font-bold rounded-xl text-xs flex items-center justify-center gap-1.5 transition-colors text-center"
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setActiveTab('help');
+                        if (typeof window !== 'undefined') {
+                          window.scrollTo({ top: 0, behavior: 'smooth' });
+                        }
+                      }}
+                      className="flex-1 py-2.5 px-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs flex items-center justify-center gap-1.5 transition-colors text-center cursor-pointer shadow-xs"
                     >
-                      <Phone className="w-3.5 h-3.5" />
-                      <span>Hubungi Bantuan WhatsApp Admin</span>
-                    </a>
+                      <HelpCircle className="w-3.5 h-3.5" />
+                      <span>Kunjungi Pusat Bantuan</span>
+                    </button>
                     <button
                       type="button"
                       onClick={() => {
@@ -4300,15 +4290,20 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
                 </button>
 
                 <div className="p-3 bg-slate-100 rounded-xl text-center text-[11px] text-slate-600">
-                  <span>Butuh bantuan pembayaran? Hubungi Layanan Pelanggan TumpangGo di </span>
-                  <a
-                    href="https://wa.me/6281234567891"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-rose-600 font-bold hover:underline"
+                  <span>Butuh bantuan pembayaran? Buka </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setActiveTab('help');
+                      if (typeof window !== 'undefined') {
+                        window.scrollTo({ top: 0, behavior: 'smooth' });
+                      }
+                    }}
+                    className="text-emerald-700 font-bold hover:underline cursor-pointer inline-flex items-center gap-0.5 mx-1"
                   >
-                    WhatsApp 0812-3456-7891
-                  </a>
+                    <span>Pusat Bantuan TumpangGo</span>
+                  </button>
+                  <span>untuk panduan resmi dan pelaporan kendala.</span>
                 </div>
               </div>
             </div>
@@ -5141,19 +5136,24 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
                       </div>
                     </div>
 
-                    {/* Admin Contact info */}
+                    {/* Pusat Bantuan & Panduan Mitra */}
                     <div className="text-center mt-3 py-3 border-t border-slate-100">
                       <p className="text-[11px] text-slate-500">
-                        Butuh bantuan atau ingin proses lebih cepat? Hubungi Admin WhatsApp:
+                        Butuh bantuan atau informasi proses persetujuan mitra?
                       </p>
-                      <a 
-                        href="https://wa.me/628123456789" 
-                        target="_blank" 
-                        rel="noreferrer"
-                        className="inline-flex items-center gap-1.5 mt-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-bold px-3 py-1.5 rounded-full text-[11px] border border-emerald-100 transition-colors"
+                      <button 
+                        type="button"
+                        onClick={() => {
+                          setActiveTab('help');
+                          if (typeof window !== 'undefined') {
+                            window.scrollTo({ top: 0, behavior: 'smooth' });
+                          }
+                        }}
+                        className="inline-flex items-center gap-1.5 mt-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-bold px-3.5 py-1.5 rounded-full text-[11px] border border-emerald-200 transition-colors cursor-pointer"
                       >
-                        <span>🟢 Hubungi Admin (WhatsApp)</span>
-                      </a>
+                        <HelpCircle className="w-3.5 h-3.5 text-emerald-600" />
+                        <span>Kunjungi Pusat Bantuan TumpangGo</span>
+                      </button>
                     </div>
                   </div>
                 )}
@@ -5179,7 +5179,20 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
                 </div>
                 <h4 className="font-display font-bold text-base text-slate-800">Pendaftaran Berhasil Dikirim!</h4>
                 <p className="text-slate-500 text-xs leading-relaxed max-w-xs">
-                  Terima kasih telah mendaftar. Data Anda telah disimpan dalam sistem kami. Hubungi Administrator di WhatsApp <span className="font-semibold text-rose-600">sawahjayagroup@gmail.com</span> untuk verifikasi & aktivasi instan akun Anda.
+                  Terima kasih telah mendaftar. Data Anda telah tersimpan aman dalam sistem. Silakan buka{' '}
+                  <button 
+                    type="button" 
+                    onClick={() => {
+                      setActiveTab('help');
+                      if (typeof window !== 'undefined') {
+                        window.scrollTo({ top: 0, behavior: 'smooth' });
+                      }
+                    }} 
+                    className="text-emerald-700 font-bold underline hover:text-emerald-800 cursor-pointer"
+                  >
+                    Pusat Bantuan TumpangGo
+                  </button>{' '}
+                  untuk panduan verifikasi berkas dan alur persetujuan mitra.
                 </p>
                 <button
                   onClick={resetPartnerForm}
@@ -6067,6 +6080,35 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
             {renderFooter('-edukasi')}
           </div>
         )}
+
+        {/* 10. PUSAT BANTUAN TUMPANGGO TAB */}
+        {activeTab === 'help' && (
+          <div className="flex flex-col gap-5 pb-6">
+            <HelpCenterView
+              onBack={() => {
+                setActiveTab('home');
+                setHomeSubView('main');
+                if (typeof window !== 'undefined') {
+                  window.scrollTo({ top: 0, behavior: 'smooth' });
+                }
+              }}
+              onNavigateToPartnerRegister={() => {
+                setActiveTab('partner-register');
+                if (typeof window !== 'undefined') {
+                  window.scrollTo({ top: 0, behavior: 'smooth' });
+                }
+              }}
+              onNavigateToTracking={() => {
+                setActiveTab('tracking');
+                if (typeof window !== 'undefined') {
+                  window.scrollTo({ top: 0, behavior: 'smooth' });
+                }
+              }}
+            />
+            {/* Footer Section */}
+            {renderFooter('-help')}
+          </div>
+        )}
       </main>
 
       {/* Sticky Bottom Navigation Footer */}
@@ -6139,6 +6181,27 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
             </span>
           </button>
 
+          {/* Pusat Bantuan Layanan */}
+          <button 
+            id="nav-help-center"
+            onClick={() => {
+              setActiveTab('help');
+              if (typeof window !== 'undefined') {
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+              }
+            }}
+            className={`flex flex-col items-center gap-1.5 flex-1 py-1 cursor-pointer transition-all ${
+              activeTab === 'help' 
+                ? 'text-emerald-700 font-extrabold scale-105'
+                : 'text-slate-400 hover:text-slate-600 font-semibold'
+            }`}
+          >
+            <HelpCircle className="w-5 h-5" />
+            <span className="text-[10px] tracking-tight">
+              Bantuan
+            </span>
+          </button>
+
           {/* Portal Demo (Only shown when secret portal access is unlocked) */}
           {portalAccessUnlocked && (
             <button 
@@ -6153,17 +6216,15 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
         </nav>
       )}
 
-      {/* FLOATING WHATSAPP BUTTON */}
+      {/* FLOATING PUSAT BANTUAN BUTTON */}
       <button
         type="button"
-        onClick={handleOpenWhatsApp}
-        className="fixed bottom-20 right-4 sm:right-6 z-[95] w-12 h-12 sm:w-14 sm:h-14 rounded-full bg-[#25D366] hover:bg-[#20ba5a] text-white flex items-center justify-center shadow-lg shadow-[#25D366]/30 transition-all hover:scale-110 active:scale-95 group cursor-pointer"
-        title="Chat WhatsApp Admin Tumpang Go"
-        aria-label="WhatsApp Admin"
+        onClick={handleOpenHelpCenter}
+        className="fixed bottom-20 right-4 sm:right-6 z-[95] w-12 h-12 sm:w-14 sm:h-14 rounded-full bg-emerald-600 hover:bg-emerald-700 text-white flex items-center justify-center shadow-lg shadow-emerald-700/30 transition-all hover:scale-110 active:scale-95 group cursor-pointer"
+        title="Pusat Bantuan TumpangGo"
+        aria-label="Pusat Bantuan TumpangGo"
       >
-        <svg className="w-6 h-6 sm:w-7 sm:h-7 fill-current" viewBox="0 0 24 24">
-          <path d="M.057 24l1.687-6.163c-1.041-1.804-1.588-3.849-1.587-5.946.003-6.556 5.338-11.891 11.893-11.891 3.181.001 6.167 1.24 8.413 3.488 2.245 2.248 3.481 5.236 3.48 8.414-.003 6.557-5.338 11.892-11.893 11.892-1.99-.001-3.951-.5-5.688-1.448l-6.205 1.654zm6.597-3.807c1.676.995 3.276 1.591 5.392 1.592 5.448 0 9.886-4.434 9.889-9.885.002-5.462-4.415-9.89-9.881-9.892-5.452 0-9.887 4.434-9.889 9.884-.001 2.225.651 3.891 1.746 5.634l-.999 3.648 3.742-.981zm11.387-5.464c-.285-.143-1.689-.833-1.951-.928-.262-.095-.453-.143-.645.143-.19.285-.74.928-.908 1.118-.168.19-.335.214-.62.071-.285-.143-1.205-.444-2.296-1.416-.848-.757-1.421-1.692-1.588-1.978-.168-.285-.018-.439.125-.581.128-.128.285-.335.428-.501.142-.167.19-.285.285-.476.095-.19.047-.357-.024-.501-.071-.143-.645-1.571-.884-2.143-.233-.557-.47-.481-.645-.49-.168-.008-.359-.01-.55-.01-.191 0-.501.071-.763.357-.262.285-.999.977-.999 2.38 0 1.404 1.023 2.76 1.166 2.951.143.19 2.013 3.074 4.877 4.312.681.294 1.213.47 1.628.601.684.217 1.307.186 1.8.113.55-.082 1.689-.69 1.927-1.356.238-.666.238-1.237.167-1.356-.07-.12-.262-.19-.547-.333z"/>
-        </svg>
+        <HelpCircle className="w-6 h-6 sm:w-7 sm:h-7 text-white" />
       </button>
 
       {/* Lightbox Zoom Modal for QRIS and Payment Proof */}
