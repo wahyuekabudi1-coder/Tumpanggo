@@ -209,6 +209,20 @@ authRouter.post(['/login', '/auth/login'], async (req: Request, res: Response) =
     if (role === 'MERCHANT') {
       const merchant = foodDb.getMerchantByEmailOrPhone(cleanUser);
       if (!merchant) {
+        // Check if there is a pending partner registration
+        const pendingReg = foodDb.getPartnerRegistrations().find(r =>
+          r.type === 'MERCHANT' && (
+            (r.email && r.email.trim().toLowerCase() === cleanUser) ||
+            (r.phone && r.phone.trim() === cleanUser)
+          )
+        );
+        if (pendingReg && pendingReg.status === 'PENDING') {
+          return res.status(403).json({
+            error: 'Pendaftaran toko Anda sedang dalam peninjauan oleh Admin. Akses operasional akan dibuka setelah disetujui.',
+            isPendingApproval: true,
+            status: 'PENDING'
+          });
+        }
         return res.status(401).json({ 
           error: 'Email atau No. Telepon ini tidak terdaftar sebagai Merchant Toko.',
           diagnostic: { code: 'EMAIL_NOT_MATCHED', reason: 'MERCHANT_NOT_FOUND', emailMatched: false }
@@ -255,6 +269,20 @@ authRouter.post(['/login', '/auth/login'], async (req: Request, res: Response) =
     if (role === 'DRIVER') {
       const driver = foodDb.getDriverByEmailOrPhone(cleanUser);
       if (!driver) {
+        // Check if there is a pending driver registration
+        const pendingDriverReg = foodDb.getPartnerRegistrations().find(r =>
+          r.type === 'DRIVER' && (
+            (r.email && r.email.trim().toLowerCase() === cleanUser) ||
+            (r.phone && r.phone.trim() === cleanUser)
+          )
+        );
+        if (pendingDriverReg && pendingDriverReg.status === 'PENDING') {
+          return res.status(403).json({
+            error: 'Pendaftaran kurir Anda sedang dalam peninjauan oleh Admin. Akses operasional akan dibuka setelah disetujui.',
+            isPendingApproval: true,
+            status: 'PENDING'
+          });
+        }
         return res.status(401).json({ 
           error: 'No. WhatsApp atau Email ini tidak terdaftar sebagai Driver / Kurir.',
           diagnostic: { code: 'EMAIL_NOT_MATCHED', reason: 'DRIVER_NOT_FOUND', emailMatched: false }

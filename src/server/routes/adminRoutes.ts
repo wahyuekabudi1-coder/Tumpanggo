@@ -45,7 +45,7 @@ adminRouter.post('/partner-registrations', async (req: Request, res: Response) =
   }
 });
 
-adminRouter.put('/partner-registrations/:id/approve', requireRole(['ADMIN']), async (req: Request, res: Response) => {
+const handleApproveRegistration = async (req: Request, res: Response) => {
   const { userId } = req.body;
   try {
     const result = await foodDb.approvePartnerRegistration(req.user?.userId || userId || 'admin', req.params.id);
@@ -57,9 +57,12 @@ adminRouter.put('/partner-registrations/:id/approve', requireRole(['ADMIN']), as
   } catch (e: any) {
     res.status(500).json({ error: e.message });
   }
-});
+};
 
-adminRouter.post('/partner-registrations/:id/reject', requireRole(['ADMIN']), async (req: Request, res: Response) => {
+adminRouter.put('/partner-registrations/:id/approve', requireRole(['ADMIN']), handleApproveRegistration);
+adminRouter.post('/partner-registrations/:id/approve', requireRole(['ADMIN']), handleApproveRegistration);
+
+const handleRejectRegistration = async (req: Request, res: Response) => {
   const { userId } = req.body;
   try {
     const success = await foodDb.rejectPartnerRegistration(req.user?.userId || userId || 'admin', req.params.id);
@@ -71,7 +74,10 @@ adminRouter.post('/partner-registrations/:id/reject', requireRole(['ADMIN']), as
   } catch (e: any) {
     res.status(500).json({ error: e.message });
   }
-});
+};
+
+adminRouter.post('/partner-registrations/:id/reject', requireRole(['ADMIN']), handleRejectRegistration);
+adminRouter.put('/partner-registrations/:id/reject', requireRole(['ADMIN']), handleRejectRegistration);
 
 // --- SETTLEMENTS (Admin Only) ---
 adminRouter.get('/settlements', requireRole(['ADMIN']), (req: Request, res: Response) => {

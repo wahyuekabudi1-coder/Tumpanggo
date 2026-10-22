@@ -351,12 +351,19 @@ export default function App() {
     }
   }, [isMasterAdmin, currentRole, activeDriverId, verifiedEmail, drivers]);
 
-  const handleRoleSelection = (role: 'CUSTOMER' | 'MERCHANT' | 'DRIVER' | 'ADMIN' | 'SHOP_ADMIN', id?: string, initialTab?: 'login' | 'register') => {
+  const handleRoleSelection = (role: 'CUSTOMER' | 'MERCHANT' | 'DRIVER' | 'ADMIN' | 'SHOP_ADMIN', id?: string, initialTab?: 'login' | 'register', email?: string) => {
     setCurrentRole(role);
     safeStorage.setItem('tumpang_current_portal', role);
-    if (!isMasterAdmin) {
-      setVerifiedEmail('');
-      safeStorage.removeItem('tumpang_auth_email');
+    if (email) {
+      setVerifiedEmail(email);
+      safeStorage.setItem('tumpang_auth_email', email);
+    } else if (!isMasterAdmin) {
+      const stored = safeStorage.getItem('tumpang_auth_email');
+      if (stored) {
+        setVerifiedEmail(stored);
+      } else {
+        setVerifiedEmail('');
+      }
     }
     if (role === 'MERCHANT') {
       const targetMId = id || activeMerchantId || safeStorage.getItem('tumpang_active_merchant_id') || (merchants[0]?.id || '');
@@ -523,7 +530,28 @@ export default function App() {
 
   // If driver role is selected but no driver ID is provided (direct link ?role=driver)
   if (currentRole === 'DRIVER' && !activeDriverId && !isMasterAdmin) {
-    // Driver does not need email verification to choose their identity and access their dashboard
+    if (!verifiedEmail && !isDemoMode) {
+      return (
+        <PortalLogin 
+          role="DRIVER" 
+          onSuccess={(email, dId, isMaster) => {
+            if (isMaster) {
+              setIsMasterAdmin(true);
+              setVerifiedEmail(email || 'tumpanggo@gmail.com');
+              const targetDriverId = (dId && drivers.some(d => d.id === dId)) ? dId : (drivers[0]?.id || '');
+              setActiveDriverId(targetDriverId);
+            } else {
+              setVerifiedEmail(email);
+              if (dId) setActiveDriverId(dId);
+            }
+          }} 
+          onCancel={() => {
+            setCurrentRole('CUSTOMER');
+          }} 
+        />
+      );
+    }
+
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4 font-sans">
         <div className="bg-white rounded-3xl p-6 max-w-sm w-full shadow-2xl border border-slate-100 flex flex-col">

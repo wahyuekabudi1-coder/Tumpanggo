@@ -1210,6 +1210,9 @@ export class FoodDatabase {
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
     };
+    if ((newDriver as any).password && !(newDriver as any).password.startsWith('pbkdf2$')) {
+      (newDriver as any).password = hashPassword((newDriver as any).password);
+    }
 
     if (isFirestoreAdminConfigured()) {
       const persisted = await safeFirestoreSetDoc('drivers', newDriver.id, newDriver);
@@ -2264,25 +2267,25 @@ export class FoodDatabase {
     reg.status = 'APPROVED';
 
     if (reg.type === 'MERCHANT') {
-      const generatedPassword = 'TF-' + Math.floor(1000 + Math.random() * 9000);
+      const generatedPassword = reg.password || ('TF-' + Math.floor(1000 + Math.random() * 9000));
       reg.password = generatedPassword;
 
       const newMerchant = await this.createMerchant(userId, {
         name: reg.storeName || (reg.name + ' Store'),
         ownerName: reg.name,
         phone: reg.phone,
-        address: reg.storeAddress || 'Alamat Toko',
+        address: reg.storeAddress || 'Kecamatan Tumpang, Kabupaten Malang',
         latitude: reg.latitude || -7.9482,
         longitude: reg.longitude || 112.7612,
         openTime: '08:00',
         closeTime: '21:00',
-        bankName: 'Bank BRI',
-        bankAccount: '1234567890',
-        bankHolder: reg.name,
+        bankName: reg.bankName || 'Bank BRI',
+        bankAccount: reg.bankAccountNumber || '1234567890',
+        bankHolder: reg.bankAccountHolder || reg.name,
         active: true,
         cookTimeEstimate: '15-30 min',
-        image: reg.businessPhoto || 'https://images.unsplash.com/photo-1513104890138-7c749659a591?w=400&auto=format&fit=crop&q=60&ixlib=rb-4.0.3',
-        description: 'Toko baru bergabung di Tumpang Food!',
+        image: reg.businessPhoto || 'https://images.unsplash.com/photo-1555396273-367ea4eb4db5?w=500&auto=format&fit=crop&q=60',
+        description: reg.description || `Mitra Toko Kuliner ${reg.storeName || reg.name} Kecamatan Tumpang`,
         category: reg.category || 'Nasi & Lauk',
         email: reg.email,
         isActivated: true,
@@ -2294,26 +2297,23 @@ export class FoodDatabase {
 
       reg.storeId = newMerchant.id;
 
-      // Add default category and item
-      const defaultCategory = await this.createCategory(newMerchant.id, 'Menu Utama');
-      await this.createMenuItem(newMerchant.id, {
-        categoryId: defaultCategory.id,
-        name: 'Nasi Goreng Spesial (Contoh)',
-        description: 'Nasi goreng lezat dengan bumbu khas, telur, dan kerupuk.',
-        price: 15000,
-        available: true,
-        image: 'https://images.unsplash.com/photo-1603133872878-684f208fb84b?w=400&auto=format&fit=crop&q=60&ixlib=rb-4.0.3'
-      });
+      // Initialize default category without inserting fake dummy menu items
+      await this.createCategory(newMerchant.id, 'Menu Utama');
     } else if (reg.type === 'DRIVER') {
-      await this.createDriver(userId, {
+      const generatedDriverPassword = reg.password || ('TF-DRV-' + Math.floor(1000 + Math.random() * 9000));
+      reg.password = generatedDriverPassword;
+      const newDriver = await this.createDriver(userId, {
         name: reg.name,
         phone: reg.phone,
         email: reg.email,
         active: true,
         online: false,
         latitude: -7.9482,
-        longitude: 112.7612
-      });
+        longitude: 112.7612,
+        password: hashPassword(generatedDriverPassword),
+        vehicle: (reg as any).vehicleNumber || 'Motor'
+      } as any);
+      (reg as any).driverId = newDriver.id;
     }
 
     if (isFirestoreAdminConfigured()) {

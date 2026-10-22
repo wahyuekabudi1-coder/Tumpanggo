@@ -259,7 +259,12 @@ export interface PartnerRegistration {
   storeName?: string;
   storeAddress?: string;
   category?: string;
+  bankName?: string;
+  bankAccountNumber?: string;
+  bankAccountHolder?: string;
+  description?: string;
   // driver options
+  vehicleType?: string;
   vehicleNumber?: string;
   operatingArea?: string;
   status: 'PENDING' | 'APPROVED' | 'REJECTED' | 'ACTIVATED';

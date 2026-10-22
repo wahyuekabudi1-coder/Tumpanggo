@@ -93,44 +93,86 @@ async function run() {
   console.log('\n--- 2. Live Backend API Order Tracking Tests ---');
   await foodDb.ensureInitialized();
   const merchants = foodDb.getMerchants();
-  if (merchants.length === 0) {
-    throw new Error('No merchants available for test');
+  let merchant = merchants[0];
+  let tempMerchantId: string | null = null;
+  if (!merchant) {
+    merchant = await foodDb.createMerchant('test-user', {
+      name: 'Resto Uji Coba Tumpang',
+      ownerName: 'Uji Coba',
+      phone: '081234567890',
+      address: 'Kecamatan Tumpang',
+      latitude: -7.9482,
+      longitude: 112.7612,
+      openTime: '08:00',
+      closeTime: '21:00',
+      bankName: 'BRI',
+      bankAccount: '1234567890',
+      bankHolder: 'Uji Coba',
+      active: true,
+      cookTimeEstimate: '20 min',
+      image: '',
+      description: 'Uji Coba',
+      category: 'Semua'
+    });
+    tempMerchantId = merchant.id;
   }
-  const merchant = merchants[0];
+
   const menuItems = foodDb.getMenuItemsByMerchant(merchant.id);
-  const menuItem = menuItems[0] || { id: 'item_test_1', name: 'Bakso Barokah', price: 15000 };
+  let menuItem = menuItems[0];
+  if (!menuItem) {
+    menuItem = await foodDb.createMenuItem(merchant.id, {
+      name: 'Bakso Barokah',
+      price: 15000,
+      description: 'Bakso enak',
+      categoryId: 'cat_default',
+      available: true,
+      image: ''
+    });
+  }
 
-  // Create a real test order
-  const createdOrder = await foodDb.createOrder({
-    merchantId: merchant.id,
-    customerName: 'Ahmad Pelanggan Tumpang',
-    customerPhone: '081234567899',
-    deliveryAddress: 'Jl. Malangsuko No. 22, Kec. Tumpang, Malang',
-    items: [{ menuItemId: menuItem.id, quantity: 2 }]
-  });
+  let createdOrderId: string | null = null;
+  try {
+    // Create a real test order
+    const createdOrder = await foodDb.createOrder({
+      merchantId: merchant.id,
+      customerName: 'Ahmad Pelanggan Tumpang',
+      customerPhone: '081234567899',
+      deliveryAddress: 'Jl. Malangsuko No. 22, Kec. Tumpang, Malang',
+      items: [{ menuItemId: menuItem.id, quantity: 2 }]
+    });
+    createdOrderId = createdOrder.id;
 
-  assert(Boolean(createdOrder && createdOrder.id), 'Order baru berhasil dibuat');
-  assert(Boolean(createdOrder.orderNumber && createdOrder.orderNumber.startsWith('TF-')), 'Nomor order kanonis berawalan TF- berhasil di-generate', createdOrder.orderNumber);
+    assert(Boolean(createdOrder && createdOrder.id), 'Order baru berhasil dibuat');
+    assert(Boolean(createdOrder.orderNumber && createdOrder.orderNumber.startsWith('TF-')), 'Nomor order kanonis berawalan TF- berhasil di-generate', createdOrder.orderNumber);
 
-  // Test API: Lookup by exact canonical orderNumber
-  const exactLookup = await foodDb.findOrder(createdOrder.orderNumber!);
-  assert(Boolean(exactLookup && exactLookup.id === createdOrder.id), 'Pelacakan dengan kode persis (TF-...) berhasil', exactLookup?.orderNumber);
+    // Test API: Lookup by exact canonical orderNumber
+    const exactLookup = await foodDb.findOrder(createdOrder.orderNumber!);
+    assert(Boolean(exactLookup && exactLookup.id === createdOrder.id), 'Pelacakan dengan kode persis (TF-...) berhasil', exactLookup?.orderNumber);
 
-  // Test API: Lookup with lowercase
-  const lowerLookup = await foodDb.findOrder(createdOrder.orderNumber!.toLowerCase());
-  assert(Boolean(lowerLookup && lowerLookup.id === createdOrder.id), 'Pelacakan dengan huruf kecil berhasil');
+    // Test API: Lookup with lowercase
+    const lowerLookup = await foodDb.findOrder(createdOrder.orderNumber!.toLowerCase());
+    assert(Boolean(lowerLookup && lowerLookup.id === createdOrder.id), 'Pelacakan dengan huruf kecil berhasil');
 
-  // Test API: Lookup with leading '#'
-  const hashLookup = await foodDb.findOrder(`#${createdOrder.orderNumber}`);
-  assert(Boolean(hashLookup && hashLookup.id === createdOrder.id), 'Pelacakan dengan tanda # di depan berhasil');
+    // Test API: Lookup with leading '#'
+    const hashLookup = await foodDb.findOrder(`#${createdOrder.orderNumber}`);
+    assert(Boolean(hashLookup && hashLookup.id === createdOrder.id), 'Pelacakan dengan tanda # di depan berhasil');
 
-  // Test API: Lookup with extra spaces
-  const spaceLookup = await foodDb.findOrder(`  ${createdOrder.orderNumber}  `);
-  assert(Boolean(spaceLookup && spaceLookup.id === createdOrder.id), 'Pelacakan dengan spasi berhasil');
+    // Test API: Lookup with extra spaces
+    const spaceLookup = await foodDb.findOrder(`  ${createdOrder.orderNumber}  `);
+    assert(Boolean(spaceLookup && spaceLookup.id === createdOrder.id), 'Pelacakan dengan spasi berhasil');
 
-  // Test API: Non-existent order code
-  const notFoundLookup = await foodDb.findOrder('TF-99999999-999');
-  assert(notFoundLookup === undefined, 'Pelacakan kode salah mengembalikan undefined (akan menghasilkan 404)');
+    // Test API: Non-existent order code
+    const notFoundLookup = await foodDb.findOrder('TF-99999999-999');
+    assert(notFoundLookup === undefined, 'Pelacakan kode salah mengembalikan undefined (akan menghasilkan 404)');
+  } finally {
+    const rawDb = foodDb as any;
+    if (createdOrderId) {
+      rawDb.data.orders = (rawDb.data.orders || []).filter((o: any) => o.id !== createdOrderId);
+    }
+    rawDb.data.merchants = (rawDb.data.merchants || []).filter((m: any) => m.name !== 'Resto Uji Coba Tumpang');
+    rawDb.data.menuItems = (rawDb.data.menuItems || []).filter((i: any) => i.name !== 'Bakso Barokah');
+    rawDb.save();
+  }
 
   console.log('\n=== SUMMARY ===');
   const total = testResults.length;
