@@ -627,6 +627,9 @@ export async function resetFirebaseAdmin(): Promise<void> {
   lastDiagnosticReason = 'MISSING_CREDENTIALS';
   lastDiagnosticDetail = 'Variabel lingkungan FIREBASE_SERVICE_ACCOUNT_KEY belum dikonfigurasi di Environment Variables Vercel.';
   lastRemediationStep = 'Buka Vercel Dashboard -> Project Settings -> Environment Variables, lalu tambahkan FIREBASE_SERVICE_ACCOUNT_KEY berisi JSON Service Account dari Firebase Console.';
+  lastFirestoreWriteError = null;
+}
+
 let lastFirestoreWriteError: string | null = null;
 
 export function getLastFirestoreWriteError(): string | null {
