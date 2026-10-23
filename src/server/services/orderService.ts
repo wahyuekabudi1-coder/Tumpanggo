@@ -18,6 +18,8 @@ export interface CreateOrderInput {
   deliveryAddress: string;
   deliveryDetails?: string;
   landmark?: string;
+  destinationDistrict?: string;
+  district?: string;
   latitude: number;
   longitude: number;
   items: Array<{
@@ -88,18 +90,26 @@ export class OrderService {
     const calculatedServiceFee = calculateTieredServiceFee(calculatedSubtotal);
 
     // Authoritatively calculate delivery fee via single source of truth.
-    // Business rule: ALL destinations in Kecamatan Tumpang are strictly charged flat Rp 5.000.
+    // Business rule: Kecamatan Tumpang = Rp 5.000, Kecamatan Pakis = Rp 7.500. Outside = Unsupported.
     const deliveryCalc = calculateDeliveryFee({
       address: input.deliveryAddress,
       details: input.deliveryDetails,
       landmark: input.landmark,
+      district: input.district,
+      destinationDistrict: input.destinationDistrict,
       latitude: input.latitude,
       longitude: input.longitude,
       merchantLatitude: merchant.latitude,
       merchantLongitude: merchant.longitude,
       systemConfig
     });
+
+    if (deliveryCalc.isSupported === false) {
+      throw new Error('Alamat pengantaran berada di luar wilayah jangkauan. Saat ini tumpangGo hanya melayani pengantaran di area Kecamatan Tumpang (Rp 5.000) dan Kecamatan Pakis (Rp 7.500).');
+    }
+
     const calculatedDeliveryFee = deliveryCalc.deliveryFee;
+    const finalDistrict = deliveryCalc.isInPakis ? 'Kecamatan Pakis' : 'Kecamatan Tumpang';
 
     // Generate unique code (01 - 99) not currently used by pending payment orders
     const uniqueCode = this.generateUniqueCode(activeUniqueCodes);
@@ -124,6 +134,7 @@ export class OrderService {
       deliveryAddress: input.deliveryAddress.trim(),
       deliveryDetails: input.deliveryDetails ? input.deliveryDetails.trim() : '',
       landmark: input.landmark ? input.landmark.trim() : '',
+      destinationDistrict: finalDistrict,
       latitude: input.latitude,
       longitude: input.longitude,
       items: validatedItems,

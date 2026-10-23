@@ -654,14 +654,44 @@ export async function safeAdminSetDocDetailed(collectionName: string, docId: str
     const cleaned = removeUndefinedFields(data);
     
     // Payload size safety guard (Firestore 1 MiB document limit)
-    // If a document contains enormous base64 photos, trim non-essential audit fields in public collections
+    // Trim duplicate and oversized base64 fields so documents never exceed Firestore's limit
+    if (collectionName === 'merchants') {
+      delete cleaned.idPhoto;
+      delete cleaned.contractPhoto;
+      // Avoid storing duplicate copy of store photo in both image and businessPhoto
+      if (cleaned.image && cleaned.businessPhoto) {
+        delete cleaned.businessPhoto;
+      }
+      if (cleaned.image && typeof cleaned.image === 'string' && cleaned.image.length > 500 * 1024) {
+        console.warn(`[TumpangFood Admin] Merchant image for ${docId} is large (${Math.round(cleaned.image.length / 1024)} KB). Trimming to standard banner.`);
+        cleaned.image = 'https://images.unsplash.com/photo-1555396273-367ea4eb4db5?w=500&auto=format&fit=crop&q=60';
+      }
+    }
+
+    if (collectionName === 'partnerRegistrations') {
+      // In partner registrations, if total payload is heavy, cap heavy base64 photos
+      const regBytes = Buffer.byteLength(JSON.stringify(cleaned), 'utf-8');
+      if (regBytes > 750 * 1024) {
+        console.warn(`[TumpangFood Admin] Partner registration payload for ${docId} is heavy (${Math.round(regBytes / 1024)} KB). Sanitizing heavy attachments.`);
+        if (cleaned.contractPhoto && typeof cleaned.contractPhoto === 'string' && cleaned.contractPhoto.length > 200 * 1024) {
+          cleaned.contractPhoto = cleaned.contractPhoto.substring(0, 150 * 1024);
+        }
+        if (cleaned.idPhoto && typeof cleaned.idPhoto === 'string' && cleaned.idPhoto.length > 200 * 1024) {
+          cleaned.idPhoto = cleaned.idPhoto.substring(0, 150 * 1024);
+        }
+        if (cleaned.businessPhoto && typeof cleaned.businessPhoto === 'string' && cleaned.businessPhoto.length > 200 * 1024) {
+          cleaned.businessPhoto = cleaned.businessPhoto.substring(0, 150 * 1024);
+        }
+      }
+    }
+
     const estimatedBytes = Buffer.byteLength(JSON.stringify(cleaned), 'utf-8');
-    if (estimatedBytes > 950 * 1024) {
-      console.warn(`[TumpangFood Admin] Payload for ${collectionName}/${docId} is large (${Math.round(estimatedBytes / 1024)} KB). Sanitizing heavy fields.`);
-      if (collectionName === 'merchants') {
-        // Strip heavy KYC photos from public catalog document
-        delete cleaned.idPhoto;
-        delete cleaned.contractPhoto;
+    if (estimatedBytes > 900 * 1024) {
+      console.warn(`[TumpangFood Admin] Payload for ${collectionName}/${docId} still exceeds safe threshold (${Math.round(estimatedBytes / 1024)} KB). Applying emergency sanitization.`);
+      for (const key of Object.keys(cleaned)) {
+        if (typeof cleaned[key] === 'string' && cleaned[key].startsWith('data:image/') && cleaned[key].length > 100 * 1024) {
+          cleaned[key] = cleaned[key].substring(0, 80 * 1024);
+        }
       }
     }
 

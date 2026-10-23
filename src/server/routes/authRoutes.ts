@@ -367,34 +367,80 @@ authRouter.post('/merchants/register', async (req: Request, res: Response) => {
     image,
     businessPhoto,
     idPhoto,
-    contractPhoto
+    contractPhoto,
+    latitude,
+    longitude
   } = req.body;
 
-  if (!name || !ownerName || !phone || !password) {
-    return res.status(400).json({ error: 'Mohon lengkapi Nama Toko, Nama Pemilik, No. WhatsApp, dan Kata Sandi.' });
+  // 1. Mandatory field validation
+  const cleanName = name ? String(name).trim() : '';
+  const cleanOwner = ownerName ? String(ownerName).trim() : '';
+  const cleanPhoneRaw = phone ? String(phone).trim() : '';
+  const cleanEmail = email ? String(email).trim().toLowerCase() : '';
+  const cleanAddress = address ? String(address).trim() : '';
+  const cleanPass = password ? String(password).trim() : '';
+  const photo = businessPhoto || image;
+
+  if (!cleanName) {
+    return res.status(400).json({ error: 'Nama Toko wajib diisi.' });
+  }
+  if (!cleanOwner) {
+    return res.status(400).json({ error: 'Nama Lengkap Pemilik sesuai KTP wajib diisi.' });
+  }
+  if (!cleanPhoneRaw) {
+    return res.status(400).json({ error: 'Nomor WhatsApp wajib diisi.' });
+  }
+  if (!cleanEmail) {
+    return res.status(400).json({ error: 'Email aktif wajib diisi.' });
+  }
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (!emailRegex.test(cleanEmail)) {
+    return res.status(400).json({ error: 'Format email tidak valid.' });
+  }
+  if (!cleanAddress) {
+    return res.status(400).json({ error: 'Alamat lengkap tempat usaha wajib diisi.' });
+  }
+  if (!cleanPass || cleanPass.length < 6) {
+    return res.status(400).json({ error: 'Kata sandi wajib diisi minimal 6 karakter demi keamanan akun Anda.' });
+  }
+  if (!photo) {
+    return res.status(400).json({ error: 'Foto tempat usaha / gerai wajib diunggah.' });
+  }
+  if (!idPhoto) {
+    return res.status(400).json({ error: 'Foto KTP pemilik usaha wajib diunggah untuk verifikasi identitas.' });
   }
 
   try {
-    const cleanPhone = String(phone).trim();
-    const cleanEmail = email ? String(email).trim().toLowerCase() : '';
+    // Normalize phone: digits only
+    const digitsOnly = cleanPhoneRaw.replace(/\D/g, '');
+    const cleanPhone = digitsOnly.startsWith('62') ? '0' + digitsOnly.slice(2) : digitsOnly;
 
+    // Check duplicate in registered merchants
     const existingMerchants = foodDb.getMerchants();
-    const duplicateMerchant = existingMerchants.find(m =>
-      (m.phone && m.phone === cleanPhone) ||
-      (cleanEmail && m.email && m.email.toLowerCase() === cleanEmail)
-    );
+    const duplicateMerchant = existingMerchants.find(m => {
+      const mDigits = (m.phone || '').replace(/\D/g, '');
+      const mNorm = mDigits.startsWith('62') ? '0' + mDigits.slice(2) : mDigits;
+      return (
+        mNorm === cleanPhone ||
+        (cleanEmail && m.email && m.email.toLowerCase() === cleanEmail)
+      );
+    });
 
     if (duplicateMerchant) {
       return res.status(400).json({ error: 'No. HP/WhatsApp atau Email ini sudah terdaftar sebagai Merchant aktif.' });
     }
 
+    // Check duplicate in pending/approved registrations
     const pendingRegs = foodDb.getPartnerRegistrations();
-    const duplicatePending = pendingRegs.find(r =>
-      r.status === 'PENDING' && (
-        (r.phone && r.phone === cleanPhone) ||
+    const duplicatePending = pendingRegs.find(r => {
+      if (r.status !== 'PENDING' && r.status !== 'APPROVED') return false;
+      const rDigits = (r.phone || '').replace(/\D/g, '');
+      const rNorm = rDigits.startsWith('62') ? '0' + rDigits.slice(2) : rDigits;
+      return (
+        rNorm === cleanPhone ||
         (cleanEmail && r.email && r.email.toLowerCase() === cleanEmail)
-      )
-    );
+      );
+    });
 
     if (duplicatePending) {
       return res.status(400).json({ 
@@ -404,20 +450,22 @@ authRouter.post('/merchants/register', async (req: Request, res: Response) => {
     }
 
     const newReg = await foodDb.createPartnerRegistration({
-      name: String(ownerName).trim(),
+      name: cleanOwner,
       phone: cleanPhone,
-      email: cleanEmail || undefined,
+      email: cleanEmail,
       type: 'MERCHANT',
-      storeName: String(name).trim(),
-      storeAddress: address ? String(address).trim() : 'Kecamatan Tumpang, Kabupaten Malang',
+      storeName: cleanName,
+      storeAddress: cleanAddress,
       category: category || 'Nasi & Lauk',
-      description: description ? String(description).trim() : `Mitra Kuliner UMKM ${String(name).trim()}`,
-      password: String(password).trim(),
-      businessPhoto: image || businessPhoto || undefined,
-      idPhoto: idPhoto || undefined,
+      description: description ? String(description).trim() : `Mitra Kuliner UMKM ${cleanName}`,
+      password: cleanPass,
+      businessPhoto: photo,
+      idPhoto: idPhoto,
       contractPhoto: contractPhoto || undefined,
       contractVersion: contractVersion || 'PKS-TUMPANGGO-2026.1',
-      contractAgreedAt: contractAgreedAt || new Date().toISOString()
+      contractAgreedAt: contractAgreedAt || new Date().toISOString(),
+      latitude: typeof latitude === 'number' ? latitude : -7.9942,
+      longitude: typeof longitude === 'number' ? longitude : 112.7667
     });
 
     return res.status(201).json({
@@ -428,6 +476,47 @@ authRouter.post('/merchants/register', async (req: Request, res: Response) => {
     });
   } catch (e: any) {
     return res.status(500).json({ error: e.message || 'Gagal mengajukan pendaftaran toko.' });
+  }
+});
+
+/**
+ * POST /api/merchants/forgot-password
+ * Secure password reset initiation that does NOT reveal account existence.
+ */
+authRouter.post('/merchants/forgot-password', async (req: Request, res: Response) => {
+  const { emailOrPhone } = req.body;
+  if (!emailOrPhone || typeof emailOrPhone !== 'string' || !emailOrPhone.trim()) {
+    return res.status(400).json({ error: 'Mohon masukkan email atau nomor WhatsApp yang terdaftar.' });
+  }
+
+  const query = emailOrPhone.trim().toLowerCase();
+  const digitsOnly = query.replace(/\D/g, '');
+  const normPhone = digitsOnly.startsWith('62') ? '0' + digitsOnly.slice(2) : digitsOnly;
+
+  // Uniform security message (prevents account enumeration attacks)
+  const genericSuccessMessage = 'Jika akun Anda terdaftar di sistem tumpangGo, instruksi pemulihan kata sandi telah dikirimkan. Anda juga dapat menghubungi Admin Pusat tumpangGo melalui WhatsApp Bantuan untuk verifikasi langsung.';
+
+  try {
+    const merchant = foodDb.getMerchants().find(m => {
+      const mEmail = (m.email || '').toLowerCase();
+      const mDigits = (m.phone || '').replace(/\D/g, '');
+      const mNorm = mDigits.startsWith('62') ? '0' + mDigits.slice(2) : mDigits;
+      return mEmail === query || (normPhone && mNorm === normPhone);
+    });
+
+    if (merchant) {
+      foodDb.log(merchant.id, `Permintaan reset kata sandi diajukan untuk merchant ${merchant.name} (${merchant.phone})`, 'MERCHANT');
+    }
+
+    return res.json({
+      success: true,
+      message: genericSuccessMessage
+    });
+  } catch (err: any) {
+    console.error('[Forgot Password Error]', err);
+    return res.status(500).json({
+      error: 'Terjadi kendala pada sistem pemulihan kata sandi. Silakan hubungi Admin Pusat.'
+    });
   }
 });
 

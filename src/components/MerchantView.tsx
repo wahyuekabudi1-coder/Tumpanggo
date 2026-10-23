@@ -282,6 +282,7 @@ export default function MerchantView({ merchantId: rawMerchantId, onLogout, onSe
   const [profileCategory, setProfileCategory] = useState('Nasi & Lauk');
   const [isSavingProfile, setIsSavingProfile] = useState(false);
   const [profileSaveSuccess, setProfileSaveSuccess] = useState(false);
+  const [merchantAccessError, setMerchantAccessError] = useState<string | null>(null);
 
   // Ref to track component mount status for polling
   const isMountedRef = useRef(true);
@@ -345,9 +346,21 @@ export default function MerchantView({ merchantId: rawMerchantId, onLogout, onSe
         return;
       }
 
+      // Check merchant status first
+      const profFetch = await fetch(`/api/merchants/${encodeURIComponent(effectiveMerchantId)}`);
+      if (!profFetch.ok) {
+        const errJson = await profFetch.json().catch(() => ({}));
+        if (profFetch.status === 403 || errJson.isPendingApproval) {
+          setMerchantAccessError(errJson.error || 'Pendaftaran toko Anda sedang dalam peninjauan oleh Admin Pusat tumpangGo.');
+          setLoading(false);
+          setIsRefreshing(false);
+          return;
+        }
+      }
+      const profRes = profFetch.ok ? await profFetch.json() : null;
+
       // Full sync: initial load or explicit manual refresh
-      const [profRes, ordRes, menuRes, catRes, setRes] = await Promise.all([
-        fetch(`/api/merchants/${encodeURIComponent(effectiveMerchantId)}`).then(r => r.ok ? r.json() : null).catch(() => null),
+      const [ordRes, menuRes, catRes, setRes] = await Promise.all([
         fetch(`/api/merchants/${encodeURIComponent(effectiveMerchantId)}/orders`).then(r => r.ok ? r.json() : []).catch(() => []),
         fetch(`/api/merchants/${encodeURIComponent(effectiveMerchantId)}/menu`).then(r => r.ok ? r.json() : []).catch(() => []),
         fetch(`/api/merchants/${encodeURIComponent(effectiveMerchantId)}/categories`).then(r => r.ok ? r.json() : []).catch(() => []),
@@ -358,6 +371,7 @@ export default function MerchantView({ merchantId: rawMerchantId, onLogout, onSe
 
       if (profRes && profRes.id) {
         setMerchant(profRes);
+        setMerchantAccessError(null);
         setProfileName(profRes.name || '');
         setProfilePhone(profRes.phone || '');
         setProfileOwner(profRes.ownerName || '');
@@ -770,6 +784,30 @@ export default function MerchantView({ merchantId: rawMerchantId, onLogout, onSe
   const filteredMenuItems = selectedMenuCategory === 'ALL'
     ? menuItems
     : menuItems.filter(m => m.categoryId === selectedMenuCategory);
+
+  if (merchantAccessError) {
+    return (
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
+        <div className="max-w-md w-full bg-white rounded-3xl border border-amber-200 p-6 sm:p-8 text-center shadow-lg space-y-4">
+          <div className="w-16 h-16 bg-amber-100 text-amber-700 rounded-2xl flex items-center justify-center mx-auto">
+            <Clock className="w-8 h-8" />
+          </div>
+          <h2 className="font-display font-extrabold text-xl text-slate-900">Akses Operasional Belum Aktif</h2>
+          <p className="text-xs text-slate-600 leading-relaxed">
+            {merchantAccessError}
+          </p>
+          <div className="pt-2">
+            <button
+              onClick={onLogout}
+              className="w-full py-3 bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs rounded-xl shadow-xs transition-colors cursor-pointer"
+            >
+              Kembali / Keluar
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-800 font-sans flex flex-col md:flex-row">
@@ -1343,35 +1381,21 @@ export default function MerchantView({ merchantId: rawMerchantId, onLogout, onSe
                     {/* Actions: Pilihan Estimasi Memasak (15, 30, 45, 60 menit) & Konfirmasi */}
                     <div className="p-4 bg-slate-50 border-t border-slate-100 space-y-3">
                       <div>
-                        <div className="flex items-center justify-between mb-1.5">
-                          <label className="text-[11px] font-bold text-slate-700 flex items-center gap-1.5">
-                            <Clock className="w-3.5 h-3.5 text-emerald-600" />
-                            <span>Pilih Estimasi Waktu Memasak:</span>
-                          </label>
-                          <span className="text-[10px] font-extrabold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">
-                            {cookEstimateInput[order.id] || 15} Menit
-                          </span>
-                        </div>
-                        <div className="grid grid-cols-4 gap-1.5">
-                          {ALLOWED_COOKING_DURATIONS.map((dur) => {
-                            const isSelected = (cookEstimateInput[order.id] || 15) === dur;
-                            return (
-                              <button
-                                key={dur}
-                                type="button"
-                                disabled={actionLoadingOrderId === order.id}
-                                onClick={() => setCookEstimateInput(prev => ({ ...prev, [order.id]: dur }))}
-                                className={`py-1.5 px-1 rounded-xl text-xs font-bold transition-all cursor-pointer text-center border ${
-                                  isSelected
-                                    ? 'bg-emerald-600 border-emerald-600 text-white shadow-xs font-extrabold scale-[1.02]'
-                                    : 'bg-white border-slate-200 text-slate-700 hover:border-slate-300 hover:bg-slate-50'
-                                } disabled:opacity-50`}
-                              >
-                                {dur} mnt
-                              </button>
-                            );
-                          })}
-                        </div>
+                        <label className="text-[11px] font-bold text-slate-700 flex items-center gap-1.5 mb-1.5">
+                          <Clock className="w-3.5 h-3.5 text-emerald-600" />
+                          <span>Pilih Estimasi Waktu Memasak:</span>
+                        </label>
+                        <select
+                          value={cookEstimateInput[order.id] || 15}
+                          onChange={(e) => setCookEstimateInput(prev => ({ ...prev, [order.id]: Number(e.target.value) as CookingDurationMinutes }))}
+                          disabled={actionLoadingOrderId === order.id}
+                          className="w-full px-3 py-2 text-xs font-bold bg-white border border-slate-200 rounded-xl text-slate-800 focus:outline-none focus:border-emerald-500 cursor-pointer shadow-xs disabled:opacity-50"
+                        >
+                          <option value={15}>15 menit</option>
+                          <option value={30}>30 menit</option>
+                          <option value={45}>45 menit</option>
+                          <option value={60}>60 menit</option>
+                        </select>
                       </div>
 
                       <div className="flex gap-2 pt-1">

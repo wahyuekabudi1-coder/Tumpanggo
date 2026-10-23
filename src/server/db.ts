@@ -1580,13 +1580,12 @@ export class FoodDatabase {
       active: merchantData.active !== undefined ? Boolean(merchantData.active) : true,
       rating: 5.0,
       cookTimeEstimate: merchantData.cookTimeEstimate || '15-30 min',
-      image: merchantData.image || 'https://images.unsplash.com/photo-1555396273-367ea4eb4db5?w=500&auto=format&fit=crop&q=60',
+      image: merchantData.image || merchantData.businessPhoto || 'https://images.unsplash.com/photo-1555396273-367ea4eb4db5?w=500&auto=format&fit=crop&q=60',
       bannerImage: merchantData.bannerImage || '',
       description: merchantData.description || `Mitra Kuliner ${merchantData.name.trim()} Kecamatan Tumpang`,
       category: merchantData.category || 'Kuliner Tumpang',
       email: merchantData.email ? merchantData.email.trim().toLowerCase() : undefined,
       isActivated: merchantData.isActivated !== undefined ? merchantData.isActivated : true,
-      businessPhoto: merchantData.businessPhoto,
       // KYC photos (idPhoto, contractPhoto) are preserved in partnerRegistrations, not bloated in public merchant doc
       id: 'm_' + Math.random().toString(36).substring(2, 9),
       qrisImage: merchantData.qrisImage || this.data.systemConfig?.qrisImage || '/qris-merchant.png',
@@ -1607,6 +1606,7 @@ export class FoodDatabase {
       const writeResult = await safeAdminSetDocDetailed('merchants', newMerchant.id, newMerchant);
       if (!writeResult.success && foodConfig.isProduction) {
         const errorDetail = writeResult.error || getLastFirestoreWriteError() || 'Gagal menulis dokumen ke Cloud Firestore';
+        console.error(`[TumpangFood DB] Gagal menyimpan data merchant ${newMerchant.id} ke Cloud Firestore:`, errorDetail);
         throw new Error(`[Produksi] Gagal menyimpan merchant ke cloud Firestore: ${errorDetail}. Transaksi dibatalkan demi menjaga integritas data.`);
       }
     } else {
@@ -1626,10 +1626,12 @@ export class FoodDatabase {
     const index = this.data.merchants.findIndex(m => m.id === id);
     if (index === -1) throw new Error('Merchant not found');
 
-    const prevMerchant = { ...this.data.merchants[index] };
     const updatedData = { ...updates };
-    if (updatedData.password && !updatedData.password.startsWith('pbkdf2$')) {
-      updatedData.password = hashPassword(updatedData.password);
+    // Guard against clearing existing password when empty password is submitted
+    if (!updatedData.password || (typeof updatedData.password === 'string' && updatedData.password.trim().length === 0)) {
+      delete updatedData.password;
+    } else if (typeof updatedData.password === 'string' && !updatedData.password.startsWith('pbkdf2$')) {
+      updatedData.password = hashPassword(updatedData.password.trim());
     }
 
     if (updatedData.qrisImage !== undefined) {
@@ -3043,6 +3045,9 @@ export class FoodDatabase {
         if (!existingMerchant && reg.phone) {
           existingMerchant = this.getMerchantByEmailOrPhone(reg.phone);
         }
+        if (!existingMerchant && reg.email) {
+          existingMerchant = this.getMerchantByEmailOrPhone(reg.email);
+        }
 
         let merchantRecord = existingMerchant;
         if (!merchantRecord) {
@@ -3065,10 +3070,16 @@ export class FoodDatabase {
             category: reg.category || 'Nasi & Lauk',
             email: reg.email,
             isActivated: true,
-            password: hashPassword(generatedPassword),
-            businessPhoto: reg.businessPhoto
+            password: hashPassword(generatedPassword)
           });
           createdMerchantId = merchantRecord.id;
+        } else {
+          merchantRecord.active = true;
+          merchantRecord.isActivated = true;
+          if (reg.password) {
+            merchantRecord.password = hashPassword(reg.password);
+          }
+          await safeAdminSetDocDetailed('merchants', merchantRecord.id, merchantRecord);
         }
 
         reg.storeId = merchantRecord.id;

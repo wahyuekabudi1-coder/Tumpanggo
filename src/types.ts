@@ -146,6 +146,7 @@ export interface Order {
   merchantQrisImage?: string;
   receiptNumber?: string;
   receipt?: OrderReceipt;
+  destinationDistrict?: string;
 }
 
 export interface OrderReceipt {

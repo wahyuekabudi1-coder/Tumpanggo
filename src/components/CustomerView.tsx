@@ -513,6 +513,7 @@ export default function CustomerView({
   // Checkout form state
   const [checkoutName, setCheckoutName] = useState('');
   const [checkoutPhone, setCheckoutPhone] = useState('');
+  const [checkoutDistrict, setCheckoutDistrict] = useState<'Kecamatan Tumpang' | 'Kecamatan Pakis' | 'LUAR_WILAYAH'>('Kecamatan Tumpang');
   const [checkoutAddress, setCheckoutAddress] = useState('');
   const [checkoutDetails, setCheckoutDetails] = useState('');
   const [checkoutLandmark, setCheckoutLandmark] = useState('');
@@ -1113,6 +1114,7 @@ export default function CustomerView({
       address: checkoutAddress,
       details: checkoutDetails,
       landmark: checkoutLandmark,
+      destinationDistrict: checkoutDistrict,
       latitude: checkoutLat,
       longitude: checkoutLng,
       merchantLatitude: cartMerchant?.latitude,
@@ -1140,6 +1142,11 @@ export default function CustomerView({
       return;
     }
 
+    if (checkoutDistrict === 'LUAR_WILAYAH') {
+      setCheckoutErrorMsg('Mohon maaf, pengantaran ke luar wilayah Kecamatan Tumpang dan Kecamatan Pakis saat ini belum didukung oleh tumpangGo.');
+      return;
+    }
+
     if (cart.length === 0 || !cartMerchantId) {
       alert('Keranjang Anda kosong');
       return;
@@ -1156,6 +1163,7 @@ export default function CustomerView({
       deliveryAddress: checkoutAddress,
       deliveryDetails: checkoutDetails,
       landmark: checkoutLandmark,
+      destinationDistrict: checkoutDistrict,
       latitude: checkoutLat,
       longitude: checkoutLng,
       items: cart,
@@ -3611,7 +3619,7 @@ export default function CustomerView({
               </div>
 
               <div>
-                <label className="text-xs font-bold text-slate-600 uppercase tracking-wider">No WhatsApp (Aktif)</label>
+                <label className="text-xs font-bold text-slate-600 uppercase tracking-wider">No WhatsApp (Aktif) <span className="text-rose-500">*</span></label>
                 <input
                   type="tel"
                   required
@@ -3620,6 +3628,24 @@ export default function CustomerView({
                   placeholder="Contoh: 0812XXXXXXXX"
                   className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2.5 text-xs focus:outline-none focus:border-rose-500 mt-1"
                 />
+              </div>
+
+              <div>
+                <label className="text-xs font-bold text-slate-600 uppercase tracking-wider">Kecamatan Pengantaran <span className="text-rose-500">*</span></label>
+                <select
+                  value={checkoutDistrict}
+                  onChange={(e) => setCheckoutDistrict(e.target.value as any)}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2.5 text-xs font-bold text-slate-800 focus:outline-none focus:border-rose-500 mt-1 cursor-pointer"
+                >
+                  <option value="Kecamatan Tumpang">Kecamatan Tumpang (Tarif Flat Rp 5.000)</option>
+                  <option value="Kecamatan Pakis">Kecamatan Pakis (Tarif Flat Rp 7.500)</option>
+                  <option value="LUAR_WILAYAH">Luar Wilayah (Tidak Didukung)</option>
+                </select>
+                {checkoutDistrict === 'LUAR_WILAYAH' && (
+                  <p className="text-[11px] text-rose-600 font-semibold mt-1">
+                    ⚠️ Pengantaran ke luar wilayah Kecamatan Tumpang dan Pakis belum didukung oleh sistem kami.
+                  </p>
+                )}
               </div>
             </div>
 
@@ -3641,13 +3667,13 @@ export default function CustomerView({
               </div>
 
               <div>
-                <label className="text-xs font-bold text-slate-600 uppercase tracking-wider">Detail Alamat Lengkap</label>
+                <label className="text-xs font-bold text-slate-600 uppercase tracking-wider">Detail Alamat Lengkap <span className="text-rose-500">*</span></label>
                 <textarea
                   required
                   rows={2}
                   value={checkoutAddress}
                   onChange={(e) => setCheckoutAddress(e.target.value)}
-                  placeholder="Nama jalan, nomor rumah, RT/RW, Dusun..."
+                  placeholder="Nama jalan, nomor rumah, RT/RW, Dusun/Desa..."
                   className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2.5 text-xs focus:outline-none focus:border-rose-500 mt-1"
                 />
               </div>
@@ -3675,14 +3701,16 @@ export default function CustomerView({
                 <div className="flex justify-between items-start">
                   <div>
                     <span className="block font-medium">Ongkos Kirim</span>
-                    {getDeliveryCalculation().isInTumpang ? (
-                      <span className="text-[10px] text-emerald-600 font-bold block">Tarif Flat Kec. Tumpang</span>
+                    {checkoutDistrict === 'Kecamatan Tumpang' ? (
+                      <span className="text-[10px] text-emerald-600 font-bold block">Tarif Flat Kec. Tumpang (Rp 5.000)</span>
+                    ) : checkoutDistrict === 'Kecamatan Pakis' ? (
+                      <span className="text-[10px] text-blue-600 font-bold block">Tarif Flat Kec. Pakis (Rp 7.500)</span>
                     ) : (
-                      <span className="text-[10px] text-amber-600 font-bold block">Luar Kec. Tumpang</span>
+                      <span className="text-[10px] text-rose-600 font-bold block">Luar Jangkauan (Tidak Didukung)</span>
                     )}
                   </div>
                   <span className="font-semibold text-slate-900">
-                    Rp {getDeliveryFee().toLocaleString('id-ID')}
+                    {checkoutDistrict === 'LUAR_WILAYAH' ? 'Tidak Tersedia' : `Rp ${getDeliveryFee().toLocaleString('id-ID')}`}
                   </span>
                 </div>
                 <div className="flex justify-between">
@@ -3692,9 +3720,10 @@ export default function CustomerView({
                 <div className="border-t border-slate-100 pt-2.5 flex justify-between text-sm font-bold text-slate-800">
                   <span>Estimasi Total</span>
                   <span className="text-rose-600 font-mono font-extrabold text-base">
-                    Rp {(getSubtotal() + getDeliveryFee() + getServiceFee()).toLocaleString('id-ID')}*
+                    {checkoutDistrict === 'LUAR_WILAYAH' ? '-' : `Rp ${(getSubtotal() + getDeliveryFee() + getServiceFee()).toLocaleString('id-ID')}*`}
                   </span>
                 </div>
+              </div>
               </div>
               <p className="text-[10px] text-slate-400 mt-3 leading-relaxed">
                 *Total akhir akan ditambahkan 3 digit Kode Unik Pembayaran (Rp 1 - Rp 99) pada halaman berikutnya untuk mempermudah verifikasi.

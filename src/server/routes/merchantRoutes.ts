@@ -27,7 +27,24 @@ merchantRouter.get('/', (req: Request, res: Response, next: NextFunction) => {
 merchantRouter.get('/:id', (req: Request, res: Response, next: NextFunction) => {
   try {
     const m = foodDb.getMerchantById(req.params.id);
-    if (!m) return res.status(404).json({ error: 'Merchant not found' });
+    if (!m) {
+      const pendingReg = foodDb.getPartnerRegistrations().find(r => r.id === req.params.id || r.storeId === req.params.id);
+      if (pendingReg && pendingReg.status === 'PENDING') {
+        return res.status(403).json({
+          error: 'Pendaftaran mitra toko Anda sedang dalam peninjauan oleh Administrator tumpangGo. Akses operasional dashboard belum dibuka.',
+          isPendingApproval: true,
+          status: 'PENDING'
+        });
+      }
+      return res.status(404).json({ error: 'Merchant not found' });
+    }
+    if (!m.active && !m.isActivated) {
+      return res.status(403).json({
+        error: 'Akun toko Anda belum disetujui atau dinonaktifkan oleh Administrator.',
+        isInactive: true,
+        status: 'INACTIVE'
+      });
+    }
     res.json(m);
   } catch (err) {
     next(err);

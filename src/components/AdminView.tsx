@@ -17,7 +17,7 @@ import { compressImage } from '../utils/imageCompressor.ts';
 import { apiFetch as fetch, extractArrayResponse } from '../utils/apiClient.ts';
 import { 
   ShieldCheck, CheckSquare, ClipboardList, Store, Users, DollarSign, Settings, 
-  Check, X, FileText, AlertTriangle, Truck, RefreshCw, ZoomIn, Eye,
+  Check, X, FileText, AlertTriangle, Truck, RefreshCw, ZoomIn, Eye, EyeOff,
   UserPlus, Search, ArrowUpRight, Clock, Phone, MapPin, Building,
   CheckCircle2, XCircle, ChevronRight, Sliders, ArrowDownRight, Wallet, LogOut,
   QrCode, ExternalLink, Trash2, Upload, Quote, Star, Filter, Receipt,
@@ -76,6 +76,10 @@ export default function AdminView({ onLogout, systemConfig, onUpdateConfig, onSe
   const [verifyFilter, setVerifyFilter] = useState<'WAITING' | 'ALL' | 'PAID' | 'REJECTED'>('WAITING');
   const [copiedOrderId, setCopiedOrderId] = useState<string | null>(null);
   const [copiedTrackingLink, setCopiedTrackingLink] = useState<string | null>(null);
+
+  // Password visibility states
+  const [showCreatePass, setShowCreatePass] = useState(false);
+  const [showEditPass, setShowEditPass] = useState(false);
 
   const handleCopyOrderNumber = async (orderNum: string) => {
     try {
@@ -2081,15 +2085,25 @@ export default function AdminView({ onLogout, systemConfig, onUpdateConfig, onSe
                         <label className="block text-xs font-semibold text-slate-700 mb-1">
                           Kata Sandi Akses <span className="text-rose-500">*</span>
                         </label>
-                        <input
-                          type="password"
-                          required
-                          minLength={6}
-                          value={createMerchantForm.password}
-                          onChange={(e) => setCreateMerchantForm({ ...createMerchantForm, password: e.target.value })}
-                          placeholder="Minimal 6 karakter"
-                          className="w-full px-3.5 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-emerald-500"
-                        />
+                        <div className="relative">
+                          <input
+                            type={showCreatePass ? "text" : "password"}
+                            required
+                            minLength={6}
+                            value={createMerchantForm.password}
+                            onChange={(e) => setCreateMerchantForm({ ...createMerchantForm, password: e.target.value })}
+                            placeholder="Minimal 6 karakter"
+                            className="w-full px-3.5 py-2 pr-10 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-emerald-500"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setShowCreatePass(!showCreatePass)}
+                            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer p-1"
+                            title={showCreatePass ? "Sembunyikan kata sandi" : "Lihat kata sandi"}
+                          >
+                            {showCreatePass ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                          </button>
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -2395,14 +2409,24 @@ export default function AdminView({ onLogout, systemConfig, onUpdateConfig, onSe
                         <label className="block text-xs font-semibold text-slate-700 mb-1">
                           Kata Sandi Baru (Kosongkan bila tidak diubah)
                         </label>
-                        <input
-                          type="password"
-                          minLength={6}
-                          value={editMerchantForm.password}
-                          onChange={(e) => setEditMerchantForm({ ...editMerchantForm, password: e.target.value })}
-                          placeholder="Ketik kata sandi baru..."
-                          className="w-full px-3.5 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-emerald-500"
-                        />
+                        <div className="relative">
+                          <input
+                            type={showEditPass ? "text" : "password"}
+                            minLength={6}
+                            value={editMerchantForm.password}
+                            onChange={(e) => setEditMerchantForm({ ...editMerchantForm, password: e.target.value })}
+                            placeholder="Ketik kata sandi baru..."
+                            className="w-full px-3.5 py-2 pr-10 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-emerald-500"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setShowEditPass(!showEditPass)}
+                            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer p-1"
+                            title={showEditPass ? "Sembunyikan kata sandi" : "Lihat kata sandi"}
+                          >
+                            {showEditPass ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                          </button>
+                        </div>
                       </div>
                     </div>
                   </div>
