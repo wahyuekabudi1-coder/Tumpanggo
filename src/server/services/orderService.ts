@@ -223,7 +223,13 @@ export class OrderService {
         }
         // Driver can mark delivered / completed
         if (
-          (currentStatus === OrderStatus.ORDER_PICKED_UP || currentStatus === OrderStatus.DELIVERED) &&
+          currentStatus === OrderStatus.ORDER_PICKED_UP &&
+          (targetStatus === OrderStatus.DELIVERED || targetStatus === OrderStatus.COMPLETED)
+        ) {
+          return { allowed: true };
+        }
+        if (
+          currentStatus === OrderStatus.DELIVERED &&
           targetStatus === OrderStatus.COMPLETED
         ) {
           return { allowed: true };

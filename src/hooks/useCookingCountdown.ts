@@ -39,7 +39,7 @@ export function useCookingCountdown(order: Order | null | undefined): CookingCou
       document.removeEventListener('visibilitychange', handleVisibilityOrFocus);
       window.removeEventListener('focus', handleVisibilityOrFocus);
     };
-  }, [order?.id, order?.cookingEndsAt, order?.cookingStartedAt, order?.status]);
+  }, [order?.id, order?.cookingEndsAt, order?.cookingEstimatedReadyAt, order?.cookingStartedAt, order?.status]);
 
   return calculateRemainingCooking(order, now);
 }

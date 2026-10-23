@@ -15,16 +15,32 @@ import { requireRole } from '../auth';
 export const adminRouter = Router();
 
 // --- SYSTEM CONFIG ---
-// Public read for customer fee calculations and QRIS display
+// Public read for customer fee calculations, service fee tiers, and QRIS display.
+// Strictly sanitizes masterAccount to never expose passwordHash over the network.
 adminRouter.get('/config', (req: Request, res: Response) => {
-  res.json(foodDb.getConfig());
+  const fullConfig = foodDb.getConfig();
+  const { masterAccount, ...safeConfig } = fullConfig;
+  const sanitizedMaster = masterAccount?.email ? { email: masterAccount.email } : undefined;
+  res.json({
+    ...safeConfig,
+    ...(sanitizedMaster ? { masterAccount: sanitizedMaster } : {})
+  });
 });
 
 adminRouter.put('/config', requireRole(['ADMIN']), async (req: Request, res: Response) => {
   const { userId, ...updates } = req.body;
+  // Prevent tampering with masterAccount passwordHash via regular config updates
+  if (updates.masterAccount) {
+    delete (updates.masterAccount as any).passwordHash;
+  }
   try {
     const config = await foodDb.updateConfig(req.user?.userId || userId || 'admin', updates);
-    res.json(config);
+    const { masterAccount, ...safeConfig } = config;
+    const sanitizedMaster = masterAccount?.email ? { email: masterAccount.email } : undefined;
+    res.json({
+      ...safeConfig,
+      ...(sanitizedMaster ? { masterAccount: sanitizedMaster } : {})
+    });
   } catch (e: any) {
     res.status(500).json({ error: e.message });
   }

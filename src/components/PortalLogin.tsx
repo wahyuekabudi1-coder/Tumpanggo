@@ -361,13 +361,35 @@ export default function PortalLogin({ role, targetMerchantId, targetDriverId, in
         throw new Error(data.error || 'Gagal mendaftarkan toko.');
       }
 
-      const authIdentifier = data.merchant.email || data.merchant.phone || data.merchant.id;
-      setSuccessMsg(`Pendaftaran berhasil! Selamat datang, Toko "${data.merchant.name}". Mengalihkan ke dashboard...`);
-      safeStorage.setItem('tumpang_auth_email', authIdentifier);
+      // If registered as PENDING partner application awaiting admin review
+      if (data.status === 'PENDING' || data.registration) {
+        setSuccessMsg(
+          `Pendaftaran Mitra Kuliner berhasil diajukan! Status: PENDING (Menunggu Peninjauan Admin). ` +
+          `Akses operasional toko akan aktif setelah disetujui oleh Administrator TumpangGo.`
+        );
+        // Switch to login tab and populate the identifier so the user can see their status
+        setTimeout(() => {
+          setEmailInput(regEmail || regPhone);
+          setActiveTab('login');
+          setRegStoreName('');
+          setRegOwnerName('');
+          setRegPhone('');
+          setRegEmail('');
+          setRegAddress('');
+          setRegPassword('');
+          setRegConfirmPassword('');
+        }, 2500);
+        return;
+      }
 
-      setTimeout(() => {
-        onSuccess(authIdentifier, data.merchant.id);
-      }, 1000);
+      if (data.merchant) {
+        const authIdentifier = data.merchant.email || data.merchant.phone || data.merchant.id;
+        setSuccessMsg(`Pendaftaran berhasil! Selamat datang, Toko "${data.merchant.name}". Mengalihkan ke dashboard...`);
+        safeStorage.setItem('tumpang_auth_email', authIdentifier);
+        setTimeout(() => {
+          onSuccess(authIdentifier, data.merchant.id);
+        }, 1000);
+      }
 
     } catch (err: any) {
       console.error('Registration error:', err);

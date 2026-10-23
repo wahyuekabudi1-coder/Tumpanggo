@@ -77,7 +77,7 @@ const initialConfig: SystemConfig = {
   deliveryFeePerKm: 1500,
   defaultDeliveryFee: 5000,
   commissionPercent: 10,
-  assignmentMode: AssignmentMode.AUTOMATIC,
+  assignmentMode: AssignmentMode.MANUAL,
   qrisImage: '/qris-merchant.png',
   systemOpen: true
 };
@@ -293,8 +293,13 @@ export class FoodDatabase {
     if (!this.data.pushSubscriptions) this.data.pushSubscriptions = [];
     if (!this.data.systemConfig) {
       this.data.systemConfig = initialConfig;
-    } else if (!this.data.systemConfig.qrisImage || this.data.systemConfig.qrisImage.includes('unsplash')) {
-      this.data.systemConfig.qrisImage = '/qris-merchant.png';
+    } else {
+      if (!this.data.systemConfig.assignmentMode || this.data.systemConfig.assignmentMode === AssignmentMode.AUTOMATIC) {
+        this.data.systemConfig.assignmentMode = AssignmentMode.MANUAL;
+      }
+      if (!this.data.systemConfig.qrisImage || this.data.systemConfig.qrisImage.includes('unsplash')) {
+        this.data.systemConfig.qrisImage = '/qris-merchant.png';
+      }
     }
 
     if (!this.data.drivers) this.data.drivers = [];
@@ -2147,14 +2152,8 @@ export class FoodDatabase {
         }).catch(() => {});
       }
 
-      // Auto-assign driver when payment is verified or ready for pickup if unassigned and configured
-      if (
-        (updates.status === OrderStatus.PAYMENT_VERIFIED || updates.status === OrderStatus.READY_FOR_PICKUP) &&
-        !this.data.orders[index].driverId &&
-        this.data.systemConfig.assignmentMode === AssignmentMode.AUTOMATIC
-      ) {
-        await this.autoAssignDriver(currentOrder.id);
-      }
+      // Auto-dispatch is strictly disabled: drivers must claim tasks manually via atomic task lock
+      // to ensure real driver readiness and operational fairness.
     } else {
       this.log(userId, `Updated order ${currentOrder.id} details`, role);
     }

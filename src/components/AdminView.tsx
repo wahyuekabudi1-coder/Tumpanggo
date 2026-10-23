@@ -3112,17 +3112,14 @@ export default function AdminView({ onLogout, systemConfig, onUpdateConfig, onSe
                       />
                     </div>
 
-                    {/* Tombol Tambah Merchant Baru */}
+                    {/* Tombol Pendaftaran Mitra Masuk (Merchant mendaftar mandiri) */}
                     <button
-                      onClick={() => {
-                        setCreateMerchantForm(defaultCreateMerchantForm);
-                        setCreateMerchantError(null);
-                        setMerchantSubView('create');
-                      }}
+                      onClick={() => setActiveTab('partners')}
                       className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold inline-flex items-center gap-1.5 transition-all shadow-xs cursor-pointer shrink-0"
+                      title="Lihat pengajuan pendaftaran toko kuliner baru"
                     >
-                      <Plus className="w-4 h-4" />
-                      <span>Tambah Merchant</span>
+                      <UserPlus className="w-4 h-4" />
+                      <span>Pendaftaran Mitra</span>
                     </button>
                   </div>
                 </div>
@@ -3164,18 +3161,14 @@ export default function AdminView({ onLogout, systemConfig, onUpdateConfig, onSe
                     <p className="text-xs text-slate-400 mt-1 max-w-sm mb-4">
                       {merchantSearchQuery || merchantStatusFilter !== 'ALL'
                         ? 'Tidak ada toko yang sesuai dengan filter atau kata kunci pencarian.'
-                        : 'Mulai daftarkan mitra kuliner pertama untuk mengaktifkan pemesanan di Kecamatan Tumpang.'}
+                        : 'Merchant kuliner mendaftar secara mandiri melalui form pendaftaran mitra resmi. Admin meninjau dan menyetujui di tab Pendaftaran Mitra.'}
                     </p>
                     <button
-                      onClick={() => {
-                        setCreateMerchantForm(defaultCreateMerchantForm);
-                        setCreateMerchantError(null);
-                        setMerchantSubView('create');
-                      }}
+                      onClick={() => setActiveTab('partners')}
                       className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold inline-flex items-center gap-1.5 transition-all shadow-xs cursor-pointer"
                     >
-                      <Plus className="w-4 h-4" />
-                      <span>Tambah Merchant Pertama</span>
+                      <UserPlus className="w-4 h-4" />
+                      <span>Tinjau Pendaftaran Mitra</span>
                     </button>
                   </div>
                 ) : (

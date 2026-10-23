@@ -3,7 +3,9 @@ import zipfile
 
 def export_zip():
     root_dir = os.path.abspath(os.getcwd())
-    output_zip = os.path.join(root_dir, 'public', 'tumpanggo-source.zip')
+    export_dir = os.path.join(root_dir, 'dist-archive')
+    os.makedirs(export_dir, exist_ok=True)
+    output_zip = os.path.join(export_dir, 'tumpanggo-clean-source.zip')
     
     exclude_dirs = {
         'node_modules',

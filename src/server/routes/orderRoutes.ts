@@ -716,11 +716,13 @@ const handleOrderUpdate = async (req: Request, res: Response) => {
         updates.cookingTimeMinutes = duration;
         updates.cookingStartedAt = startedAt;
         updates.cookingEndsAt = endsAt;
+        updates.cookingEstimatedReadyAt = endsAt;
       } else {
         updates.cookingDurationMinutes = currentOrder.cookingDurationMinutes || duration;
         updates.cookingTimeMinutes = currentOrder.cookingTimeMinutes || duration;
         updates.cookingStartedAt = currentOrder.cookingStartedAt;
         updates.cookingEndsAt = currentOrder.cookingEndsAt;
+        updates.cookingEstimatedReadyAt = currentOrder.cookingEstimatedReadyAt || currentOrder.cookingEndsAt;
       }
     }
   }
@@ -755,11 +757,13 @@ const handleOrderUpdate = async (req: Request, res: Response) => {
         updates.cookingTimeMinutes = duration;
         updates.cookingStartedAt = startedAt;
         updates.cookingEndsAt = endsAt;
+        updates.cookingEstimatedReadyAt = endsAt;
       } else {
         updates.cookingDurationMinutes = currentOrder.cookingDurationMinutes || duration;
         updates.cookingTimeMinutes = currentOrder.cookingTimeMinutes || duration;
         updates.cookingStartedAt = currentOrder.cookingStartedAt;
         updates.cookingEndsAt = currentOrder.cookingEndsAt;
+        updates.cookingEstimatedReadyAt = currentOrder.cookingEstimatedReadyAt || currentOrder.cookingEndsAt;
       }
     }
   }
@@ -772,6 +776,11 @@ const handleOrderUpdate = async (req: Request, res: Response) => {
       [OrderStatus.READY_FOR_PICKUP, OrderStatus.COOKING, OrderStatus.PAYMENT_VERIFIED].includes(currentOrder.status);
 
     if (!isAssigned && !canAcceptTask) {
+      if (currentOrder.driverId && currentOrder.driverId !== (user.entityId || user.userId)) {
+        return res.status(409).json({
+          error: 'Pesanan ini sudah diambil oleh kurir lain.'
+        });
+      }
       return res.status(403).json({
         error: 'Akses ditolak: Pesanan ini bukan tugas pengantaran Anda.'
       });
@@ -780,10 +789,16 @@ const handleOrderUpdate = async (req: Request, res: Response) => {
     // If driver is accepting an unassigned task
     if (!currentOrder.driverId && canAcceptTask) {
       const driver = foodDb.getDriverById(user.entityId || user.userId);
-      if (driver) {
-        updates.driverId = driver.id;
-        updates.driverName = driver.name;
+      if (!driver) {
+        return res.status(404).json({ error: 'Data identitas kurir tidak ditemukan di sistem.' });
       }
+      if (!driver.online || !driver.active) {
+        return res.status(400).json({
+          error: 'Status Anda sedang Offline atau belum diaktifkan oleh Administrator. Aktifkan status Online terlebih dahulu untuk menerima tugas.'
+        });
+      }
+      updates.driverId = driver.id;
+      updates.driverName = driver.name;
     }
 
     if (updates.status) {
@@ -803,6 +818,16 @@ const handleOrderUpdate = async (req: Request, res: Response) => {
         if (currentOrder.status === OrderStatus.COOKING || currentOrder.status === OrderStatus.PAYMENT_VERIFIED) {
           return res.status(400).json({
             error: 'Pesanan masih dalam proses memasak oleh merchant. Silakan tunggu hingga merchant menandai status pesanan "Siap Diambil".'
+          });
+        }
+      }
+
+      // Delivery completion guard: photo proof is required when completing delivery
+      if (updates.status === OrderStatus.DELIVERED) {
+        const hasDeliveryProof = Boolean(updates.deliveryProof || currentOrder.deliveryProof);
+        if (!hasDeliveryProof) {
+          return res.status(400).json({
+            error: 'Foto bukti pengantaran wajib diunggah sebelum menandai pesanan selesai diantar.'
           });
         }
       }

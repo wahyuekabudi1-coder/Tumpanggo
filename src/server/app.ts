@@ -22,16 +22,69 @@ import { pushRouter } from './routes/pushRoutes';
 export const app = express();
 
 // Safe CORS & Preflight Handling for Production & Development
+function isAllowedOrigin(origin?: string): boolean {
+  if (!origin) return true;
+  try {
+    const url = new URL(origin);
+    const host = url.hostname.toLowerCase();
+    
+    // Explicit environment-configured origins
+    const customAllowed = (process.env.ALLOWED_ORIGINS || '').split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
+    if (customAllowed.some(allowed => origin.toLowerCase() === allowed || host === allowed)) {
+      return true;
+    }
+
+    // Local development hosts
+    if (host === 'localhost' || host === '127.0.0.1' || host === '0.0.0.0' || host.endsWith('.localhost')) {
+      return true;
+    }
+
+    // AI Studio, Google Cloud Run, and Firebase hosting domains
+    if (
+      host.endsWith('.run.app') ||
+      host.endsWith('.googleusercontent.com') ||
+      host.endsWith('.aistudio.google.com') ||
+      host.endsWith('.web.app') ||
+      host.endsWith('.firebaseapp.com')
+    ) {
+      return true;
+    }
+
+    // Production and Vercel domains
+    if (
+      host.endsWith('.vercel.app') ||
+      host === 'tumpanggo.com' ||
+      host.endsWith('.tumpanggo.com')
+    ) {
+      return true;
+    }
+
+    // In development mode, allow browser preview origins
+    if (process.env.NODE_ENV !== 'production') {
+      return true;
+    }
+
+    return false;
+  } catch {
+    return false;
+  }
+}
+
 app.use((req, res, next) => {
   const origin = req.headers.origin;
+
   if (origin) {
-    res.setHeader('Access-Control-Allow-Origin', origin);
+    if (isAllowedOrigin(origin)) {
+      res.setHeader('Access-Control-Allow-Origin', origin);
+      res.setHeader('Access-Control-Allow-Credentials', 'true');
+    }
   } else {
+    // Non-browser or same-origin requests
     res.setHeader('Access-Control-Allow-Origin', '*');
   }
+
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-auth-token, x-auth-email, x-request-id, x-requested-with, accept, origin');
-  res.setHeader('Access-Control-Allow-Credentials', 'true');
   res.setHeader('Access-Control-Max-Age', '86400');
 
   // Answer preflight immediately

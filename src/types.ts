@@ -135,6 +135,7 @@ export interface Order {
   cookingDurationMinutes?: number; // 15, 30, 45, 60
   cookingStartedAt?: string; // ISO UTC timestamp
   cookingEndsAt?: string; // ISO UTC timestamp
+  cookingEstimatedReadyAt?: string; // ISO UTC timestamp alias for estimated ready time
   cancelReason?: string;
   createdAt: string;
   updatedAt: string;

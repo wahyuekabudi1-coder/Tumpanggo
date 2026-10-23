@@ -69,6 +69,7 @@ export function calculateRemainingCooking(
   order: {
     cookingStartedAt?: string | null;
     cookingEndsAt?: string | null;
+    cookingEstimatedReadyAt?: string | null;
     cookingDurationMinutes?: number | null;
     cookingTimeMinutes?: number | null;
     createdAt?: string;
@@ -97,8 +98,9 @@ export function calculateRemainingCooking(
   let endTimeMs: number;
   let hasValidServerTimestamps = false;
 
-  if (order.cookingEndsAt) {
-    const parsed = new Date(order.cookingEndsAt).getTime();
+  const targetEnd = order.cookingEstimatedReadyAt || order.cookingEndsAt;
+  if (targetEnd) {
+    const parsed = new Date(targetEnd).getTime();
     if (!isNaN(parsed) && parsed > 0) {
       endTimeMs = parsed;
       hasValidServerTimestamps = true;
