@@ -51,7 +51,8 @@ export default function PartnerPortalHub({
   const [mShowPassword, setMShowPassword] = useState(false);
   const [mBusinessPhoto, setMBusinessPhoto] = useState<string>('');
   const [mIdPhoto, setMIdPhoto] = useState<string>('');
-  const [mAgreeTerms, setMAgreeTerms] = useState(true);
+  const [mContractDownloaded, setMContractDownloaded] = useState(false);
+  const [mAgreeTerms, setMAgreeTerms] = useState(false);
 
   // Driver Register Form states
   const [dName, setDName] = useState('');
@@ -65,7 +66,8 @@ export default function PartnerPortalHub({
   const [dShowPassword, setDShowPassword] = useState(false);
   const [dVehiclePhoto, setDVehiclePhoto] = useState<string>('');
   const [dSimPhoto, setDSimPhoto] = useState<string>('');
-  const [dAgreeTerms, setDAgreeTerms] = useState(true);
+  const [dContractDownloaded, setDContractDownloaded] = useState(false);
+  const [dAgreeTerms, setDAgreeTerms] = useState(false);
 
   // Register submission status
   const [registerLoading, setRegisterLoading] = useState(false);
@@ -184,8 +186,14 @@ export default function PartnerPortalHub({
     setRegisterError('');
     setRegisterSuccess(null);
 
-    if (!mStoreName.trim() || !mOwnerName.trim() || !mPhone.trim() || !mAddress.trim() || !mPassword) {
+    if (!mStoreName.trim() || !mOwnerName.trim() || !mPhone.trim() || !mEmail.trim() || !mAddress.trim() || !mPassword) {
       setRegisterError('Mohon lengkapi seluruh kolom wajib bertanda bintang (*).');
+      return;
+    }
+
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(mEmail.trim())) {
+      setRegisterError('Format email tidak valid.');
       return;
     }
 
@@ -196,6 +204,21 @@ export default function PartnerPortalHub({
 
     if (mPassword !== mConfirmPassword) {
       setRegisterError('Konfirmasi kata sandi tidak cocok.');
+      return;
+    }
+
+    if (!mBusinessPhoto) {
+      setRegisterError('Foto tempat usaha / spanduk toko wajib diunggah.');
+      return;
+    }
+
+    if (!mIdPhoto) {
+      setRegisterError('Foto KTP pemilik usaha wajib diunggah untuk verifikasi identitas.');
+      return;
+    }
+
+    if (!mContractDownloaded) {
+      setRegisterError('Anda wajib mengunduh dokumen Kontrak Kerja Sama terlebih dahulu.');
       return;
     }
 
@@ -216,8 +239,8 @@ export default function PartnerPortalHub({
         category: mCategory,
         storeAddress: mAddress.trim(),
         password: mPassword,
-        businessPhoto: mBusinessPhoto || undefined,
-        idPhoto: mIdPhoto || undefined,
+        businessPhoto: mBusinessPhoto,
+        idPhoto: mIdPhoto,
         status: 'PENDING',
         contractVersion: OFFICIAL_CONTRACT_VERSION,
         contractAgreedAt: new Date().toISOString()
@@ -272,6 +295,21 @@ export default function PartnerPortalHub({
       return;
     }
 
+    if (!dVehiclePhoto) {
+      setRegisterError('Foto kendaraan bermotor / plat nomor wajib diunggah.');
+      return;
+    }
+
+    if (!dSimPhoto) {
+      setRegisterError('Foto SIM / KTP pengemudi wajib diunggah untuk verifikasi identitas.');
+      return;
+    }
+
+    if (!dContractDownloaded) {
+      setRegisterError('Anda wajib mengunduh dokumen Kontrak Kerja Sama Kurir terlebih dahulu.');
+      return;
+    }
+
     if (!dAgreeTerms) {
       setRegisterError('Anda harus menyetujui Syarat & Ketentuan Kemitraan Kurir TumpangGo.');
       return;
@@ -288,8 +326,8 @@ export default function PartnerPortalHub({
         vehicleNumber: `${dVehicleType === 'motor' ? 'Motor' : 'Mobil'} - ${dPlateNumber.trim().toUpperCase()}`,
         operatingArea: dOperatingArea.trim(),
         password: dPassword,
-        businessPhoto: dVehiclePhoto || undefined,
-        idPhoto: dSimPhoto || undefined,
+        businessPhoto: dVehiclePhoto,
+        idPhoto: dSimPhoto,
         status: 'PENDING',
         contractVersion: OFFICIAL_DRIVER_CONTRACT_VERSION,
         contractAgreedAt: new Date().toISOString()
@@ -910,6 +948,8 @@ export default function PartnerPortalHub({
                     <option value="Sate & Bakaran">Sate & Bakaran</option>
                     <option value="Cemilan & Jajanan">Cemilan & Jajanan</option>
                     <option value="Minuman Segar">Minuman Segar</option>
+                    <option value="Kue & Roti">Kue & Roti</option>
+                    <option value="Aneka Kopi & Teh">Aneka Kopi & Teh</option>
                   </select>
                 </div>
                 <div>
@@ -951,7 +991,7 @@ export default function PartnerPortalHub({
                     <button
                       type="button"
                       onClick={() => setMShowPassword(!mShowPassword)}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 p-1"
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 p-1 cursor-pointer"
                       title={mShowPassword ? 'Sembunyikan' : 'Tampilkan'}
                     >
                       {mShowPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
@@ -977,63 +1017,126 @@ export default function PartnerPortalHub({
                 </div>
               </div>
 
-              {/* Optional Photos */}
+              {/* Mandatory Photos */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 border-t border-slate-100 pt-3">
                 <div>
                   <span className="block text-[11px] font-bold text-slate-700 uppercase tracking-wider mb-1.5">
-                    Foto Tempat Usaha (Opsional)
+                    Foto Tempat Usaha / Spanduk <span className="text-rose-500">* (Wajib)</span>
                   </span>
-                  <label className="border-2 border-dashed border-slate-200 hover:border-amber-500 bg-slate-50 rounded-xl p-3 flex items-center gap-2.5 cursor-pointer text-xs transition-colors">
+                  <label className={`border-2 border-dashed rounded-xl p-3 flex items-center gap-2.5 cursor-pointer text-xs transition-colors ${mBusinessPhoto ? 'border-emerald-400 bg-emerald-50/50' : 'border-slate-300 hover:border-amber-500 bg-slate-50'}`}>
                     <input
                       type="file"
                       accept="image/*"
+                      required={!mBusinessPhoto}
                       onChange={(e) => handlePhotoUpload(e, setMBusinessPhoto)}
                       className="hidden"
                     />
                     <Camera className="w-5 h-5 text-slate-400 shrink-0" />
-                    <span className="truncate text-slate-600">
-                      {mBusinessPhoto ? 'Foto dipilih (Klik untuk ganti)' : 'Unggah foto tempat usaha'}
+                    <span className="truncate text-slate-700 font-medium">
+                      {mBusinessPhoto ? '✓ Foto tempat usaha dipilih' : 'Pilih foto tempat usaha'}
                     </span>
                   </label>
                 </div>
                 <div>
                   <span className="block text-[11px] font-bold text-slate-700 uppercase tracking-wider mb-1.5">
-                    Foto KTP Pemilik (Opsional)
+                    Foto KTP Pemilik Usaha <span className="text-rose-500">* (Wajib)</span>
                   </span>
-                  <label className="border-2 border-dashed border-slate-200 hover:border-amber-500 bg-slate-50 rounded-xl p-3 flex items-center gap-2.5 cursor-pointer text-xs transition-colors">
+                  <label className={`border-2 border-dashed rounded-xl p-3 flex items-center gap-2.5 cursor-pointer text-xs transition-colors ${mIdPhoto ? 'border-emerald-400 bg-emerald-50/50' : 'border-slate-300 hover:border-amber-500 bg-slate-50'}`}>
                     <input
                       type="file"
                       accept="image/*"
+                      required={!mIdPhoto}
                       onChange={(e) => handlePhotoUpload(e, setMIdPhoto)}
                       className="hidden"
                     />
                     <Camera className="w-5 h-5 text-slate-400 shrink-0" />
-                    <span className="truncate text-slate-600">
-                      {mIdPhoto ? 'Foto KTP dipilih (Klik untuk ganti)' : 'Unggah foto identitas / KTP'}
+                    <span className="truncate text-slate-700 font-medium">
+                      {mIdPhoto ? '✓ Foto KTP dipilih' : 'Pilih foto KTP pemilik'}
                     </span>
                   </label>
                 </div>
               </div>
 
-              {/* Terms Checkbox */}
-              <div className="flex items-start gap-2.5 pt-2">
+              {/* Contract Download Requirement */}
+              <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                <div className="space-y-1">
+                  <div className="flex items-center gap-1.5">
+                    <FileText className="w-4 h-4 text-emerald-700" />
+                    <span className="text-xs font-bold text-slate-800">Kontrak Kemitraan UMKM Kuliner ({OFFICIAL_CONTRACT_VERSION})</span>
+                  </div>
+                  <p className="text-[11px] text-slate-500 leading-relaxed">
+                    Wajib mengunduh dokumen kontrak sebelum persetujuan diizinkan.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    downloadPartnershipContractPdf({
+                      storeName: mStoreName.trim() || 'Toko Kuliner',
+                      ownerName: mOwnerName.trim() || 'Pemilik Toko',
+                      phone: mPhone.trim(),
+                      email: mEmail.trim(),
+                      address: mAddress.trim(),
+                      role: 'MERCHANT'
+                    });
+                    setMContractDownloaded(true);
+                  }}
+                  className={`shrink-0 py-2 px-3 border font-bold rounded-xl text-xs flex items-center gap-1.5 transition-all cursor-pointer ${
+                    mContractDownloaded
+                      ? 'bg-emerald-600 text-white border-emerald-700'
+                      : 'bg-white hover:bg-emerald-50 border-emerald-300 text-emerald-800 ring-2 ring-emerald-400/20'
+                  }`}
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span>{mContractDownloaded ? '✓ Kontrak Diunduh' : 'Unduh Kontrak (PDF)'}</span>
+                </button>
+              </div>
+
+              {mContractDownloaded && (
+                <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-900 space-y-1">
+                  <p className="font-bold flex items-center gap-1 text-[11px] uppercase tracking-wider text-amber-800">
+                    <AlertCircle className="w-3.5 h-3.5 text-amber-600" />
+                    Petunjuk Dokumen Fisik:
+                  </p>
+                  <p className="text-[11px] leading-relaxed">
+                    Dokumen kontrak yang diunduh wajib dicetak, ditandatangani di atas materai Rp 10.000, dan disiapkan untuk verifikasi fisik oleh Admin.
+                  </p>
+                </div>
+              )}
+
+              {/* Terms Checkbox - Default False, Disabled Until Contract Downloaded */}
+              <div className="flex items-start gap-2.5 pt-1">
                 <input
                   id="merchant-agree-terms"
                   type="checkbox"
+                  disabled={!mContractDownloaded}
                   checked={mAgreeTerms}
                   onChange={(e) => setMAgreeTerms(e.target.checked)}
-                  className="w-4 h-4 mt-0.5 rounded text-amber-600 focus:ring-amber-500 border-slate-300 accent-amber-600 cursor-pointer"
+                  className="w-4 h-4 mt-0.5 rounded text-amber-600 focus:ring-amber-500 border-slate-300 accent-amber-600 cursor-pointer disabled:cursor-not-allowed"
                 />
-                <label htmlFor="merchant-agree-terms" className="text-xs text-slate-600 leading-relaxed cursor-pointer">
-                  Saya menyatakan bahwa data yang diisi adalah benar dan menyetujui seluruh ketentuan kemitraan UMKM TumpangGo.
+                <label htmlFor="merchant-agree-terms" className={`text-xs leading-relaxed ${mContractDownloaded ? 'text-slate-700 cursor-pointer font-medium' : 'text-slate-400 cursor-not-allowed'}`}>
+                  Saya menyatakan data di atas benar, telah mengunduh kontrak, memahami kewajiban penyiapan materai fisik Rp 10.000, dan menyetujui seluruh ketentuan kemitraan UMKM TumpangGo. <span className="text-rose-500 font-bold">*</span>
                 </label>
               </div>
 
               <button
                 id="btn-submit-merchant-register"
                 type="submit"
-                disabled={registerLoading}
-                className="w-full py-3.5 bg-amber-600 hover:bg-amber-700 text-white font-extrabold rounded-xl text-xs sm:text-sm flex items-center justify-center gap-2 shadow-md shadow-amber-600/20 transition-all cursor-pointer disabled:opacity-60"
+                disabled={
+                  registerLoading ||
+                  !mStoreName.trim() ||
+                  !mOwnerName.trim() ||
+                  !mPhone.trim() ||
+                  !mEmail.trim() ||
+                  !mAddress.trim() ||
+                  !mPassword ||
+                  mPassword !== mConfirmPassword ||
+                  !mBusinessPhoto ||
+                  !mIdPhoto ||
+                  !mContractDownloaded ||
+                  !mAgreeTerms
+                }
+                className="w-full py-3.5 bg-amber-600 hover:bg-amber-700 text-white font-extrabold rounded-xl text-xs sm:text-sm flex items-center justify-center gap-2 shadow-md shadow-amber-600/20 transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {registerLoading ? (
                   <>
@@ -1203,63 +1306,124 @@ export default function PartnerPortalHub({
                 </div>
               </div>
 
-              {/* Optional Photos */}
+              {/* Mandatory Photos */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 border-t border-slate-100 pt-3">
                 <div>
                   <span className="block text-[11px] font-bold text-slate-700 uppercase tracking-wider mb-1.5">
-                    Foto Kendaraan (Opsional)
+                    Foto Kendaraan / Plat Nomor <span className="text-rose-500">* (Wajib)</span>
                   </span>
-                  <label className="border-2 border-dashed border-slate-200 hover:border-emerald-500 bg-slate-50 rounded-xl p-3 flex items-center gap-2.5 cursor-pointer text-xs transition-colors">
+                  <label className={`border-2 border-dashed rounded-xl p-3 flex items-center gap-2.5 cursor-pointer text-xs transition-colors ${dVehiclePhoto ? 'border-emerald-400 bg-emerald-50/50' : 'border-slate-300 hover:border-emerald-500 bg-slate-50'}`}>
                     <input
                       type="file"
                       accept="image/*"
+                      required={!dVehiclePhoto}
                       onChange={(e) => handlePhotoUpload(e, setDVehiclePhoto)}
                       className="hidden"
                     />
                     <Camera className="w-5 h-5 text-slate-400 shrink-0" />
-                    <span className="truncate text-slate-600">
-                      {dVehiclePhoto ? 'Foto kendaraan dipilih' : 'Unggah foto kendaraan'}
+                    <span className="truncate text-slate-700 font-medium">
+                      {dVehiclePhoto ? '✓ Foto kendaraan dipilih' : 'Pilih foto kendaraan'}
                     </span>
                   </label>
                 </div>
                 <div>
                   <span className="block text-[11px] font-bold text-slate-700 uppercase tracking-wider mb-1.5">
-                    Foto SIM / KTP (Opsional)
+                    Foto SIM / KTP Pengemudi <span className="text-rose-500">* (Wajib)</span>
                   </span>
-                  <label className="border-2 border-dashed border-slate-200 hover:border-emerald-500 bg-slate-50 rounded-xl p-3 flex items-center gap-2.5 cursor-pointer text-xs transition-colors">
+                  <label className={`border-2 border-dashed rounded-xl p-3 flex items-center gap-2.5 cursor-pointer text-xs transition-colors ${dSimPhoto ? 'border-emerald-400 bg-emerald-50/50' : 'border-slate-300 hover:border-emerald-500 bg-slate-50'}`}>
                     <input
                       type="file"
                       accept="image/*"
+                      required={!dSimPhoto}
                       onChange={(e) => handlePhotoUpload(e, setDSimPhoto)}
                       className="hidden"
                     />
                     <Camera className="w-5 h-5 text-slate-400 shrink-0" />
-                    <span className="truncate text-slate-600">
-                      {dSimPhoto ? 'Foto SIM dipilih' : 'Unggah foto SIM / KTP'}
+                    <span className="truncate text-slate-700 font-medium">
+                      {dSimPhoto ? '✓ Foto SIM/KTP dipilih' : 'Pilih foto SIM / KTP'}
                     </span>
                   </label>
                 </div>
               </div>
 
-              {/* Terms Checkbox */}
-              <div className="flex items-start gap-2.5 pt-2">
+              {/* Driver Contract Download Requirement */}
+              <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                <div className="space-y-1">
+                  <div className="flex items-center gap-1.5">
+                    <FileText className="w-4 h-4 text-emerald-700" />
+                    <span className="text-xs font-bold text-slate-800">Kontrak Kemitraan Kurir ({OFFICIAL_DRIVER_CONTRACT_VERSION})</span>
+                  </div>
+                  <p className="text-[11px] text-slate-500 leading-relaxed">
+                    Wajib mengunduh dokumen kontrak sebelum persetujuan diizinkan.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    downloadPartnershipContractPdf({
+                      storeName: dName.trim() || 'Mitra Kurir',
+                      ownerName: dName.trim() || 'Driver TumpangGo',
+                      phone: dPhone.trim(),
+                      email: dEmail.trim() || `${dPhone.trim()}@driver.tumpanggo.local`,
+                      address: dOperatingArea.trim(),
+                      role: 'DRIVER'
+                    });
+                    setDContractDownloaded(true);
+                  }}
+                  className={`shrink-0 py-2 px-3 border font-bold rounded-xl text-xs flex items-center gap-1.5 transition-all cursor-pointer ${
+                    dContractDownloaded
+                      ? 'bg-emerald-600 text-white border-emerald-700'
+                      : 'bg-white hover:bg-emerald-50 border-emerald-300 text-emerald-800 ring-2 ring-emerald-400/20'
+                  }`}
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span>{dContractDownloaded ? '✓ Kontrak Diunduh' : 'Unduh Kontrak (PDF)'}</span>
+                </button>
+              </div>
+
+              {dContractDownloaded && (
+                <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-900 space-y-1">
+                  <p className="font-bold flex items-center gap-1 text-[11px] uppercase tracking-wider text-amber-800">
+                    <AlertCircle className="w-3.5 h-3.5 text-amber-600" />
+                    Petunjuk Dokumen Fisik:
+                  </p>
+                  <p className="text-[11px] leading-relaxed">
+                    Dokumen kontrak yang diunduh wajib dicetak, ditandatangani di atas materai Rp 10.000, dan disiapkan untuk verifikasi fisik oleh Admin.
+                  </p>
+                </div>
+              )}
+
+              {/* Terms Checkbox - Default False, Disabled Until Contract Downloaded */}
+              <div className="flex items-start gap-2.5 pt-1">
                 <input
                   id="driver-agree-terms"
                   type="checkbox"
+                  disabled={!dContractDownloaded}
                   checked={dAgreeTerms}
                   onChange={(e) => setDAgreeTerms(e.target.checked)}
-                  className="w-4 h-4 mt-0.5 rounded text-emerald-600 focus:ring-emerald-500 border-slate-300 accent-emerald-600 cursor-pointer"
+                  className="w-4 h-4 mt-0.5 rounded text-emerald-600 focus:ring-emerald-500 border-slate-300 accent-emerald-600 cursor-pointer disabled:cursor-not-allowed"
                 />
-                <label htmlFor="driver-agree-terms" className="text-xs text-slate-600 leading-relaxed cursor-pointer">
-                  Saya menyatakan bahwa data armada pengemudi yang diisi adalah benar dan menyetujui seluruh ketentuan kemitraan kurir TumpangGo.
+                <label htmlFor="driver-agree-terms" className={`text-xs leading-relaxed ${dContractDownloaded ? 'text-slate-700 cursor-pointer font-medium' : 'text-slate-400 cursor-not-allowed'}`}>
+                  Saya menyatakan bahwa data armada pengemudi yang diisi adalah benar, telah mengunduh kontrak, memahami penyiapan dokumen fisik/materai, dan menyetujui seluruh ketentuan kemitraan kurir TumpangGo. <span className="text-rose-500 font-bold">*</span>
                 </label>
               </div>
 
               <button
                 id="btn-submit-driver-register"
                 type="submit"
-                disabled={registerLoading}
-                className="w-full py-3.5 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold rounded-xl text-xs sm:text-sm flex items-center justify-center gap-2 shadow-md shadow-emerald-600/20 transition-all cursor-pointer disabled:opacity-60"
+                disabled={
+                  registerLoading ||
+                  !dName.trim() ||
+                  !dPhone.trim() ||
+                  !dPlateNumber.trim() ||
+                  !dPassword ||
+                  dPassword !== dConfirmPassword ||
+                  !dVehiclePhoto ||
+                  !dSimPhoto ||
+                  !dContractDownloaded ||
+                  !dAgreeTerms
+                }
+                className="w-full py-3.5 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold rounded-xl text-xs sm:text-sm flex items-center justify-center gap-2 shadow-md shadow-emerald-600/20 transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {registerLoading ? (
                   <>

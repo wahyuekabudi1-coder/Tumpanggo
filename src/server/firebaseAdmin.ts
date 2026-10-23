@@ -11,10 +11,35 @@
 
 import fs from 'fs';
 import path from 'path';
+import sharp from 'sharp';
 import * as admin from 'firebase-admin';
 import { initializeApp, getApps, cert, type App } from 'firebase-admin/app';
 import { getFirestore, type Firestore, type Transaction } from 'firebase-admin/firestore';
 import { foodConfig } from './config';
+
+/**
+ * Safely compresses base64 image data URIs server-side using sharp without replacing with stock photos.
+ */
+async function compressDataUriIfNeeded(dataUri: string, maxDim = 800, maxBytes = 150 * 1024): Promise<string> {
+  if (!dataUri || typeof dataUri !== 'string' || !dataUri.startsWith('data:image/')) {
+    return dataUri;
+  }
+  if (dataUri.length <= maxBytes) {
+    return dataUri;
+  }
+  try {
+    const rawData = dataUri.replace(/^data:image\/[a-zA-Z+]+;base64,/, '');
+    const inBuf = Buffer.from(rawData, 'base64');
+    const outBuf = await sharp(inBuf)
+      .resize({ width: maxDim, height: maxDim, fit: 'inside', withoutEnlargement: true })
+      .jpeg({ quality: 65, progressive: true })
+      .toBuffer();
+    return 'data:image/jpeg;base64,' + outBuf.toString('base64');
+  } catch (err) {
+    console.warn('[Server Image Compression] Preserving original image buffer, sharp compression error:', err);
+    return dataUri;
+  }
+}
 
 export type DiagnosticReason = 
   | 'OK'
@@ -662,16 +687,14 @@ export async function safeAdminSetDocDetailed(collectionName: string, docId: str
       delete cleaned.ktpPhoto;
       delete cleaned.ownerKtpPhoto;
 
-      // Sanitize main image if oversized base64
-      if (cleaned.image && typeof cleaned.image === 'string' && cleaned.image.startsWith('data:image/') && cleaned.image.length > 150 * 1024) {
-        console.warn(`[TumpangFood Admin] Merchant image for ${docId} is large (${Math.round(cleaned.image.length / 1024)} KB). Sanitizing to optimized standard image.`);
-        cleaned.image = 'https://images.unsplash.com/photo-1555396273-367ea4eb4db5?w=500&auto=format&fit=crop&q=60';
+      // Sanitize main image if oversized base64 via authentic image compression
+      if (cleaned.image && typeof cleaned.image === 'string' && cleaned.image.startsWith('data:image/')) {
+        cleaned.image = await compressDataUriIfNeeded(cleaned.image, 800, 150 * 1024);
       }
 
-      // Sanitize bannerImage if oversized base64
-      if (cleaned.bannerImage && typeof cleaned.bannerImage === 'string' && cleaned.bannerImage.startsWith('data:image/') && cleaned.bannerImage.length > 200 * 1024) {
-        console.warn(`[TumpangFood Admin] Merchant banner image for ${docId} is large (${Math.round(cleaned.bannerImage.length / 1024)} KB). Sanitizing to optimized standard banner.`);
-        cleaned.bannerImage = 'https://images.unsplash.com/photo-1504674900247-0877df9cc836?w=800&auto=format&fit=crop&q=60';
+      // Sanitize bannerImage if oversized base64 via authentic image compression
+      if (cleaned.bannerImage && typeof cleaned.bannerImage === 'string' && cleaned.bannerImage.startsWith('data:image/')) {
+        cleaned.bannerImage = await compressDataUriIfNeeded(cleaned.bannerImage, 1000, 200 * 1024);
       }
 
       // Sanitize QRIS image if oversized base64
@@ -682,28 +705,24 @@ export async function safeAdminSetDocDetailed(collectionName: string, docId: str
     }
 
     if (collectionName === 'partnerRegistrations') {
-      // In partner registrations, if total payload is heavy, cap heavy base64 photos
-      const regBytes = Buffer.byteLength(JSON.stringify(cleaned), 'utf-8');
-      if (regBytes > 500 * 1024) {
-        console.warn(`[TumpangFood Admin] Partner registration payload for ${docId} is heavy (${Math.round(regBytes / 1024)} KB). Optimizing attachments.`);
-        if (cleaned.contractPhoto && typeof cleaned.contractPhoto === 'string' && cleaned.contractPhoto.length > 150 * 1024) {
-          cleaned.contractPhoto = 'https://images.unsplash.com/photo-1450133064473-71024230f91b?w=500&auto=format&fit=crop&q=60';
-        }
-        if (cleaned.idPhoto && typeof cleaned.idPhoto === 'string' && cleaned.idPhoto.length > 150 * 1024) {
-          cleaned.idPhoto = 'https://images.unsplash.com/photo-1544717305-2782549b5136?w=500&auto=format&fit=crop&q=60';
-        }
-        if (cleaned.businessPhoto && typeof cleaned.businessPhoto === 'string' && cleaned.businessPhoto.length > 150 * 1024) {
-          cleaned.businessPhoto = 'https://images.unsplash.com/photo-1555396273-367ea4eb4db5?w=500&auto=format&fit=crop&q=60';
-        }
+      // In partner registrations, preserve authentic photos using real server-side image compression
+      if (cleaned.contractPhoto && typeof cleaned.contractPhoto === 'string' && cleaned.contractPhoto.startsWith('data:image/')) {
+        cleaned.contractPhoto = await compressDataUriIfNeeded(cleaned.contractPhoto, 800, 150 * 1024);
+      }
+      if (cleaned.idPhoto && typeof cleaned.idPhoto === 'string' && cleaned.idPhoto.startsWith('data:image/')) {
+        cleaned.idPhoto = await compressDataUriIfNeeded(cleaned.idPhoto, 800, 150 * 1024);
+      }
+      if (cleaned.businessPhoto && typeof cleaned.businessPhoto === 'string' && cleaned.businessPhoto.startsWith('data:image/')) {
+        cleaned.businessPhoto = await compressDataUriIfNeeded(cleaned.businessPhoto, 800, 150 * 1024);
       }
     }
 
     const estimatedBytes = Buffer.byteLength(JSON.stringify(cleaned), 'utf-8');
     if (estimatedBytes > 750 * 1024) {
-      console.warn(`[TumpangFood Admin] Payload for ${collectionName}/${docId} exceeds safe threshold (${Math.round(estimatedBytes / 1024)} KB). Applying emergency safe compression.`);
+      console.warn(`[TumpangFood Admin] Payload for ${collectionName}/${docId} exceeds safe threshold (${Math.round(estimatedBytes / 1024)} KB). Applying emergency safe compression to authentic photos.`);
       for (const key of Object.keys(cleaned)) {
-        if (typeof cleaned[key] === 'string' && cleaned[key].startsWith('data:image/') && cleaned[key].length > 80 * 1024) {
-          cleaned[key] = 'https://images.unsplash.com/photo-1555396273-367ea4eb4db5?w=500&auto=format&fit=crop&q=60';
+        if (typeof cleaned[key] === 'string' && cleaned[key].startsWith('data:image/') && cleaned[key].length > 60 * 1024) {
+          cleaned[key] = await compressDataUriIfNeeded(cleaned[key], 600, 50 * 1024);
         }
       }
     }

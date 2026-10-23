@@ -11,7 +11,7 @@ import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
 import { Router, Request, Response } from 'express';
-import { foodDb } from '../db';
+import { foodDb, OFFICIAL_MERCHANT_CATEGORIES } from '../db';
 import { foodConfig, updateRuntimeMasterPassword, isMasterAdminEmail, getMasterAccountCredentials } from '../config';
 import { createAuthToken, verifyPassword, hashPassword, isAdminEmail, requireRole } from '../auth';
 
@@ -428,6 +428,11 @@ authRouter.post('/merchants/register', async (req: Request, res: Response) => {
   }
   if (!idPhoto) {
     return res.status(400).json({ error: 'Foto KTP pemilik usaha wajib diunggah untuk verifikasi identitas.' });
+  }
+  if (category && !OFFICIAL_MERCHANT_CATEGORIES.includes(String(category).trim())) {
+    return res.status(400).json({
+      error: `Kategori tidak valid. Pilih dari kategori resmi: ${OFFICIAL_MERCHANT_CATEGORIES.join(', ')}`
+    });
   }
 
   try {

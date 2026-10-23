@@ -42,6 +42,16 @@ import { classifyRecord, KNOWN_SEED_MERCHANT_IDS } from './services/cleanupServi
 const FOOD_DB_FILE = foodConfig.localDbFile;
 const LEGACY_DB_FILE = foodConfig.legacyDbFile;
 
+export const OFFICIAL_MERCHANT_CATEGORIES = [
+  'Nasi & Lauk',
+  'Bakso & Mie',
+  'Sate & Bakaran',
+  'Cemilan & Jajanan',
+  'Minuman Segar',
+  'Kue & Roti',
+  'Aneka Kopi & Teh'
+];
+
 // Administrative Firestore set helper alias
 const safeFirestoreSetDoc = safeAdminSetDoc;
 
@@ -1547,12 +1557,31 @@ export class FoodDatabase {
       throw new Error('Alamat lengkap toko wajib diisi.');
     }
 
+    // Phone duplicate validation
+    const cleanPhoneDigits = merchantData.phone.replace(/\D/g, '');
+    const normPhone = cleanPhoneDigits.startsWith('62') ? '0' + cleanPhoneDigits.slice(2) : cleanPhoneDigits;
+    const existingPhone = this.data.merchants.find(m => {
+      if (!m || !m.phone) return false;
+      const mDigits = m.phone.replace(/\D/g, '');
+      const mNorm = mDigits.startsWith('62') ? '0' + mDigits.slice(2) : mDigits;
+      return Boolean(mNorm && mNorm === normPhone);
+    });
+    if (existingPhone) {
+      throw new Error(`Nomor telepon / WhatsApp "${merchantData.phone.trim()}" sudah digunakan oleh toko "${existingPhone.name}".`);
+    }
+
     if (merchantData.email && merchantData.email.trim()) {
       const cleanEmail = merchantData.email.trim().toLowerCase();
       const existing = this.data.merchants.find(m => m && m.email?.trim().toLowerCase() === cleanEmail);
       if (existing) {
         throw new Error(`Email "${cleanEmail}" sudah digunakan oleh toko "${existing.name}".`);
       }
+    }
+
+    // Real photo check - no stock fallback!
+    const realPhoto = merchantData.image || merchantData.businessPhoto;
+    if (!realPhoto || typeof realPhoto !== 'string' || !realPhoto.trim()) {
+      throw new Error('Foto tempat usaha / gerai wajib diunggah.');
     }
 
     const newMerchant: Merchant = {
@@ -1570,13 +1599,12 @@ export class FoodDatabase {
       active: merchantData.active !== undefined ? Boolean(merchantData.active) : true,
       rating: 5.0,
       cookTimeEstimate: merchantData.cookTimeEstimate || '15 menit',
-      image: merchantData.image || merchantData.businessPhoto || 'https://images.unsplash.com/photo-1555396273-367ea4eb4db5?w=500&auto=format&fit=crop&q=60',
+      image: realPhoto.trim(),
       bannerImage: merchantData.bannerImage || '',
       description: merchantData.description || `Mitra Kuliner ${merchantData.name.trim()} Kecamatan Tumpang`,
-      category: merchantData.category || 'Kuliner Tumpang',
+      category: merchantData.category || 'Nasi & Lauk',
       email: merchantData.email ? merchantData.email.trim().toLowerCase() : undefined,
       isActivated: merchantData.isActivated !== undefined ? merchantData.isActivated : true,
-      // KYC photos (idPhoto, contractPhoto) are preserved in partnerRegistrations, not bloated in public merchant doc
       id: 'm_' + Math.random().toString(36).substring(2, 9),
       qrisImage: merchantData.qrisImage || this.data.systemConfig?.qrisImage || '/qris-merchant.png',
       createdAt: new Date().toISOString(),
@@ -1604,8 +1632,20 @@ export class FoodDatabase {
     }
 
     this.data.merchants.push(newMerchant);
-    // Create initial default category for menu
-    this.createCategory(newMerchant.id, 'Menu Utama').catch(() => {});
+
+    // Create and await initial default category for menu
+    try {
+      await this.createCategory(newMerchant.id, 'Menu Utama');
+    } catch (catErr: any) {
+      // Rollback merchant from local state and firestore if category creation fails
+      this.data.merchants = this.data.merchants.filter(m => m.id !== newMerchant.id);
+      if (isFirestoreAdminConfigured()) {
+        safeAdminDeleteDoc('merchants', newMerchant.id).catch(() => {});
+      }
+      this.save();
+      throw new Error(`Gagal membuat kategori awal untuk merchant: ${catErr?.message || catErr}`);
+    }
+
     this.save();
     this.log(userId, `Created merchant ${newMerchant.name}`, 'ADMIN');
     return newMerchant;
@@ -1727,11 +1767,16 @@ export class FoodDatabase {
   public async createCategory(merchantId: string, name: string): Promise<Category> {
     await this.ensureProductionCloudReady('Penambahan Kategori');
     const existing = this.getCategories(merchantId);
+    const cleanName = name.trim();
+    const existingMatch = existing.find(c => c.name.trim().toLowerCase() === cleanName.toLowerCase());
+    if (existingMatch) {
+      return existingMatch;
+    }
     const orderIndex = existing.length > 0 ? Math.max(...existing.map(e => e.orderIndex)) + 1 : 1;
     const newCat: Category = {
       id: 'cat_' + Math.random().toString(36).substring(2, 9),
       merchantId,
-      name: name.trim(),
+      name: cleanName,
       orderIndex
     };
 
@@ -2378,24 +2423,24 @@ export class FoodDatabase {
       updatedAt: now.toISOString()
     });
 
-    if (foodConfig.isProduction) {
+    if (isFirestoreAdminConfigured()) {
       const persisted = await safeFirestoreSetDoc('orders', newOrder.id, newOrder);
       if (!persisted) {
-        throw new Error('[Produksi] Gagal menyimpan pesanan ke cloud Firestore. Transaksi dibatalkan secara aman demi mencegah kehilangan data atau transaksi ganda.');
+        if (foodConfig.isProduction) {
+          throw new Error('[Produksi] Gagal menyimpan pesanan ke cloud Firestore. Transaksi dibatalkan secara aman demi mencegah kehilangan data atau transaksi ganda.');
+        } else {
+          console.warn(`[TumpangFood DB] Gagal menyimpan pesanan ${newOrder.id} ke cloud Firestore.`);
+        }
       }
+    } else if (foodConfig.isProduction) {
+      throw new Error('[Produksi] Cloud Firestore belum dikonfigurasi. Pesanan dibatalkan demi integritas data.');
+    } else {
+      console.warn('[TumpangFood DB] Variabel FIREBASE_SERVICE_ACCOUNT_KEY belum dikonfigurasi di Environment Variables Vercel. Pesanan disimpan pada penyimpanan lokal resilien.');
     }
 
     this.data.orders.unshift(newOrder);
     this.save();
     this.log('CUSTOMER', `Created order ${newOrder.orderNumber} (ID: ${newOrder.id}) Total: Rp ${newOrder.total.toLocaleString()} (UniqueCode: ${newOrder.uniqueCode})`, 'CUSTOMER');
-
-    if (!foodConfig.isProduction) {
-      if (isFirestoreAdminConfigured()) {
-        safeFirestoreSetDoc('orders', newOrder.id, newOrder).catch(() => {});
-      } else {
-        console.warn('[TumpangFood DB] Variabel FIREBASE_SERVICE_ACCOUNT_KEY belum dikonfigurasi di Environment Variables Vercel. Pesanan disimpan pada penyimpanan lokal resilien.');
-      }
-    }
     return newOrder;
   }
 
@@ -2984,8 +3029,30 @@ export class FoodDatabase {
     });
   }
 
+  private registrationMutex: Promise<any> = Promise.resolve();
+
+  /**
+   * Serializes partner registration creation and approval operations to prevent concurrent race conditions
+   */
+  public async runWithRegistrationLock<T>(fn: () => Promise<T> | T): Promise<T> {
+    let release: () => void;
+    const waitPromise = new Promise<void>(resolve => {
+      release = resolve;
+    });
+    const currentMutex = this.registrationMutex;
+    this.registrationMutex = currentMutex.then(() => waitPromise).catch(() => waitPromise);
+    await currentMutex;
+
+    try {
+      return await fn();
+    } finally {
+      release!();
+    }
+  }
+
   // --- PARTNER REGISTRATIONS ---
   public getPartnerRegistrations(): PartnerRegistration[] {
+    this.reloadFromDiskIfNeeded();
     return (this.data.partnerRegistrations || []).map(r => {
       const { password, ...safe } = r;
       return safe as PartnerRegistration;
@@ -2995,256 +3062,294 @@ export class FoodDatabase {
   public async createPartnerRegistration(regData: Omit<PartnerRegistration, 'id' | 'status' | 'createdAt'>): Promise<PartnerRegistration> {
     await this.ensureProductionCloudReady('Pendaftaran Pengajuan Mitra');
 
-    // 1. Mandatory Fields Validation
-    if (!regData.name || !regData.name.trim()) {
-      throw new Error('Nama lengkap pemilik sesuai KTP wajib diisi.');
-    }
-    if (regData.type === 'MERCHANT' && (!regData.storeName || !regData.storeName.trim())) {
-      throw new Error('Nama toko / usaha kuliner wajib diisi.');
-    }
-    if (!regData.phone || !regData.phone.trim()) {
-      throw new Error('Nomor telepon / WhatsApp aktif wajib diisi.');
-    }
-    if (!regData.email || !regData.email.trim() || !regData.email.includes('@')) {
-      throw new Error('Alamat email wajib diisi dengan format yang benar.');
-    }
-    if (regData.type === 'MERCHANT' && (!regData.storeAddress || !regData.storeAddress.trim())) {
-      throw new Error('Alamat lengkap toko / usaha wajib diisi.');
-    }
-    if (!regData.password || regData.password.trim().length < 6) {
-      throw new Error('Kata sandi wajib diisi dan minimal 6 karakter.');
-    }
-    if (regData.type === 'MERCHANT' && !regData.businessPhoto) {
-      throw new Error('Foto tempat usaha / gerai wajib diunggah.');
-    }
-    if (!regData.idPhoto) {
-      throw new Error('Foto KTP pemilik usaha wajib diunggah.');
-    }
+    return this.runWithRegistrationLock(async () => {
+      this.reloadFromDiskIfNeeded();
 
-    // 2. Authoritative Phone & Email Duplicate Verification
-    const cleanPhoneDigits = regData.phone.replace(/\D/g, '');
-    const normPhone = cleanPhoneDigits.startsWith('62') 
-      ? '0' + cleanPhoneDigits.slice(2) 
-      : (cleanPhoneDigits.startsWith('0') ? cleanPhoneDigits : '0' + cleanPhoneDigits);
-    const cleanEmail = regData.email.trim().toLowerCase();
-
-    // Check duplicate in existing merchants
-    const existingMerchantDuplicate = this.data.merchants.find(m => {
-      const mEmail = (m.email || '').trim().toLowerCase();
-      const mDigits = (m.phone || '').replace(/\D/g, '');
-      const mNorm = mDigits.startsWith('62') ? '0' + mDigits.slice(2) : (mDigits.startsWith('0') ? mDigits : '0' + mDigits);
-      return (
-        (cleanEmail && mEmail === cleanEmail) ||
-        (cleanPhoneDigits.length >= 8 && mNorm === normPhone)
-      );
-    });
-
-    if (existingMerchantDuplicate) {
-      throw new Error('Nomor telepon / WhatsApp atau email ini sudah terdaftar sebagai mitra aktif. Silakan masuk melalui portal login.');
-    }
-
-    // Check duplicate in pending or approved partner registrations
-    const pendingDuplicate = this.data.partnerRegistrations.find(r => {
-      if (r.status !== 'PENDING' && r.status !== 'APPROVED') return false;
-      const rEmail = (r.email || '').trim().toLowerCase();
-      const rDigits = (r.phone || '').replace(/\D/g, '');
-      const rNorm = rDigits.startsWith('62') ? '0' + rDigits.slice(2) : (rDigits.startsWith('0') ? rDigits : '0' + rDigits);
-      return (
-        (cleanEmail && rEmail === cleanEmail) ||
-        (cleanPhoneDigits.length >= 8 && rNorm === normPhone)
-      );
-    });
-
-    if (pendingDuplicate) {
-      throw new Error('Pendaftaran dengan nomor WhatsApp atau email ini sudah diajukan dan sedang menunggu verifikasi Administrator.');
-    }
-
-    const cleanPassword = regData.password 
-      ? (regData.password.startsWith('pbkdf2$') ? regData.password : hashPassword(regData.password))
-      : undefined;
-
-    const newReg: PartnerRegistration = {
-      ...regData,
-      phone: normPhone,
-      email: cleanEmail,
-      password: cleanPassword,
-      id: 'reg_' + Math.random().toString(36).substring(2, 9),
-      status: 'PENDING',
-      contractVersion: regData.contractVersion || (regData.type === 'MERCHANT' ? 'PKS-TUMPANGGO-2026.1' : 'PKS-DRIVER-TUMPANGGO-2026.1'),
-      contractAgreedAt: regData.contractAgreedAt || new Date().toISOString(),
-      createdAt: new Date().toISOString()
-    };
-
-    if (isFirestoreAdminConfigured()) {
-      const persisted = await safeFirestoreSetDoc('partnerRegistrations', newReg.id, newReg);
-      if (!persisted && foodConfig.isProduction) {
-        throw new Error('[Produksi] Gagal menyimpan pendaftaran mitra ke cloud Firestore. Transaksi dibatalkan demi integritas data.');
+      // 1. Mandatory Fields Validation
+      if (!regData.name || !regData.name.trim()) {
+        throw new Error('Nama lengkap pemilik sesuai KTP wajib diisi.');
       }
-    } else {
-      safeFirestoreSetDoc('partnerRegistrations', newReg.id, newReg);
-    }
+      if (regData.type === 'MERCHANT' && (!regData.storeName || !regData.storeName.trim())) {
+        throw new Error('Nama toko / usaha kuliner wajib diisi.');
+      }
+      if (!regData.phone || !regData.phone.trim()) {
+        throw new Error('Nomor telepon / WhatsApp aktif wajib diisi.');
+      }
+      if (!regData.email || !regData.email.trim() || !regData.email.includes('@')) {
+        throw new Error('Alamat email wajib diisi dengan format yang benar.');
+      }
+      if (regData.type === 'MERCHANT' && (!regData.storeAddress || !regData.storeAddress.trim())) {
+        throw new Error('Alamat lengkap toko / usaha wajib diisi.');
+      }
+      if (!regData.password || regData.password.trim().length < 6) {
+        throw new Error('Kata sandi wajib diisi dan minimal 6 karakter.');
+      }
+      if (regData.type === 'MERCHANT') {
+        if (!regData.businessPhoto || typeof regData.businessPhoto !== 'string' || !regData.businessPhoto.trim()) {
+          throw new Error('Foto tempat usaha / gerai wajib diunggah.');
+        }
+        if (regData.category && !OFFICIAL_MERCHANT_CATEGORIES.includes(regData.category)) {
+          throw new Error(`Kategori usaha "${regData.category}" tidak valid. Pilihan kategori resmi: ${OFFICIAL_MERCHANT_CATEGORIES.join(', ')}.`);
+        }
+      }
+      if (!regData.idPhoto || typeof regData.idPhoto !== 'string' || !regData.idPhoto.trim()) {
+        throw new Error('Foto KTP pemilik usaha wajib diunggah.');
+      }
 
-    this.data.partnerRegistrations.push(newReg);
-    this.save();
-    this.log('CUSTOMER', `Submitted partner registration for ${newReg.name} (${newReg.type})`, 'CUSTOMER');
-    return newReg;
+      // 2. Authoritative Phone & Email Duplicate Verification
+      const cleanPhoneDigits = regData.phone.replace(/\D/g, '');
+      const normPhone = cleanPhoneDigits.startsWith('62') 
+        ? '0' + cleanPhoneDigits.slice(2) 
+        : (cleanPhoneDigits.startsWith('0') ? cleanPhoneDigits : '0' + cleanPhoneDigits);
+      const cleanEmail = regData.email.trim().toLowerCase();
+
+      // Check duplicate in existing merchants
+      const existingMerchantDuplicate = this.data.merchants.find(m => {
+        const mEmail = (m.email || '').trim().toLowerCase();
+        const mDigits = (m.phone || '').replace(/\D/g, '');
+        const mNorm = mDigits.startsWith('62') ? '0' + mDigits.slice(2) : (mDigits.startsWith('0') ? mDigits : '0' + mDigits);
+        return (
+          (cleanEmail && mEmail === cleanEmail) ||
+          (cleanPhoneDigits.length >= 8 && mNorm === normPhone)
+        );
+      });
+
+      if (existingMerchantDuplicate) {
+        throw new Error('Nomor telepon / WhatsApp atau email ini sudah terdaftar sebagai mitra aktif. Silakan masuk melalui portal login.');
+      }
+
+      // Check duplicate in pending or approved partner registrations
+      const pendingDuplicate = this.data.partnerRegistrations.find(r => {
+        if (r.status !== 'PENDING' && r.status !== 'APPROVED') return false;
+        const rEmail = (r.email || '').trim().toLowerCase();
+        const rDigits = (r.phone || '').replace(/\D/g, '');
+        const rNorm = rDigits.startsWith('62') ? '0' + rDigits.slice(2) : (rDigits.startsWith('0') ? rDigits : '0' + rDigits);
+        return (
+          (cleanEmail && rEmail === cleanEmail) ||
+          (cleanPhoneDigits.length >= 8 && rNorm === normPhone)
+        );
+      });
+
+      if (pendingDuplicate) {
+        throw new Error('Pendaftaran dengan nomor WhatsApp atau email ini sudah diajukan dan sedang menunggu verifikasi Administrator.');
+      }
+
+      const cleanPassword = regData.password 
+        ? (regData.password.startsWith('pbkdf2$') ? regData.password : hashPassword(regData.password))
+        : undefined;
+
+      const newReg: PartnerRegistration = {
+        ...regData,
+        phone: normPhone,
+        email: cleanEmail,
+        password: cleanPassword,
+        id: 'reg_' + Math.random().toString(36).substring(2, 9),
+        status: 'PENDING',
+        contractVersion: regData.contractVersion || (regData.type === 'MERCHANT' ? 'PKS-TUMPANGGO-2026.1' : 'PKS-DRIVER-TUMPANGGO-2026.1'),
+        contractAgreedAt: regData.contractAgreedAt || new Date().toISOString(),
+        createdAt: new Date().toISOString()
+      };
+
+      if (isFirestoreAdminConfigured()) {
+        const persisted = await safeFirestoreSetDoc('partnerRegistrations', newReg.id, newReg);
+        if (!persisted && foodConfig.isProduction) {
+          throw new Error('[Produksi] Gagal menyimpan pendaftaran mitra ke cloud Firestore. Transaksi dibatalkan demi integritas data.');
+        }
+      } else {
+        safeFirestoreSetDoc('partnerRegistrations', newReg.id, newReg);
+      }
+
+      this.data.partnerRegistrations.push(newReg);
+      this.save();
+      this.log('CUSTOMER', `Submitted partner registration for ${newReg.name} (${newReg.type})`, 'CUSTOMER');
+      return newReg;
+    });
   }
 
   public async approvePartnerRegistration(userId: string, id: string): Promise<{ success: boolean; error?: string; registration?: PartnerRegistration }> {
     await this.ensureProductionCloudReady('Persetujuan Mitra');
-    const reg = this.data.partnerRegistrations.find(r => r.id === id);
-    if (!reg) return { success: false, error: 'Pendaftaran tidak ditemukan.' };
-    if (reg.status !== 'PENDING') return { success: false, error: `Pendaftaran sudah diproses sebelumnya (Status: ${reg.status}).` };
 
-    const prevStatus = reg.status;
-    let createdMerchantId: string | null = null;
-    let createdDriverId: string | null = null;
-    let prevExistingMerchantClone: Merchant | null = null;
-    let prevExistingDriverClone: Driver | null = null;
+    return this.runWithRegistrationLock(async () => {
+      this.reloadFromDiskIfNeeded();
 
-    try {
-      if (reg.type === 'MERCHANT') {
-        const generatedPassword = reg.password || ('TF-' + Math.floor(1000 + Math.random() * 9000));
-        reg.password = generatedPassword;
+      const reg = this.data.partnerRegistrations.find(r => r.id === id);
+      if (!reg) return { success: false, error: 'Pendaftaran tidak ditemukan.' };
 
-        // Check if merchant was already created previously
+      // IDEMPOTENCY: If already approved, return existing approval safely
+      if (reg.status === 'APPROVED') {
         let existingMerchant = reg.storeId ? this.data.merchants.find(m => m.id === reg.storeId) : undefined;
-        if (!existingMerchant && reg.phone) {
-          existingMerchant = this.getMerchantByEmailOrPhone(reg.phone);
-        }
-        if (!existingMerchant && reg.email) {
-          existingMerchant = this.getMerchantByEmailOrPhone(reg.email);
-        }
-
-        let merchantRecord = existingMerchant;
-        if (!merchantRecord) {
-          merchantRecord = await this.createMerchant(userId, {
-            name: reg.storeName || (reg.name + ' Store'),
-            ownerName: reg.name,
-            phone: reg.phone,
-            address: reg.storeAddress || 'Kecamatan Tumpang, Kabupaten Malang',
-            latitude: reg.latitude || -7.9482,
-            longitude: reg.longitude || 112.7612,
-            openTime: '08:00',
-            closeTime: '21:00',
-            bankName: reg.bankName || 'Bank BRI',
-            bankAccount: reg.bankAccountNumber || '1234567890',
-            bankHolder: reg.bankAccountHolder || reg.name,
-            active: true,
-            cookTimeEstimate: '15 menit',
-            image: reg.businessPhoto || 'https://images.unsplash.com/photo-1555396273-367ea4eb4db5?w=500&auto=format&fit=crop&q=60',
-            description: reg.description || `Mitra Toko Kuliner ${reg.storeName || reg.name} Kecamatan Tumpang`,
-            category: reg.category || 'Nasi & Lauk',
-            email: reg.email,
-            isActivated: true,
-            password: generatedPassword.startsWith('pbkdf2$') ? generatedPassword : hashPassword(generatedPassword)
-          });
-          createdMerchantId = merchantRecord.id;
-        } else {
-          prevExistingMerchantClone = JSON.parse(JSON.stringify(merchantRecord));
-          merchantRecord.active = true;
-          merchantRecord.isActivated = true;
-          if (reg.password) {
-            merchantRecord.password = reg.password.startsWith('pbkdf2$') ? reg.password : hashPassword(reg.password);
+        if (!existingMerchant && reg.type === 'MERCHANT') {
+          if (reg.phone) existingMerchant = this.getMerchantByEmailOrPhone(reg.phone);
+          if (!existingMerchant && reg.email) existingMerchant = this.getMerchantByEmailOrPhone(reg.email);
+          if (existingMerchant) {
+            reg.storeId = existingMerchant.id;
+            this.save();
           }
-          if (isFirestoreAdminConfigured()) {
-            const updateResult = await safeAdminSetDocDetailed('merchants', merchantRecord.id, merchantRecord);
-            if (!updateResult.success && foodConfig.isProduction) {
-              const detail = updateResult.error || getLastFirestoreWriteError() || 'Gagal memperbarui merchant pada Cloud Firestore';
-              throw new Error(`Gagal menyimpan merchant ke Cloud Firestore: ${detail}. Transaksi dibatalkan demi menjaga integritas data.`);
-            }
+        }
+        return { success: true, registration: reg };
+      }
+
+      if (reg.status !== 'PENDING') {
+        return { success: false, error: `Pendaftaran sudah diproses sebelumnya (Status: ${reg.status}).` };
+      }
+
+      const prevStatus = reg.status;
+      let createdMerchantId: string | null = null;
+      let createdDriverId: string | null = null;
+      let prevExistingMerchantClone: Merchant | null = null;
+      let prevExistingDriverClone: Driver | null = null;
+
+      try {
+        if (reg.type === 'MERCHANT') {
+          // Pre-validation of required photos before approval
+          if (!reg.businessPhoto || typeof reg.businessPhoto !== 'string' || !reg.businessPhoto.trim()) {
+            throw new Error('Foto tempat usaha / gerai wajib diunggah sebelum persetujuan dapat diproses.');
+          }
+          if (!reg.idPhoto || typeof reg.idPhoto !== 'string' || !reg.idPhoto.trim()) {
+            throw new Error('Foto KTP pemilik usaha wajib diunggah sebelum persetujuan dapat diproses.');
+          }
+
+          const generatedPassword = reg.password || ('TF-' + Math.floor(1000 + Math.random() * 9000));
+          reg.password = generatedPassword;
+
+          // Check if merchant was already created previously (idempotency guard)
+          let existingMerchant = reg.storeId ? this.data.merchants.find(m => m.id === reg.storeId) : undefined;
+          if (!existingMerchant && reg.phone) {
+            existingMerchant = this.getMerchantByEmailOrPhone(reg.phone);
+          }
+          if (!existingMerchant && reg.email) {
+            existingMerchant = this.getMerchantByEmailOrPhone(reg.email);
+          }
+
+          let merchantRecord = existingMerchant;
+          if (!merchantRecord) {
+            merchantRecord = await this.createMerchant(userId, {
+              name: reg.storeName || (reg.name + ' Store'),
+              ownerName: reg.name,
+              phone: reg.phone,
+              address: reg.storeAddress || 'Kecamatan Tumpang, Kabupaten Malang',
+              latitude: reg.latitude || -7.9482,
+              longitude: reg.longitude || 112.7612,
+              openTime: '08:00',
+              closeTime: '21:00',
+              bankName: reg.bankName || 'Bank BRI',
+              bankAccount: reg.bankAccountNumber || '1234567890',
+              bankHolder: reg.bankAccountHolder || reg.name,
+              active: true,
+              cookTimeEstimate: '15 menit',
+              image: reg.businessPhoto,
+              description: reg.description || `Mitra Toko Kuliner ${reg.storeName || reg.name} Kecamatan Tumpang`,
+              category: reg.category || 'Nasi & Lauk',
+              email: reg.email,
+              isActivated: true,
+              password: generatedPassword.startsWith('pbkdf2$') ? generatedPassword : hashPassword(generatedPassword)
+            });
+            createdMerchantId = merchantRecord.id;
           } else {
-            safeFirestoreSetDoc('merchants', merchantRecord.id, merchantRecord);
+            prevExistingMerchantClone = JSON.parse(JSON.stringify(merchantRecord));
+            merchantRecord.active = true;
+            merchantRecord.isActivated = true;
+            if (reg.password) {
+              merchantRecord.password = reg.password.startsWith('pbkdf2$') ? reg.password : hashPassword(reg.password);
+            }
+            if (isFirestoreAdminConfigured()) {
+              const updateResult = await safeAdminSetDocDetailed('merchants', merchantRecord.id, merchantRecord);
+              if (!updateResult.success && foodConfig.isProduction) {
+                const detail = updateResult.error || getLastFirestoreWriteError() || 'Gagal memperbarui merchant pada Cloud Firestore';
+                throw new Error(`Gagal menyimpan merchant ke Cloud Firestore: ${detail}. Transaksi dibatalkan demi menjaga integritas data.`);
+              }
+            } else {
+              safeFirestoreSetDoc('merchants', merchantRecord.id, merchantRecord);
+            }
+
+            // Initialize default category idempotently
+            await this.createCategory(merchantRecord.id, 'Menu Utama');
           }
 
-          // Initialize default category only if the existing merchant does not have any category yet
-          const hasCategory = this.data.categories.some(c => c.merchantId === merchantRecord!.id);
-          if (!hasCategory) {
-            await this.createCategory(merchantRecord.id, 'Menu Utama').catch(() => {});
+          reg.storeId = merchantRecord.id;
+        } else if (reg.type === 'DRIVER') {
+          const generatedDriverPassword = reg.password || ('TF-DRV-' + Math.floor(1000 + Math.random() * 9000));
+          reg.password = generatedDriverPassword;
+          const newDriver = await this.createDriver(userId, {
+            name: reg.name,
+            phone: reg.phone,
+            email: reg.email,
+            active: true,
+            online: false,
+            latitude: -7.9482,
+            longitude: 112.7612,
+            password: generatedDriverPassword.startsWith('pbkdf2$') ? generatedDriverPassword : hashPassword(generatedDriverPassword),
+            vehicle: (reg as any).vehicleNumber || 'Motor'
+          } as any);
+          createdDriverId = newDriver.id;
+          (reg as any).driverId = newDriver.id;
+        }
+
+        // Mark registration as APPROVED only after merchant/driver entity is successfully created and persisted
+        reg.status = 'APPROVED';
+        (reg as any).approvedAt = new Date().toISOString();
+        (reg as any).approvedBy = userId;
+
+        if (isFirestoreAdminConfigured()) {
+          const persisted = await safeAdminSetDocDetailed('partnerRegistrations', reg.id, reg);
+          if (!persisted.success && foodConfig.isProduction) {
+            const detail = persisted.error || getLastFirestoreWriteError() || 'Gagal memperbarui status registrasi mitra ke Cloud Firestore.';
+            throw new Error(`Gagal menyimpan status pendaftaran ke Cloud Firestore: ${detail}. Transaksi dibatalkan demi menjaga integritas data.`);
+          }
+        } else {
+          safeFirestoreSetDoc('partnerRegistrations', reg.id, reg);
+        }
+
+        this.save();
+        this.log(userId, `Approved partner registration ${reg.id} (${reg.name})`, 'ADMIN');
+        return { success: true, registration: reg };
+
+      } catch (err: any) {
+        // ATOMIC ROLLBACK: Revert registration status to previous state (PENDING)
+        reg.status = prevStatus;
+
+        // Rollback created merchant and any child categories if it was newly created in this transaction
+        if (createdMerchantId) {
+          this.data.merchants = this.data.merchants.filter(m => m.id !== createdMerchantId);
+          safeAdminDeleteDoc('merchants', createdMerchantId).catch(() => {});
+
+          // Complete orphan cleanup: Remove categories created for this merchant
+          const orphanCats = this.data.categories.filter(c => c.merchantId === createdMerchantId);
+          this.data.categories = this.data.categories.filter(c => c.merchantId !== createdMerchantId);
+          for (const cat of orphanCats) {
+            safeAdminDeleteDoc('categories', cat.id).catch(() => {});
+          }
+          delete reg.storeId;
+        } else if (prevExistingMerchantClone) {
+          // Revert modified existing merchant back to previous state
+          const idx = this.data.merchants.findIndex(m => m.id === prevExistingMerchantClone!.id);
+          if (idx !== -1) {
+            this.data.merchants[idx] = prevExistingMerchantClone;
+            if (isFirestoreAdminConfigured()) {
+              safeAdminSetDocDetailed('merchants', prevExistingMerchantClone.id, prevExistingMerchantClone).catch(() => {});
+            }
           }
         }
 
-        reg.storeId = merchantRecord.id;
-      } else if (reg.type === 'DRIVER') {
-        const generatedDriverPassword = reg.password || ('TF-DRV-' + Math.floor(1000 + Math.random() * 9000));
-        reg.password = generatedDriverPassword;
-        const newDriver = await this.createDriver(userId, {
-          name: reg.name,
-          phone: reg.phone,
-          email: reg.email,
-          active: true,
-          online: false,
-          latitude: -7.9482,
-          longitude: 112.7612,
-          password: generatedDriverPassword.startsWith('pbkdf2$') ? generatedDriverPassword : hashPassword(generatedDriverPassword),
-          vehicle: (reg as any).vehicleNumber || 'Motor'
-        } as any);
-        createdDriverId = newDriver.id;
-        (reg as any).driverId = newDriver.id;
-      }
-
-      // Mark registration as APPROVED only after merchant/driver entity is successfully created and persisted
-      reg.status = 'APPROVED';
-
-      if (isFirestoreAdminConfigured()) {
-        const persisted = await safeAdminSetDocDetailed('partnerRegistrations', reg.id, reg);
-        if (!persisted.success && foodConfig.isProduction) {
-          const detail = persisted.error || getLastFirestoreWriteError() || 'Gagal memperbarui status registrasi mitra ke Cloud Firestore.';
-          throw new Error(`Gagal menyimpan status pendaftaran ke Cloud Firestore: ${detail}. Transaksi dibatalkan demi menjaga integritas data.`);
-        }
-      } else {
-        safeFirestoreSetDoc('partnerRegistrations', reg.id, reg);
-      }
-
-      this.save();
-      this.log(userId, `Approved partner registration ${reg.id} (${reg.name})`, 'ADMIN');
-      return { success: true, registration: reg };
-
-    } catch (err: any) {
-      // ATOMIC ROLLBACK: Revert registration status to previous state (PENDING)
-      reg.status = prevStatus;
-
-      // Rollback created merchant and any child categories if it was newly created in this transaction
-      if (createdMerchantId) {
-        this.data.merchants = this.data.merchants.filter(m => m.id !== createdMerchantId);
-        safeAdminDeleteDoc('merchants', createdMerchantId).catch(() => {});
-
-        // Complete orphan cleanup: Remove categories created for this merchant
-        const orphanCats = this.data.categories.filter(c => c.merchantId === createdMerchantId);
-        this.data.categories = this.data.categories.filter(c => c.merchantId !== createdMerchantId);
-        for (const cat of orphanCats) {
-          safeAdminDeleteDoc('categories', cat.id).catch(() => {});
-        }
-        delete reg.storeId;
-      } else if (prevExistingMerchantClone) {
-        // Revert modified existing merchant back to previous state
-        const idx = this.data.merchants.findIndex(m => m.id === prevExistingMerchantClone!.id);
-        if (idx !== -1) {
-          this.data.merchants[idx] = prevExistingMerchantClone;
-          if (isFirestoreAdminConfigured()) {
-            safeAdminSetDocDetailed('merchants', prevExistingMerchantClone.id, prevExistingMerchantClone).catch(() => {});
+        // Rollback created driver if it was newly created in this transaction
+        if (createdDriverId) {
+          this.data.drivers = this.data.drivers.filter(d => d.id !== createdDriverId);
+          safeAdminDeleteDoc('drivers', createdDriverId).catch(() => {});
+          delete (reg as any).driverId;
+        } else if (prevExistingDriverClone) {
+          const idx = this.data.drivers.findIndex(d => d.id === prevExistingDriverClone!.id);
+          if (idx !== -1) {
+            this.data.drivers[idx] = prevExistingDriverClone;
           }
         }
+
+        this.save();
+
+        const safeErrorMsg = err?.message || 'Terjadi kesalahan sistem saat menyetujui pendaftaran mitra.';
+        console.error(`[TumpangFood DB] approvePartnerRegistration failed for ${id}:`, safeErrorMsg);
+        return { success: false, error: safeErrorMsg };
       }
-
-      // Rollback created driver if it was newly created in this transaction
-      if (createdDriverId) {
-        this.data.drivers = this.data.drivers.filter(d => d.id !== createdDriverId);
-        safeAdminDeleteDoc('drivers', createdDriverId).catch(() => {});
-        delete (reg as any).driverId;
-      } else if (prevExistingDriverClone) {
-        const idx = this.data.drivers.findIndex(d => d.id === prevExistingDriverClone!.id);
-        if (idx !== -1) {
-          this.data.drivers[idx] = prevExistingDriverClone;
-        }
-      }
-
-      this.save();
-
-      const safeErrorMsg = err?.message || 'Terjadi kesalahan sistem saat menyetujui pendaftaran mitra.';
-      console.error(`[TumpangFood DB] approvePartnerRegistration failed for ${id}:`, safeErrorMsg);
-      return { success: false, error: safeErrorMsg };
-    }
+    });
   }
 
   public async rejectPartnerRegistration(userId: string, id: string): Promise<boolean> {

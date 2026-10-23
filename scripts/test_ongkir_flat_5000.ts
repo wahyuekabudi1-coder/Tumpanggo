@@ -180,6 +180,7 @@ async function runTests() {
     const orderPayloadJeru = {
       customerName: 'Budi Test Jeru',
       customerPhone: '081299887766',
+      destinationDistrict: 'Kecamatan Tumpang',
       deliveryAddress: 'Jl. Raya Jeru No. 12, Desa Jeru, Tumpang',
       items: [
         { menuItemId: item1.id, name: 'Bakso Spesial Tumpang', price: 15000, quantity: 2 }
@@ -213,6 +214,7 @@ async function runTests() {
     const orderPayloadBenjor = {
       customerName: 'Siti Test Benjor',
       customerPhone: '081299887755',
+      destinationDistrict: 'Kecamatan Tumpang',
       deliveryAddress: 'Dusun Krajan, Desa Benjor (Lereng Bromo), Tumpang',
       latitude: -8.025,
       longitude: 112.835,
@@ -244,6 +246,7 @@ async function runTests() {
     const orderTamperPayload = {
       customerName: 'Hacker Tamper Test',
       customerPhone: '081299887744',
+      destinationDistrict: 'Kecamatan Tumpang',
       deliveryAddress: 'Desa Malangsuko, Tumpang',
       items: [
         { menuItemId: item1.id, name: 'Bakso Spesial Tumpang', price: 15000, quantity: 1 }
@@ -291,6 +294,7 @@ async function runTests() {
     const orderPayloadPakis = {
       customerName: 'Customer Luar Pakis',
       customerPhone: '081299887733',
+      destinationDistrict: 'Kecamatan Pakis',
       deliveryAddress: 'Jl. Raya Asrikaton No. 44, Kecamatan Pakis, Malang',
       latitude: -7.962,
       longitude: 112.705,
@@ -299,7 +303,7 @@ async function runTests() {
       ],
       merchantId: merchant.id,
       subtotal: 15000,
-      deliveryFee: 12000,
+      deliveryFee: 7500,
       serviceFee: 2000
     };
 
@@ -309,11 +313,11 @@ async function runTests() {
       body: JSON.stringify(orderPayloadPakis)
     });
     const createdPakis = await resPakis.json();
-    if (createdPakis.deliveryFee > 5000) {
-      console.log(`✅ [PASS] Outside District Order (Kecamatan Pakis): Correctly calculated based on distance -> Ongkir=Rp ${createdPakis.deliveryFee.toLocaleString('id-ID')}`);
+    if (createdPakis.deliveryFee === 7500) {
+      console.log(`✅ [PASS] Outside District Order (Kecamatan Pakis): Correctly set flat fee -> Ongkir=Rp ${createdPakis.deliveryFee.toLocaleString('id-ID')}`);
       passed++;
     } else {
-      console.error(`❌ [FAIL] Outside order incorrectly charged flat fee: ${createdPakis.deliveryFee}`);
+      console.error(`❌ [FAIL] Outside order incorrectly charged fee: ${createdPakis.deliveryFee}`);
       failed++;
     }
 
