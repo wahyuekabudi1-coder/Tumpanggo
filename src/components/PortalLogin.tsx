@@ -68,6 +68,41 @@ export default function PortalLogin({ role, targetMerchantId, targetDriverId, in
   const [recoveryError, setRecoveryError] = useState('');
   const [recoverySuccess, setRecoverySuccess] = useState('');
 
+  // Merchant Forgot Password Modal State
+  const [showForgotPasswordModal, setShowForgotPasswordModal] = useState(false);
+  const [forgotPasswordInput, setForgotPasswordInput] = useState('');
+  const [forgotPasswordLoading, setForgotPasswordLoading] = useState(false);
+  const [forgotPasswordMsg, setForgotPasswordMsg] = useState<string | null>(null);
+  const [forgotPasswordError, setForgotPasswordError] = useState('');
+
+  const handleForgotPasswordSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setForgotPasswordError('');
+    setForgotPasswordMsg(null);
+    if (!forgotPasswordInput.trim()) {
+      setForgotPasswordError('Mohon masukkan email atau nomor WhatsApp akun toko Anda.');
+      return;
+    }
+    setForgotPasswordLoading(true);
+    try {
+      const res = await fetch('/api/merchants/forgot-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ emailOrPhone: forgotPasswordInput.trim() })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.success) {
+        setForgotPasswordMsg(data.message || 'Instruksi pemulihan kata sandi telah diproses. Anda juga dapat menghubungi Admin Pusat tumpangGo melalui WhatsApp Bantuan.');
+      } else {
+        setForgotPasswordError(data.error || 'Terjadi kendala saat memproses permohonan pemulihan kata sandi.');
+      }
+    } catch {
+      setForgotPasswordError('Gagal terhubung ke server pemulihan kata sandi. Silakan periksa koneksi Anda.');
+    } finally {
+      setForgotPasswordLoading(false);
+    }
+  };
+
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const isActivate = params.get('activate') === 'true';
@@ -671,6 +706,22 @@ export default function PortalLogin({ role, targetMerchantId, targetDriverId, in
                     {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                   </button>
                 </div>
+                {role === 'MERCHANT' && (
+                  <div className="flex justify-end mt-1.5">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowForgotPasswordModal(true);
+                        setForgotPasswordInput(emailInput || '');
+                        setForgotPasswordMsg(null);
+                        setForgotPasswordError('');
+                      }}
+                      className="text-[11px] font-bold text-rose-600 hover:text-rose-700 hover:underline cursor-pointer"
+                    >
+                      Lupa Kata Sandi?
+                    </button>
+                  </div>
+                )}
               </div>
 
               <button
@@ -869,6 +920,113 @@ export default function PortalLogin({ role, targetMerchantId, targetDriverId, in
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL LUPA KATA SANDI MERCHANT */}
+      {showForgotPasswordModal && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 animate-fadeIn">
+          <div className="bg-white rounded-3xl max-w-sm w-full p-5 sm:p-6 shadow-2xl border border-slate-200 relative animate-scaleUp">
+            <button
+              type="button"
+              onClick={() => setShowForgotPasswordModal(false)}
+              className="absolute right-4 top-4 p-1.5 rounded-full hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors cursor-pointer"
+            >
+              <X className="w-4 h-4" />
+            </button>
+
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-10 h-10 rounded-2xl bg-rose-50 border border-rose-200 text-rose-600 flex items-center justify-center shrink-0">
+                <Lock className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="font-display font-bold text-sm text-slate-900">Pemulihan Kata Sandi Toko</h3>
+                <p className="text-[11px] text-slate-500">Portal Merchant UMKM TumpangGo</p>
+              </div>
+            </div>
+
+            {forgotPasswordMsg ? (
+              <div className="space-y-4">
+                <div className="p-3.5 bg-emerald-50 border border-emerald-200 rounded-2xl text-xs text-emerald-900 space-y-2">
+                  <div className="flex items-center gap-1.5 font-bold text-emerald-800">
+                    <CheckCircle className="w-4 h-4 text-emerald-600 shrink-0" />
+                    <span>Permohonan Diterima</span>
+                  </div>
+                  <p className="text-[11px] leading-relaxed text-slate-700">
+                    {forgotPasswordMsg}
+                  </p>
+                </div>
+
+                <a
+                  href={`https://wa.me/6281234567890?text=${encodeURIComponent(`Halo Admin Pusat tumpangGo, saya pemilik toko kuliner (${forgotPasswordInput}) membutuhkan bantuan pemulihan kata sandi akun merchant saya.`)}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs flex items-center justify-center gap-2 transition-colors shadow-xs"
+                >
+                  <Phone className="w-4 h-4" />
+                  <span>Hubungi Admin Pusat via WhatsApp</span>
+                </a>
+
+                <button
+                  type="button"
+                  onClick={() => setShowForgotPasswordModal(false)}
+                  className="w-full py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-xs transition-colors cursor-pointer"
+                >
+                  Tutup
+                </button>
+              </div>
+            ) : (
+              <form onSubmit={handleForgotPasswordSubmit} className="space-y-4">
+                <p className="text-xs text-slate-600 leading-relaxed">
+                  Masukkan email atau nomor WhatsApp yang Anda daftarkan saat registrasi mitra toko.
+                </p>
+
+                {forgotPasswordError && (
+                  <div className="p-3 bg-red-50 border border-red-200 text-red-700 text-xs rounded-xl flex items-center gap-2">
+                    <AlertCircle className="w-4 h-4 shrink-0 text-red-600" />
+                    <span>{forgotPasswordError}</span>
+                  </div>
+                )}
+
+                <div>
+                  <label className="text-[11px] font-bold uppercase tracking-wider text-slate-700 block mb-1">
+                    Email / No. WhatsApp Toko
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    disabled={forgotPasswordLoading}
+                    placeholder="Contoh: toko@gmail.com / 081234567890"
+                    value={forgotPasswordInput}
+                    onChange={(e) => setForgotPasswordInput(e.target.value)}
+                    className="w-full bg-slate-50 border border-slate-200 focus:border-rose-500 focus:bg-white rounded-xl px-3.5 py-2.5 text-xs font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-rose-500/20"
+                  />
+                </div>
+
+                <div className="pt-2 flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowForgotPasswordModal(false)}
+                    disabled={forgotPasswordLoading}
+                    className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-xs transition-colors cursor-pointer"
+                  >
+                    Batal
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={forgotPasswordLoading}
+                    className="flex-1 py-2.5 bg-rose-600 hover:bg-rose-700 text-white font-extrabold rounded-xl text-xs transition-colors flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+                  >
+                    {forgotPasswordLoading ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <span>Kirim Permohonan</span>
+                    )}
+                  </button>
+                </div>
+              </form>
+            )}
           </div>
         </div>
       )}

@@ -545,6 +545,8 @@ export function normalizeOrderDeliveryFee<T extends {
   deliveryAddress?: string;
   deliveryDetails?: string;
   landmark?: string;
+  destinationDistrict?: string;
+  district?: string;
   latitude?: number;
   longitude?: number;
   deliveryFee: number;
@@ -554,32 +556,21 @@ export function normalizeOrderDeliveryFee<T extends {
   total: number;
 }>(order: T): T {
   if (!order) return order;
-  const locInput: LocationInput = {
+
+  const result = calculateDeliveryFee({
+    destinationDistrict: (order as any).destinationDistrict || (order as any).district,
     address: order.deliveryAddress,
     details: order.deliveryDetails,
     landmark: order.landmark,
     latitude: order.latitude,
     longitude: order.longitude
-  };
+  });
 
-  const inTumpang = isDestinationInKecamatanTumpang(locInput);
-
-  if (inTumpang) {
-    if (order.deliveryFee !== FLAT_TUMPANG_DELIVERY_FEE) {
-      order.deliveryFee = FLAT_TUMPANG_DELIVERY_FEE;
-      order.total = order.subtotal + FLAT_TUMPANG_DELIVERY_FEE + order.serviceFee + (order.uniqueCode || 0);
+  if (result.isSupported && result.deliveryFee > 0) {
+    if (order.deliveryFee !== result.deliveryFee) {
+      order.deliveryFee = result.deliveryFee;
+      order.total = order.subtotal + result.deliveryFee + order.serviceFee + (order.uniqueCode || 0);
     }
-    return order;
-  }
-
-  const inPakis = isDestinationInKecamatanPakis(locInput);
-
-  if (inPakis) {
-    if (order.deliveryFee !== FLAT_PAKIS_DELIVERY_FEE) {
-      order.deliveryFee = FLAT_PAKIS_DELIVERY_FEE;
-      order.total = order.subtotal + FLAT_PAKIS_DELIVERY_FEE + order.serviceFee + (order.uniqueCode || 0);
-    }
-    return order;
   }
 
   return order;

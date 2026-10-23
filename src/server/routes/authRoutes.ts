@@ -210,12 +210,22 @@ authRouter.post(['/login', '/auth/login'], async (req: Request, res: Response) =
       const merchant = foodDb.getMerchantByEmailOrPhone(cleanUser);
       if (!merchant) {
         // Check if there is a pending partner registration
-        const pendingReg = foodDb.getPartnerRegistrations().find(r =>
-          r.type === 'MERCHANT' && (
-            (r.email && r.email.trim().toLowerCase() === cleanUser) ||
-            (r.phone && r.phone.trim() === cleanUser)
-          )
-        );
+        const normUserPhone = cleanUser.replace(/\D/g, '').length >= 8 
+          ? (cleanUser.replace(/\D/g, '').startsWith('62') ? '0' + cleanUser.replace(/\D/g, '').slice(2) : (cleanUser.replace(/\D/g, '').startsWith('0') ? cleanUser.replace(/\D/g, '') : '0' + cleanUser.replace(/\D/g, '')))
+          : '';
+
+        const pendingReg = foodDb.getPartnerRegistrations().find(r => {
+          if (r.type !== 'MERCHANT') return false;
+          if (r.email && r.email.trim().toLowerCase() === cleanUser) return true;
+          if (r.phone) {
+            const rDigits = r.phone.replace(/\D/g, '');
+            const normR = rDigits.startsWith('62') ? '0' + rDigits.slice(2) : (rDigits.startsWith('0') ? rDigits : '0' + rDigits);
+            if (normUserPhone && normR === normUserPhone) return true;
+            if (r.phone.trim() === cleanUser) return true;
+          }
+          return false;
+        });
+
         if (pendingReg && pendingReg.status === 'PENDING') {
           return res.status(403).json({
             error: 'Pendaftaran toko Anda sedang dalam peninjauan oleh Admin. Akses operasional akan dibuka setelah disetujui.',
@@ -277,12 +287,22 @@ authRouter.post(['/login', '/auth/login'], async (req: Request, res: Response) =
       const driver = foodDb.getDriverByEmailOrPhone(cleanUser);
       if (!driver) {
         // Check if there is a pending driver registration
-        const pendingDriverReg = foodDb.getPartnerRegistrations().find(r =>
-          r.type === 'DRIVER' && (
-            (r.email && r.email.trim().toLowerCase() === cleanUser) ||
-            (r.phone && r.phone.trim() === cleanUser)
-          )
-        );
+        const normUserPhone = cleanUser.replace(/\D/g, '').length >= 8 
+          ? (cleanUser.replace(/\D/g, '').startsWith('62') ? '0' + cleanUser.replace(/\D/g, '').slice(2) : (cleanUser.replace(/\D/g, '').startsWith('0') ? cleanUser.replace(/\D/g, '') : '0' + cleanUser.replace(/\D/g, '')))
+          : '';
+
+        const pendingDriverReg = foodDb.getPartnerRegistrations().find(r => {
+          if (r.type !== 'DRIVER') return false;
+          if (r.email && r.email.trim().toLowerCase() === cleanUser) return true;
+          if (r.phone) {
+            const rDigits = r.phone.replace(/\D/g, '');
+            const normR = rDigits.startsWith('62') ? '0' + rDigits.slice(2) : (rDigits.startsWith('0') ? rDigits : '0' + rDigits);
+            if (normUserPhone && normR === normUserPhone) return true;
+            if (r.phone.trim() === cleanUser) return true;
+          }
+          return false;
+        });
+
         if (pendingDriverReg && pendingDriverReg.status === 'PENDING') {
           return res.status(403).json({
             error: 'Pendaftaran kurir Anda sedang dalam peninjauan oleh Admin. Akses operasional akan dibuka setelah disetujui.',
@@ -411,17 +431,19 @@ authRouter.post('/merchants/register', async (req: Request, res: Response) => {
   }
 
   try {
-    // Normalize phone: digits only
+    // Normalize phone: digits only, guarantee standard Indonesian 08xx format
     const digitsOnly = cleanPhoneRaw.replace(/\D/g, '');
-    const cleanPhone = digitsOnly.startsWith('62') ? '0' + digitsOnly.slice(2) : digitsOnly;
+    const cleanPhone = digitsOnly.startsWith('62') 
+      ? '0' + digitsOnly.slice(2) 
+      : (digitsOnly.startsWith('0') ? digitsOnly : '0' + digitsOnly);
 
     // Check duplicate in registered merchants
     const existingMerchants = foodDb.getMerchants();
     const duplicateMerchant = existingMerchants.find(m => {
       const mDigits = (m.phone || '').replace(/\D/g, '');
-      const mNorm = mDigits.startsWith('62') ? '0' + mDigits.slice(2) : mDigits;
+      const mNorm = mDigits.startsWith('62') ? '0' + mDigits.slice(2) : (mDigits.startsWith('0') ? mDigits : '0' + mDigits);
       return (
-        mNorm === cleanPhone ||
+        (mNorm && mNorm === cleanPhone) ||
         (cleanEmail && m.email && m.email.toLowerCase() === cleanEmail)
       );
     });
@@ -435,9 +457,9 @@ authRouter.post('/merchants/register', async (req: Request, res: Response) => {
     const duplicatePending = pendingRegs.find(r => {
       if (r.status !== 'PENDING' && r.status !== 'APPROVED') return false;
       const rDigits = (r.phone || '').replace(/\D/g, '');
-      const rNorm = rDigits.startsWith('62') ? '0' + rDigits.slice(2) : rDigits;
+      const rNorm = rDigits.startsWith('62') ? '0' + rDigits.slice(2) : (rDigits.startsWith('0') ? rDigits : '0' + rDigits);
       return (
-        rNorm === cleanPhone ||
+        (rNorm && rNorm === cleanPhone) ||
         (cleanEmail && r.email && r.email.toLowerCase() === cleanEmail)
       );
     });

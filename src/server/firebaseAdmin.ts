@@ -659,21 +659,23 @@ export async function safeAdminSetDocDetailed(collectionName: string, docId: str
       delete cleaned.idPhoto;
       delete cleaned.contractPhoto;
       delete cleaned.businessPhoto;
+      delete cleaned.ktpPhoto;
+      delete cleaned.ownerKtpPhoto;
 
       // Sanitize main image if oversized base64
-      if (cleaned.image && typeof cleaned.image === 'string' && cleaned.image.startsWith('data:image/') && cleaned.image.length > 300 * 1024) {
+      if (cleaned.image && typeof cleaned.image === 'string' && cleaned.image.startsWith('data:image/') && cleaned.image.length > 150 * 1024) {
         console.warn(`[TumpangFood Admin] Merchant image for ${docId} is large (${Math.round(cleaned.image.length / 1024)} KB). Sanitizing to optimized standard image.`);
         cleaned.image = 'https://images.unsplash.com/photo-1555396273-367ea4eb4db5?w=500&auto=format&fit=crop&q=60';
       }
 
       // Sanitize bannerImage if oversized base64
-      if (cleaned.bannerImage && typeof cleaned.bannerImage === 'string' && cleaned.bannerImage.startsWith('data:image/') && cleaned.bannerImage.length > 300 * 1024) {
+      if (cleaned.bannerImage && typeof cleaned.bannerImage === 'string' && cleaned.bannerImage.startsWith('data:image/') && cleaned.bannerImage.length > 200 * 1024) {
         console.warn(`[TumpangFood Admin] Merchant banner image for ${docId} is large (${Math.round(cleaned.bannerImage.length / 1024)} KB). Sanitizing to optimized standard banner.`);
         cleaned.bannerImage = 'https://images.unsplash.com/photo-1504674900247-0877df9cc836?w=800&auto=format&fit=crop&q=60';
       }
 
       // Sanitize QRIS image if oversized base64
-      if (cleaned.qrisImage && typeof cleaned.qrisImage === 'string' && cleaned.qrisImage.startsWith('data:image/') && cleaned.qrisImage.length > 400 * 1024) {
+      if (cleaned.qrisImage && typeof cleaned.qrisImage === 'string' && cleaned.qrisImage.startsWith('data:image/') && cleaned.qrisImage.length > 250 * 1024) {
         console.warn(`[TumpangFood Admin] Merchant QRIS image for ${docId} is large (${Math.round(cleaned.qrisImage.length / 1024)} KB). Resetting to official static asset.`);
         cleaned.qrisImage = '/qris-merchant.png';
       }
@@ -682,25 +684,25 @@ export async function safeAdminSetDocDetailed(collectionName: string, docId: str
     if (collectionName === 'partnerRegistrations') {
       // In partner registrations, if total payload is heavy, cap heavy base64 photos
       const regBytes = Buffer.byteLength(JSON.stringify(cleaned), 'utf-8');
-      if (regBytes > 700 * 1024) {
+      if (regBytes > 500 * 1024) {
         console.warn(`[TumpangFood Admin] Partner registration payload for ${docId} is heavy (${Math.round(regBytes / 1024)} KB). Optimizing attachments.`);
-        if (cleaned.contractPhoto && typeof cleaned.contractPhoto === 'string' && cleaned.contractPhoto.length > 250 * 1024) {
+        if (cleaned.contractPhoto && typeof cleaned.contractPhoto === 'string' && cleaned.contractPhoto.length > 150 * 1024) {
           cleaned.contractPhoto = 'https://images.unsplash.com/photo-1450133064473-71024230f91b?w=500&auto=format&fit=crop&q=60';
         }
-        if (cleaned.idPhoto && typeof cleaned.idPhoto === 'string' && cleaned.idPhoto.length > 250 * 1024) {
+        if (cleaned.idPhoto && typeof cleaned.idPhoto === 'string' && cleaned.idPhoto.length > 150 * 1024) {
           cleaned.idPhoto = 'https://images.unsplash.com/photo-1544717305-2782549b5136?w=500&auto=format&fit=crop&q=60';
         }
-        if (cleaned.businessPhoto && typeof cleaned.businessPhoto === 'string' && cleaned.businessPhoto.length > 250 * 1024) {
+        if (cleaned.businessPhoto && typeof cleaned.businessPhoto === 'string' && cleaned.businessPhoto.length > 150 * 1024) {
           cleaned.businessPhoto = 'https://images.unsplash.com/photo-1555396273-367ea4eb4db5?w=500&auto=format&fit=crop&q=60';
         }
       }
     }
 
     const estimatedBytes = Buffer.byteLength(JSON.stringify(cleaned), 'utf-8');
-    if (estimatedBytes > 850 * 1024) {
+    if (estimatedBytes > 750 * 1024) {
       console.warn(`[TumpangFood Admin] Payload for ${collectionName}/${docId} exceeds safe threshold (${Math.round(estimatedBytes / 1024)} KB). Applying emergency safe compression.`);
       for (const key of Object.keys(cleaned)) {
-        if (typeof cleaned[key] === 'string' && cleaned[key].startsWith('data:image/') && cleaned[key].length > 100 * 1024) {
+        if (typeof cleaned[key] === 'string' && cleaned[key].startsWith('data:image/') && cleaned[key].length > 80 * 1024) {
           cleaned[key] = 'https://images.unsplash.com/photo-1555396273-367ea4eb4db5?w=500&auto=format&fit=crop&q=60';
         }
       }
@@ -710,10 +712,27 @@ export async function safeAdminSetDocDetailed(collectionName: string, docId: str
     lastFirestoreWriteError = null;
     return { success: true };
   } catch (err: any) {
-    const safeMsg = sanitizeErrorMessage(err.message || String(err));
-    lastFirestoreWriteError = safeMsg;
-    console.error(`[TumpangFood Admin] safeAdminSetDoc failed for ${collectionName}/${docId}:`, safeMsg);
-    return { success: false, error: safeMsg };
+    const rawMsg = err?.message || String(err);
+    const safeMsg = sanitizeErrorMessage(rawMsg);
+    
+    // Categorize low-level gRPC or Firestore errors into descriptive, helpful Indonesian messages
+    let friendlyExplanation = safeMsg;
+    const errCode = err?.code || err?.status;
+    if (errCode === 7 || /permission.*denied/i.test(safeMsg)) {
+      friendlyExplanation = `Izin Cloud Firestore ditolak (PERMISSION_DENIED). Akun layanan belum memiliki hak tulis (Cloud Datastore User / Owner) pada project ${activeProjectId}.`;
+    } else if (errCode === 8 || /resource.*exhausted|quota/i.test(safeMsg)) {
+      friendlyExplanation = 'Batas kuota Cloud Firestore terlampaui (RESOURCE_EXHAUSTED). Silakan periksa kuota atau billing di Google Cloud Console.';
+    } else if (errCode === 5 || /not[ _]found/i.test(safeMsg)) {
+      friendlyExplanation = `Database Cloud Firestore tidak ditemukan pada project ${activeProjectId}.`;
+    } else if (errCode === 4 || errCode === 14 || /deadline|timeout|unavailable/i.test(safeMsg)) {
+      friendlyExplanation = 'Koneksi ke Cloud Firestore batas waktu berakhir atau layanan tidak dapat dijangkau (DEADLINE_EXCEEDED/UNAVAILABLE).';
+    } else if (/entity.*too.*large|size.*exceed/i.test(safeMsg)) {
+      friendlyExplanation = 'Ukuran dokumen melebihi batas 1 MiB Cloud Firestore. Lampiran gambar terlalu besar.';
+    }
+
+    lastFirestoreWriteError = friendlyExplanation;
+    console.error(`[TumpangFood Admin] safeAdminSetDoc failed for ${collectionName}/${docId}:`, friendlyExplanation, `(raw: ${safeMsg})`);
+    return { success: false, error: friendlyExplanation };
   }
 }
 

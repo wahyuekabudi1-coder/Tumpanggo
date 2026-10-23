@@ -143,7 +143,7 @@ export default function AdminView({ onLogout, systemConfig, onUpdateConfig, onSe
     image: '',
     openTime: '08:00',
     closeTime: '21:00',
-    cookTimeEstimate: '15-30 min',
+    cookTimeEstimate: '15 menit',
     bankName: 'Bank BRI',
     bankAccount: '',
     bankHolder: '',
