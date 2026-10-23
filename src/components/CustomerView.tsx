@@ -39,6 +39,7 @@ interface CustomerViewProps {
   onSelectRole?: (role: 'CUSTOMER' | 'MERCHANT' | 'DRIVER' | 'ADMIN', id?: string, initialTab?: 'login' | 'register', email?: string) => void;
   onInstantDashboard?: (role: 'ADMIN' | 'MERCHANT' | 'DRIVER') => void;
   initialTab?: string;
+  onOpenRegisterPage?: () => void;
 }
 
 export const CULINARY_CATEGORIES = [
@@ -50,7 +51,27 @@ export const CULINARY_CATEGORIES = [
   { id: 'minuman', name: 'Minuman Segar', emoji: '🥤' }
 ];
 
-export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthModal, onSelectRole, onInstantDashboard, initialTab }: CustomerViewProps) {
+export default function CustomerView({ 
+  onSwitchView, 
+  systemConfig, 
+  onOpenAuthModal, 
+  onSelectRole, 
+  onInstantDashboard, 
+  initialTab,
+  onOpenRegisterPage
+}: CustomerViewProps) {
+  const handleNavigateToMerchantRegister = () => {
+    if (onOpenRegisterPage) {
+      onOpenRegisterPage();
+    } else {
+      setActiveTab('partner-register');
+      if (typeof window !== 'undefined') {
+        window.history.pushState(null, '', '/?page=merchant-register');
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      }
+    }
+  };
+
   // Navigation / Tab state: 'home' | 'merchant-detail' | 'cart' | 'checkout' | 'payment' | 'tracking' | 'history' | 'partner-register' | 'edukasi' | 'help'
   const [activeTab, setActiveTab] = useState<string>(() => {
     if (initialTab) return initialTab;
@@ -2017,7 +2038,7 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
                       </p>
                       <button
                         type="button"
-                        onClick={() => onSelectRole?.('MERCHANT', undefined, 'login')}
+                        onClick={handleNavigateToMerchantRegister}
                         className="mt-1 px-4 py-2 bg-[#185338] hover:bg-[#154a32] text-white text-xs font-bold rounded-xl shadow-xs transition-all cursor-pointer"
                       >
                         Daftar Sebagai Mitra UMKM
@@ -2339,7 +2360,7 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
 
                 {/* 1. Section Menjadi Mitra UMKM */}
                 <div 
-                  onClick={() => onSelectRole('MERCHANT', undefined, 'login')}
+                  onClick={handleNavigateToMerchantRegister}
                   className="bg-[#185338] text-white rounded-[24px] sm:rounded-3xl p-5 sm:p-6 shadow-md relative overflow-hidden cursor-pointer hover:bg-[#154a32] transition-colors group my-2"
                 >
                   <div className="flex items-center justify-between gap-3">
@@ -2363,7 +2384,7 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
                     id="btn-register-umkm"
                     onClick={(e) => {
                       e.stopPropagation();
-                      onSelectRole('MERCHANT', undefined, 'login');
+                      handleNavigateToMerchantRegister();
                     }}
                     className="w-full bg-[#fbc043] hover:bg-[#f3b325] text-slate-950 font-extrabold text-xs sm:text-sm py-3 sm:py-3.5 px-4 rounded-xl sm:rounded-2xl transition-all shadow-sm flex items-center justify-center cursor-pointer active:scale-98 mt-4 sm:mt-5"
                   >
@@ -2435,7 +2456,7 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
               altPrefix="Banner Promo Tumpang Food" 
               onAction={(action) => {
                 if (action === 'register_merchant') {
-                  setActiveTab('partner-register');
+                  handleNavigateToMerchantRegister();
                 }
               }}
             />
@@ -5126,10 +5147,7 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
           <button 
             id="nav-partner-register"
             onClick={() => {
-              setActiveTab('partner-register');
-              if (typeof window !== 'undefined') {
-                window.scrollTo({ top: 0, behavior: 'smooth' });
-              }
+              handleNavigateToMerchantRegister();
             }}
             className={`flex flex-col items-center gap-1.5 flex-1 py-1 cursor-pointer transition-all ${
               activeTab === 'partner-register' 

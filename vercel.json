@@ -63,6 +63,18 @@
       "destination": "/api/index?__path=/api/$1"
     },
     {
+      "source": "/merchant",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/driver",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/admin",
+      "destination": "/index.html"
+    },
+    {
       "source": "/((?!api/|assets/|.*\\.(?:js|css|json|png|jpg|jpeg|gif|ico|svg|webp|xml|txt|webmanifest)).*)",
       "destination": "/index.html"
     }

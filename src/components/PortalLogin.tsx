@@ -714,8 +714,14 @@ export default function PortalLogin({ role, targetMerchantId, targetDriverId, in
                     <button
                       type="button"
                       onClick={() => {
-                        const regUrl = window.location.origin + window.location.pathname + '?page=merchant-register';
-                        window.open(regUrl, '_blank') || (window.location.href = regUrl);
+                        if (onRegisterRedirect) {
+                          onRegisterRedirect();
+                        } else {
+                          const regUrl = window.location.origin + '/?page=merchant-register';
+                          if (typeof window !== 'undefined') {
+                            window.location.href = regUrl;
+                          }
+                        }
                       }}
                       className="text-rose-600 font-extrabold hover:underline cursor-pointer inline-flex items-center gap-1"
                     >

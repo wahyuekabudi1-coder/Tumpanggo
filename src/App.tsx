@@ -95,10 +95,15 @@ export default function App() {
     serviceFee: 2000
   });
 
-  const [isRegisterPage, setIsRegisterPage] = useState<boolean>(() => {
+  const checkIsRegisterPage = () => {
+    if (typeof window === 'undefined') return false;
     const params = new URLSearchParams(window.location.search);
     const page = params.get('page');
     return page === 'merchant-register' || page === 'partner-register' || page === 'register-merchant';
+  };
+
+  const [isRegisterPage, setIsRegisterPage] = useState<boolean>(() => {
+    return checkIsRegisterPage();
   });
 
   const [isEvaluationWorkspace, setIsEvaluationWorkspace] = useState<boolean>(() => {
@@ -108,7 +113,7 @@ export default function App() {
     return page === 'workspace' || page === 'evaluation' || ws === 'true' || ws === '1';
   });
 
-  // Check URL parameters on mount
+  // Check URL parameters on mount and handle ?page=merchant-register
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const page = params.get('page');
@@ -118,6 +123,10 @@ export default function App() {
     }
     if (page === 'merchant-register' || page === 'partner-register' || page === 'register-merchant') {
       setIsRegisterPage(true);
+      // Clean up /merchant if present in pathname to prevent 404 on refresh or sub-navigation
+      if (typeof window !== 'undefined' && window.location.pathname !== '/') {
+        window.history.replaceState(null, '', `/?page=${encodeURIComponent(page)}`);
+      }
     }
     const roleParam = params.get('role')?.toUpperCase();
     const idParam = params.get('id') || params.get('merchantId') || params.get('driverId');
@@ -139,6 +148,27 @@ export default function App() {
     if (demoParam === 'true') {
       setIsDemoMode(true);
     }
+
+    // Support browser Back/Forward navigation
+    const handlePopState = () => {
+      const isReg = checkIsRegisterPage();
+      setIsRegisterPage(isReg);
+      const currentParams = new URLSearchParams(window.location.search);
+      const curRole = currentParams.get('role')?.toUpperCase();
+      if (curRole && ['CUSTOMER', 'MERCHANT', 'DRIVER', 'ADMIN'].includes(curRole)) {
+        setCurrentRole(curRole as any);
+      } else if (window.location.pathname.startsWith('/merchant')) {
+        setCurrentRole('MERCHANT');
+      } else if (window.location.pathname.startsWith('/driver')) {
+        setCurrentRole('DRIVER');
+      } else if (window.location.pathname.startsWith('/admin')) {
+        setCurrentRole('ADMIN');
+      } else {
+        setCurrentRole('CUSTOMER');
+      }
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
   }, []);
 
   // Fetch configuration on load
@@ -392,19 +422,32 @@ export default function App() {
     handleRoleSelection(role);
   };
 
+  const handleOpenMerchantRegister = () => {
+    setIsRegisterPage(true);
+    if (typeof window !== 'undefined') {
+      window.history.pushState(null, '', '/?page=merchant-register');
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+  };
+
   // Dedicated registration page link
   if (isRegisterPage) {
     return (
       <MerchantRegisterPage 
         onBackToHome={() => {
           setIsRegisterPage(false);
-          window.history.replaceState({}, '', window.location.pathname);
+          setCurrentRole('CUSTOMER');
+          if (typeof window !== 'undefined') {
+            window.history.pushState(null, '', '/');
+          }
         }}
         onGoToLogin={() => {
           setIsRegisterPage(false);
           setCurrentRole('MERCHANT');
           setMerchantPortalTab('login');
-          window.history.replaceState({}, '', window.location.pathname + '?role=merchant');
+          if (typeof window !== 'undefined') {
+            window.history.pushState(null, '', '/?role=merchant');
+          }
         }}
       />
     );
@@ -448,6 +491,7 @@ export default function App() {
         <PortalLogin 
           role="MERCHANT" 
           initialTab={merchantPortalTab}
+          onRegisterRedirect={handleOpenMerchantRegister}
           onSuccess={(email, mId, isMaster) => {
             if (isMaster) {
               setIsMasterAdmin(true);
@@ -635,6 +679,7 @@ export default function App() {
               onOpenAuthModal={() => setShowAuthModal(true)}
               onSelectRole={handleRoleSelection}
               onInstantDashboard={handleInstantDashboardAccess}
+              onOpenRegisterPage={handleOpenMerchantRegister}
             />
           </ErrorBoundary>
         )}
@@ -652,6 +697,7 @@ export default function App() {
             <PortalLogin 
               role="MERCHANT" 
               initialTab={merchantPortalTab}
+              onRegisterRedirect={handleOpenMerchantRegister}
               onSuccess={(email, mId, isMaster) => {
                 if (isMaster) {
                   setIsMasterAdmin(true);
@@ -674,6 +720,7 @@ export default function App() {
             <PortalLogin 
               role="MERCHANT" 
               targetMerchantId={activeMerchantId} 
+              onRegisterRedirect={handleOpenMerchantRegister}
               onSuccess={(email, _mId, isMaster) => {
                 safeStorage.setItem('tumpang_current_portal', 'MERCHANT');
                 if (isMaster) {
