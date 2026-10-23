@@ -87,10 +87,12 @@ function resolveServerPort(): number {
     const parsed = parseInt(process.env.FOOD_PORT, 10);
     if (!isNaN(parsed) && parsed > 0) return parsed;
   }
-  if (process.env.PORT) {
+  // If explicitly running in production container with PORT set, honor it
+  if (process.env.NODE_ENV === 'production' && process.env.PORT) {
     const parsed = parseInt(process.env.PORT, 10);
     if (!isNaN(parsed) && parsed > 0) return parsed;
   }
+  // In development and AI Studio environment, port 3000 is the required and only accessible port
   return 3000;
 }
 

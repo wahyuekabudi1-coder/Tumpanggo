@@ -3724,7 +3724,6 @@ export default function CustomerView({
                   </span>
                 </div>
               </div>
-              </div>
               <p className="text-[10px] text-slate-400 mt-3 leading-relaxed">
                 *Total akhir akan ditambahkan 3 digit Kode Unik Pembayaran (Rp 1 - Rp 99) pada halaman berikutnya untuk mempermudah verifikasi.
               </p>

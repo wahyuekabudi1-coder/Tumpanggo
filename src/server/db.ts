@@ -2996,13 +2996,21 @@ export class FoodDatabase {
 
   // --- PARTNER REGISTRATIONS ---
   public getPartnerRegistrations(): PartnerRegistration[] {
-    return this.data.partnerRegistrations;
+    return (this.data.partnerRegistrations || []).map(r => {
+      const { password, ...safe } = r;
+      return safe as PartnerRegistration;
+    });
   }
 
   public async createPartnerRegistration(regData: Omit<PartnerRegistration, 'id' | 'status' | 'createdAt'>): Promise<PartnerRegistration> {
     await this.ensureProductionCloudReady('Pendaftaran Pengajuan Mitra');
+    const cleanPassword = regData.password 
+      ? (regData.password.startsWith('pbkdf2$') ? regData.password : hashPassword(regData.password))
+      : undefined;
+
     const newReg: PartnerRegistration = {
       ...regData,
+      password: cleanPassword,
       id: 'reg_' + Math.random().toString(36).substring(2, 9),
       status: 'PENDING',
       contractVersion: regData.contractVersion || (regData.type === 'MERCHANT' ? 'PKS-TUMPANGGO-2026.1' : 'PKS-DRIVER-TUMPANGGO-2026.1'),
@@ -3070,16 +3078,24 @@ export class FoodDatabase {
             category: reg.category || 'Nasi & Lauk',
             email: reg.email,
             isActivated: true,
-            password: hashPassword(generatedPassword)
+            password: generatedPassword.startsWith('pbkdf2$') ? generatedPassword : hashPassword(generatedPassword)
           });
           createdMerchantId = merchantRecord.id;
         } else {
           merchantRecord.active = true;
           merchantRecord.isActivated = true;
           if (reg.password) {
-            merchantRecord.password = hashPassword(reg.password);
+            merchantRecord.password = reg.password.startsWith('pbkdf2$') ? reg.password : hashPassword(reg.password);
           }
-          await safeAdminSetDocDetailed('merchants', merchantRecord.id, merchantRecord);
+          if (isFirestoreAdminConfigured()) {
+            const updateResult = await safeAdminSetDocDetailed('merchants', merchantRecord.id, merchantRecord);
+            if (!updateResult.success && foodConfig.isProduction) {
+              const detail = updateResult.error || getLastFirestoreWriteError() || 'Gagal memperbarui merchant pada Cloud Firestore';
+              throw new Error(`[Produksi] Gagal menyimpan merchant ke cloud Firestore: ${detail}. Transaksi dibatalkan demi menjaga integritas data.`);
+            }
+          } else {
+            safeFirestoreSetDoc('merchants', merchantRecord.id, merchantRecord);
+          }
         }
 
         reg.storeId = merchantRecord.id;
@@ -3097,14 +3113,14 @@ export class FoodDatabase {
           online: false,
           latitude: -7.9482,
           longitude: 112.7612,
-          password: hashPassword(generatedDriverPassword),
+          password: generatedDriverPassword.startsWith('pbkdf2$') ? generatedDriverPassword : hashPassword(generatedDriverPassword),
           vehicle: (reg as any).vehicleNumber || 'Motor'
         } as any);
         createdDriverId = newDriver.id;
         (reg as any).driverId = newDriver.id;
       }
 
-      // Mark registration as APPROVED only after merchant/driver entity is successfully created
+      // Mark registration as APPROVED only after merchant/driver entity is successfully created and persisted
       reg.status = 'APPROVED';
 
       if (isFirestoreAdminConfigured()) {

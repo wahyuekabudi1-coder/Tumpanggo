@@ -2,12 +2,14 @@ import React, { useState } from 'react';
 import { safeStorage } from '../utils/safeStorage.ts';
 import { apiFetch as fetch } from '../utils/apiClient.ts';
 import Logo from './Logo.tsx';
+import MapPicker from './MapPicker.tsx';
 import { useSEO } from '../hooks/useSEO.ts';
+import { compressImage } from '../utils/imageCompressor.ts';
 
 import { 
   Store, User, Phone, Mail, MapPin, Tag, Lock, ArrowRight, CheckCircle2, 
   AlertCircle, Loader2, ArrowLeft, Clock, FileText, Camera, ShieldCheck, ExternalLink,
-  Eye, EyeOff, Download
+  Eye, EyeOff, Download, MessageCircle
 } from 'lucide-react';
 import { downloadPartnershipContractPdf, OFFICIAL_CONTRACT_VERSION } from '../utils/contractDocument.ts';
 
@@ -16,6 +18,16 @@ interface MerchantRegisterPageProps {
   onGoToLogin?: () => void;
 }
 
+const ADMIN_CATEGORIES = [
+  'Nasi & Lauk',
+  'Bakso & Mie',
+  'Sate & Bakaran',
+  'Cemilan & Jajanan',
+  'Minuman Segar',
+  'Kue & Roti',
+  'Aneka Kopi & Teh'
+];
+
 export default function MerchantRegisterPage({ onBackToHome, onGoToLogin }: MerchantRegisterPageProps) {
   useSEO({
     title: 'Pendaftaran Mitra UMKM Kuliner | Bawa Usaha Lokal Naik Kelas – TumpangGo',
@@ -23,58 +35,109 @@ export default function MerchantRegisterPage({ onBackToHome, onGoToLogin }: Merc
     canonicalPath: '/?page=merchant-register',
     isNoIndex: false
   });
+
   // Form states
   const [storeName, setStoreName] = useState('');
   const [ownerName, setOwnerName] = useState('');
   const [phone, setPhone] = useState('');
   const [email, setEmail] = useState('');
-  const [category, setCategory] = useState('Nasi & Lauk');
+  const [category, setCategory] = useState(ADMIN_CATEGORIES[0]);
   const [address, setAddress] = useState('');
+  const [latitude, setLatitude] = useState(-7.9482);
+  const [longitude, setLongitude] = useState(112.7612);
   const [description, setDescription] = useState('');
-  const [openTime, setOpenTime] = useState('08:00');
-  const [closeTime, setCloseTime] = useState('21:00');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
-  const [agreeTerms, setAgreeTerms] = useState(true);
 
-  // Photos (Base64 or previews)
+  // Contract workflow states
+  const [contractDownloaded, setContractDownloaded] = useState(false);
+  const [agreeTerms, setAgreeTerms] = useState(false);
+
+  // Photos (Compressed Base64 JPEG)
   const [businessPhoto, setBusinessPhoto] = useState<string | null>(null);
   const [idPhoto, setIdPhoto] = useState<string | null>(null);
+  const [compressingField, setCompressingField] = useState<string | null>(null);
 
   // Status states
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [successData, setSuccessData] = useState<any | null>(null);
 
-  // Handle Photo Upload
-  const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>, setter: (val: string) => void) => {
+  // Client-side image compression handler (<80KB guaranteed)
+  const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>, setter: (val: string) => void, fieldKey: string) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onloadend = () => {
-      setter(reader.result as string);
-    };
-    reader.readAsDataURL(file);
+    try {
+      setCompressingField(fieldKey);
+      const compressed = await compressImage(file, 800, 800, 0.6);
+      setter(compressed);
+    } catch (err) {
+      console.error('Image compression error:', err);
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setter(reader.result as string);
+      };
+      reader.readAsDataURL(file);
+    } finally {
+      setCompressingField(null);
+    }
   };
+
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  const isFormValid = Boolean(
+    storeName.trim() &&
+    ownerName.trim() &&
+    phone.trim() &&
+    email.trim() &&
+    emailRegex.test(email.trim()) &&
+    address.trim() &&
+    password &&
+    password.length >= 6 &&
+    password === confirmPassword &&
+    businessPhoto &&
+    idPhoto &&
+    contractDownloaded &&
+    agreeTerms
+  );
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
 
-    if (!storeName.trim() || !ownerName.trim() || !phone.trim() || !address.trim() || !password) {
+    if (!storeName.trim() || !ownerName.trim() || !phone.trim() || !email.trim() || !address.trim() || !password) {
       setError('Mohon lengkapi seluruh kolom wajib bertanda bintang (*).');
       return;
     }
 
+    if (!emailRegex.test(email.trim())) {
+      setError('Format email tidak valid. Masukkan alamat email yang benar.');
+      return;
+    }
+
+    if (!businessPhoto) {
+      setError('Foto tempat usaha / gerai wajib diunggah.');
+      return;
+    }
+
+    if (!idPhoto) {
+      setError('Foto KTP pemilik usaha wajib diunggah untuk verifikasi identitas.');
+      return;
+    }
+
     if (password.length < 6) {
-      setError('Kata sandi minimal harus 6 karakter.');
+      setError('Kata sandi minimal harus 6 karakter demi keamanan akun Anda.');
       return;
     }
 
     if (password !== confirmPassword) {
       setError('Konfirmasi kata sandi tidak cocok.');
+      return;
+    }
+
+    if (!contractDownloaded) {
+      setError('Anda wajib mengunduh dokumen Kontrak Kerja Sama terlebih dahulu.');
       return;
     }
 
@@ -97,10 +160,13 @@ export default function MerchantRegisterPage({ onBackToHome, onGoToLogin }: Merc
           email: email.trim(),
           category,
           address: address.trim(),
+          latitude,
+          longitude,
           description: description.trim() || `Toko Kuliner ${storeName.trim()} Kecamatan Tumpang`,
           password,
-          image: businessPhoto || 'https://images.unsplash.com/photo-1555396273-367ea4eb4db5?w=500&auto=format&fit=crop&q=60',
-          bannerImage: businessPhoto || 'https://images.unsplash.com/photo-1504674900247-0877df9cc836?w=800&auto=format&fit=crop&q=60',
+          image: businessPhoto,
+          businessPhoto: businessPhoto,
+          idPhoto: idPhoto,
           contractVersion: OFFICIAL_CONTRACT_VERSION,
           contractAgreedAt
         }),
@@ -220,7 +286,7 @@ export default function MerchantRegisterPage({ onBackToHome, onGoToLogin }: Merc
                 <span className="font-bold text-slate-800">{successData.storeName || successData.name}</span>
               </div>
               <div className="flex justify-between py-1 border-b border-slate-200/60">
-                <span className="text-slate-500 font-medium">Pemilik:</span>
+                <span className="text-slate-500 font-medium">Pemilik Usaha:</span>
                 <span className="font-bold text-slate-800">{successData.name || successData.ownerName}</span>
               </div>
               <div className="flex justify-between py-1 border-b border-slate-200/60">
@@ -228,33 +294,32 @@ export default function MerchantRegisterPage({ onBackToHome, onGoToLogin }: Merc
                 <span className="font-bold text-emerald-700">{successData.phone}</span>
               </div>
               <div className="flex justify-between py-1 border-b border-slate-200/60">
+                <span className="text-slate-500 font-medium">Email:</span>
+                <span className="font-medium text-slate-700">{successData.email}</span>
+              </div>
+              <div className="flex justify-between py-1 border-b border-slate-200/60">
                 <span className="text-slate-500 font-medium">Versi Kontrak:</span>
                 <span className="font-mono font-bold text-indigo-700">{successData.contractVersion || OFFICIAL_CONTRACT_VERSION}</span>
               </div>
               <div className="flex justify-between py-1">
                 <span className="text-slate-500 font-medium">Status Toko:</span>
-                <span className="font-bold text-amber-700 bg-amber-50 px-2 py-0.5 rounded-md border border-amber-200">PENDING (Menunggu Verifikasi)</span>
+                <span className="font-bold text-amber-700 bg-amber-50 px-2 py-0.5 rounded-md border border-amber-200">PENDING (Menunggu Verifikasi Admin)</span>
               </div>
             </div>
 
-            {/* Contract Download Button */}
-            <button
-              type="button"
-              onClick={() => {
-                downloadPartnershipContractPdf({
-                  storeName: successData.storeName || successData.name,
-                  ownerName: successData.name || successData.ownerName,
-                  phone: successData.phone,
-                  email: successData.email,
-                  address: successData.storeAddress || address,
-                  role: 'MERCHANT'
-                });
-              }}
-              className="w-full max-w-md py-3 px-4 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 text-emerald-800 font-extrabold rounded-2xl transition-colors text-xs flex items-center justify-center gap-2 cursor-pointer shadow-xs"
-            >
-              <Download className="w-4 h-4 text-emerald-700" />
-              <span>Unduh Dokumen Kontrak Kerja Sama (PDF)</span>
-            </button>
+            {/* Petunjuk Langkah Selanjutnya (Tanpa pengulangan unduh kontrak) */}
+            <div className="p-4 bg-emerald-50/70 border border-emerald-200 rounded-2xl w-full max-w-md text-left text-xs text-slate-700 space-y-1.5 my-1">
+              <span className="font-bold text-emerald-900 block text-xs flex items-center gap-1.5">
+                <ShieldCheck className="w-4 h-4 text-emerald-700" />
+                Instruksi Verifikasi Dokumen Kemitraan
+              </span>
+              <p className="text-[11px] text-slate-600 leading-relaxed">
+                Dokumen kontrak kerja sama yang telah Anda unduh wajib dicetak, dibubuhi <strong>materai Rp 10.000</strong>, dan ditandatangani. Siapkan dokumen fisik tersebut untuk proses verifikasi oleh Admin Pusat tumpangGo sebelum akun toko diaktifkan.
+              </p>
+              <p className="text-[10px] text-slate-400 italic pt-1">
+                *Catatan Administrasi: Naskah revisi pasal-pasal kontrak kemitraan saat ini sedang menunggu finalisasi naskah hukum resmi.
+              </p>
+            </div>
 
             <div className="flex flex-col sm:flex-row gap-3 w-full max-w-md mt-2">
               <button
@@ -309,7 +374,7 @@ export default function MerchantRegisterPage({ onBackToHome, onGoToLogin }: Merc
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="text-[11px] font-bold text-slate-700 uppercase tracking-wider block mb-1">
-                    Nama Lengkap Pemilik <span className="text-rose-500">*</span>
+                    Nama Lengkap Pemilik Sesuai KTP <span className="text-rose-500">*</span>
                   </label>
                   <input
                     type="text"
@@ -340,10 +405,11 @@ export default function MerchantRegisterPage({ onBackToHome, onGoToLogin }: Merc
 
               <div>
                 <label className="text-[11px] font-bold text-slate-700 uppercase tracking-wider block mb-1">
-                  Email Pemilik / Email Toko (Opsional)
+                  Email Aktif Pemilik / Toko <span className="text-rose-500">*</span>
                 </label>
                 <input
                   type="email"
+                  required
                   disabled={loading}
                   placeholder="Contoh: tokobudi@gmail.com"
                   value={email}
@@ -354,13 +420,21 @@ export default function MerchantRegisterPage({ onBackToHome, onGoToLogin }: Merc
 
               <div>
                 <label className="text-[11px] font-bold text-slate-700 uppercase tracking-wider block mb-1">
-                  Foto KTP Pemilik (Opsional)
+                  Foto KTP Pemilik Usaha <span className="text-rose-500">*</span>
                 </label>
                 <div className="flex items-center gap-3">
                   <label className="flex-1 bg-slate-50 hover:bg-slate-100 border border-dashed border-slate-300 rounded-xl p-3 text-center cursor-pointer transition-colors flex items-center justify-center gap-2 text-xs font-semibold text-slate-600">
                     <Camera className="w-4 h-4 text-slate-400" />
-                    <span>{idPhoto ? 'Ubah Foto KTP' : 'Unggah Foto KTP Pemilik'}</span>
-                    <input type="file" accept="image/*" className="hidden" onChange={(e) => handlePhotoUpload(e, setIdPhoto)} />
+                    <span>
+                      {compressingField === 'idPhoto' ? 'Mengompres foto...' : idPhoto ? 'Ubah Foto KTP' : 'Unggah Foto KTP Pemilik'}
+                    </span>
+                    <input 
+                      type="file" 
+                      accept="image/*" 
+                      required={!idPhoto}
+                      className="hidden" 
+                      onChange={(e) => handlePhotoUpload(e, setIdPhoto, 'idPhoto')} 
+                    />
                   </label>
                   {idPhoto && (
                     <img src={idPhoto} alt="KTP" className="w-12 h-12 object-cover rounded-xl border border-slate-200" />
@@ -369,25 +443,25 @@ export default function MerchantRegisterPage({ onBackToHome, onGoToLogin }: Merc
               </div>
             </div>
 
-            {/* SECTION 2: PROFIL TOKO */}
+            {/* SECTION 2: PROFIL TOKO & LOKASI */}
             <div className="flex flex-col gap-4 pt-2">
               <div className="flex items-center gap-2 pb-2 border-b border-slate-100">
                 <Store className="w-5 h-5 text-rose-600" />
                 <h3 className="font-display font-bold text-sm text-slate-800 uppercase tracking-wider">
-                  2. Informasi Usaha / Outlet Kuliner
+                  2. Informasi Usaha & Lokasi Outlet
                 </h3>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="text-[11px] font-bold text-slate-700 uppercase tracking-wider block mb-1">
-                    Nama Toko / UMKM <span className="text-rose-500">*</span>
+                    Nama Toko / UMKM Kuliner <span className="text-rose-500">*</span>
                   </label>
                   <input
                     type="text"
                     required
                     disabled={loading}
-                    placeholder="Contoh: Bakso Solo Pak Joko Tumpang"
+                    placeholder="Contoh: Warung Akas Tumpang"
                     value={storeName}
                     onChange={(e) => setStoreName(e.target.value)}
                     className="w-full bg-slate-50 border border-slate-200 focus:bg-white focus:border-rose-500 rounded-xl px-4 py-3 text-xs text-slate-900 font-medium focus:outline-none focus:ring-2 focus:ring-rose-500/20 transition-all"
@@ -396,7 +470,7 @@ export default function MerchantRegisterPage({ onBackToHome, onGoToLogin }: Merc
 
                 <div>
                   <label className="text-[11px] font-bold text-slate-700 uppercase tracking-wider block mb-1">
-                    Kategori Kuliner <span className="text-rose-500">*</span>
+                    Kategori Kuliner (Ditetapkan Admin) <span className="text-rose-500">*</span>
                   </label>
                   <select
                     value={category}
@@ -404,67 +478,85 @@ export default function MerchantRegisterPage({ onBackToHome, onGoToLogin }: Merc
                     onChange={(e) => setCategory(e.target.value)}
                     className="w-full bg-slate-50 border border-slate-200 focus:bg-white focus:border-rose-500 rounded-xl px-4 py-3 text-xs text-slate-900 font-medium focus:outline-none focus:ring-2 focus:ring-rose-500/20 transition-all cursor-pointer"
                   >
-                    <option value="Bakso & Mie">Bakso & Mie</option>
-                    <option value="Nasi & Lauk">Nasi & Lauk</option>
-                    <option value="Sate & Bakaran">Sate & Bakaran</option>
-                    <option value="Cemilan & Jajanan">Cemilan & Jajanan</option>
-                    <option value="Minuman Segar">Minuman Segar</option>
+                    {ADMIN_CATEGORIES.map(cat => (
+                      <option key={cat} value={cat}>{cat}</option>
+                    ))}
                   </select>
                 </div>
+              </div>
+
+              {/* Bantuan Pengajuan Kategori Baru */}
+              <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-200 flex items-center justify-between text-[11px] text-slate-600">
+                <span>Kategori usaha Anda belum ada di daftar pilihan?</span>
+                <a
+                  href={`https://wa.me/6281234567890?text=${encodeURIComponent(`Halo Admin Pusat TumpangGo, saya pemilik ${storeName.trim() || 'usaha kuliner'} ingin mengajukan penambahan kategori usaha baru.`)}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="font-bold text-emerald-700 hover:text-emerald-800 hover:underline flex items-center gap-1 shrink-0 ml-2"
+                >
+                  <MessageCircle className="w-3.5 h-3.5" />
+                  <span>Minta Kategori ke Admin</span>
+                </a>
               </div>
 
               <div>
                 <label className="text-[11px] font-bold text-slate-700 uppercase tracking-wider block mb-1">
                   Alamat Lengkap Toko / Dapur (Kecamatan Tumpang) <span className="text-rose-500">*</span>
                 </label>
-                <input
-                  type="text"
+                <textarea
                   required
+                  rows={2}
                   disabled={loading}
-                  placeholder="Contoh: Jl. Raya Malangsuko No. 45, Kecamatan Tumpang"
+                  placeholder="Contoh: Jl. Raya Malangsuko No. 45, RT 02/RW 03, Kecamatan Tumpang"
                   value={address}
                   onChange={(e) => setAddress(e.target.value)}
                   className="w-full bg-slate-50 border border-slate-200 focus:bg-white focus:border-rose-500 rounded-xl px-4 py-3 text-xs text-slate-900 font-medium focus:outline-none focus:ring-2 focus:ring-rose-500/20 transition-all"
                 />
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="text-[11px] font-bold text-slate-700 uppercase tracking-wider block mb-1">
-                    Jam Buka Toko
-                  </label>
-                  <input
-                    type="time"
-                    value={openTime}
-                    disabled={loading}
-                    onChange={(e) => setOpenTime(e.target.value)}
-                    className="w-full bg-slate-50 border border-slate-200 focus:bg-white focus:border-rose-500 rounded-xl px-4 py-3 text-xs text-slate-900 font-medium focus:outline-none focus:ring-2 focus:ring-rose-500/20 transition-all"
+              {/* MapPicker Lokasi Usaha */}
+              <div>
+                <label className="text-[11px] font-bold text-slate-700 uppercase tracking-wider block mb-1.5 flex items-center gap-1.5">
+                  <MapPin className="w-4 h-4 text-rose-600" />
+                  <span>Tentukan Titik Koordinat Usaha pada Peta <span className="text-rose-500">*</span></span>
+                </label>
+                <div className="w-full h-56 rounded-2xl overflow-hidden border border-slate-200 shadow-inner">
+                  <MapPicker
+                    initialLat={latitude}
+                    initialLng={longitude}
+                    pinLabel={storeName.trim() || 'Titik Toko Anda'}
+                    onLocationSelected={(lat, lng, addr) => {
+                      setLatitude(lat);
+                      setLongitude(lng);
+                      if (addr && !address) {
+                        setAddress(addr);
+                      }
+                    }}
                   />
                 </div>
-
-                <div>
-                  <label className="text-[11px] font-bold text-slate-700 uppercase tracking-wider block mb-1">
-                    Jam Tutup Toko
-                  </label>
-                  <input
-                    type="time"
-                    value={closeTime}
-                    disabled={loading}
-                    onChange={(e) => setCloseTime(e.target.value)}
-                    className="w-full bg-slate-50 border border-slate-200 focus:bg-white focus:border-rose-500 rounded-xl px-4 py-3 text-xs text-slate-900 font-medium focus:outline-none focus:ring-2 focus:ring-rose-500/20 transition-all"
-                  />
+                <div className="flex justify-between items-center text-[10px] text-slate-400 mt-1 px-1">
+                  <span>Geser peta untuk menentukan titik dapur / tempat usaha Anda.</span>
+                  <span className="font-mono">Lat: {latitude.toFixed(4)}, Lng: {longitude.toFixed(4)}</span>
                 </div>
               </div>
 
               <div>
                 <label className="text-[11px] font-bold text-slate-700 uppercase tracking-wider block mb-1">
-                  Foto Tempat Usaha / Spanduk Toko (Opsional)
+                  Foto Tempat Usaha / Spanduk Toko <span className="text-rose-500">*</span>
                 </label>
                 <div className="flex items-center gap-3">
                   <label className="flex-1 bg-slate-50 hover:bg-slate-100 border border-dashed border-slate-300 rounded-xl p-3 text-center cursor-pointer transition-colors flex items-center justify-center gap-2 text-xs font-semibold text-slate-600">
                     <Camera className="w-4 h-4 text-slate-400" />
-                    <span>{businessPhoto ? 'Ubah Foto Toko' : 'Unggah Foto Toko / Spanduk'}</span>
-                    <input type="file" accept="image/*" className="hidden" onChange={(e) => handlePhotoUpload(e, setBusinessPhoto)} />
+                    <span>
+                      {compressingField === 'businessPhoto' ? 'Mengompres foto...' : businessPhoto ? 'Ubah Foto Toko' : 'Unggah Foto Toko / Spanduk'}
+                    </span>
+                    <input 
+                      type="file" 
+                      accept="image/*" 
+                      required={!businessPhoto}
+                      className="hidden" 
+                      onChange={(e) => handlePhotoUpload(e, setBusinessPhoto, 'businessPhoto')} 
+                    />
                   </label>
                   {businessPhoto && (
                     <img src={businessPhoto} alt="Toko" className="w-12 h-12 object-cover rounded-xl border border-slate-200" />
@@ -557,7 +649,7 @@ export default function MerchantRegisterPage({ onBackToHome, onGoToLogin }: Merc
                     <span className="text-xs font-bold text-slate-900">Perjanjian Kemitraan UMKM Kuliner tumpangGo</span>
                   </div>
                   <p className="text-[11px] text-slate-600 leading-relaxed">
-                    Mengatur hak & kewajiban: Ongkir Flat Rp 5.000 se-Kecamatan Tumpang, komisi platform 10%, pencairan H+1, dan standar mutu produk.
+                    Merchant wajib mengunduh dokumen kontrak terlebih dahulu untuk dipelajari, dicetak, dan ditandatangani di atas materai.
                   </p>
                 </div>
 
@@ -572,25 +664,48 @@ export default function MerchantRegisterPage({ onBackToHome, onGoToLogin }: Merc
                       address: address.trim(),
                       role: 'MERCHANT'
                     });
+                    setContractDownloaded(true);
                   }}
-                  className="shrink-0 py-2.5 px-3.5 bg-white hover:bg-emerald-100 border border-emerald-300 text-emerald-800 font-bold rounded-xl text-xs flex items-center gap-1.5 transition-colors cursor-pointer shadow-xs"
+                  className={`shrink-0 py-2.5 px-3.5 border font-bold rounded-xl text-xs flex items-center gap-1.5 transition-all cursor-pointer shadow-xs ${
+                    contractDownloaded 
+                      ? 'bg-emerald-600 text-white border-emerald-700 hover:bg-emerald-700' 
+                      : 'bg-white hover:bg-emerald-100 border-emerald-300 text-emerald-800 ring-2 ring-emerald-400/30'
+                  }`}
                 >
-                  <Download className="w-4 h-4 text-emerald-700" />
-                  <span>Unduh Kontrak (PDF)</span>
+                  <Download className="w-4 h-4" />
+                  <span>{contractDownloaded ? '✓ Kontrak Telah Diunduh' : '1. Unduh Kontrak (PDF)'}</span>
                 </button>
               </div>
 
+              {/* Petunjuk Materai dan Fisik Kontrak (Aktif setelah unduh) */}
+              {contractDownloaded ? (
+                <div className="p-3.5 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-900 space-y-1 animate-fadeIn">
+                  <span className="font-bold flex items-center gap-1 text-[11px] uppercase tracking-wider text-amber-800">
+                    <AlertCircle className="w-3.5 h-3.5 text-amber-600" />
+                    Petunjuk Penyiapan Dokumen Fisik:
+                  </span>
+                  <p className="text-[11px] leading-relaxed">
+                    Dokumen kontrak yang baru saja Anda unduh harus <strong>disimpan, dicetak, dan ditandatangani di atas materai Rp 10.000</strong> sesuai ketentuan. Dokumen fisik ini wajib disiapkan saat verifikasi lapangan oleh Tim Admin Pusat tumpangGo.
+                  </p>
+                </div>
+              ) : (
+                <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl text-[11px] text-slate-500 italic">
+                  *Klik tombol "1. Unduh Kontrak (PDF)" di atas untuk membaca ketentuan kemitraan dan membuka persetujuan pendaftaran.
+                </div>
+              )}
+
               {/* Mandatory Agreement Checkbox */}
-              <label className="flex items-start gap-2.5 cursor-pointer pt-1">
+              <label className={`flex items-start gap-2.5 pt-1 transition-opacity ${contractDownloaded ? 'cursor-pointer' : 'cursor-not-allowed opacity-50'}`}>
                 <input
                   type="checkbox"
                   required
+                  disabled={!contractDownloaded}
                   checked={agreeTerms}
                   onChange={(e) => setAgreeTerms(e.target.checked)}
-                  className="mt-0.5 rounded text-emerald-700 focus:ring-emerald-600 w-4 h-4 cursor-pointer"
+                  className="mt-0.5 rounded text-emerald-700 focus:ring-emerald-600 w-4 h-4 cursor-pointer disabled:cursor-not-allowed"
                 />
                 <span className="text-xs text-slate-700 leading-relaxed font-medium">
-                  Saya menyatakan data yang diisi adalah sah dan benar, serta <strong>telah membaca, mengunduh, dan menyetujui seluruh ketentuan Perjanjian Kerja Sama Kemitraan UMKM Kuliner tumpangGo ({OFFICIAL_CONTRACT_VERSION})</strong>. <span className="text-rose-600 font-bold">*</span>
+                  Saya menyatakan data yang diisi adalah sah dan benar, <strong>telah mengunduh dokumen kontrak kerja sama, memahami kewajiban pembubuhan materai fisik, dan menyetujui seluruh ketentuan Perjanjian Kemitraan UMKM Kuliner tumpangGo ({OFFICIAL_CONTRACT_VERSION})</strong>. <span className="text-rose-600 font-bold">*</span>
                 </span>
               </label>
             </div>
@@ -598,8 +713,12 @@ export default function MerchantRegisterPage({ onBackToHome, onGoToLogin }: Merc
             {/* Submit Button */}
             <button
               type="submit"
-              disabled={loading}
-              className="w-full py-4 bg-[#185338] hover:bg-[#14532d] active:bg-slate-900 text-white font-extrabold rounded-2xl transition-all shadow-lg shadow-[#185338]/20 text-xs sm:text-sm flex items-center justify-center gap-2 cursor-pointer active:scale-98 disabled:opacity-60 mt-2"
+              disabled={loading || !isFormValid}
+              className={`w-full py-4 font-extrabold rounded-2xl transition-all text-xs sm:text-sm flex items-center justify-center gap-2 mt-2 ${
+                isFormValid && !loading
+                  ? 'bg-[#185338] hover:bg-[#14532d] active:bg-slate-900 text-white shadow-lg shadow-[#185338]/20 cursor-pointer active:scale-98'
+                  : 'bg-slate-300 text-slate-500 border border-slate-300 shadow-none cursor-not-allowed'
+              }`}
             >
               {loading ? (
                 <>
@@ -609,7 +728,7 @@ export default function MerchantRegisterPage({ onBackToHome, onGoToLogin }: Merc
               ) : (
                 <>
                   <span>KIRIM PENDAFTARAN MITRA UMKM</span>
-                  <ArrowRight className="w-5 h-5 text-amber-300" />
+                  <ArrowRight className={`w-5 h-5 ${isFormValid ? 'text-amber-300' : 'text-slate-400'}`} />
                 </>
               )}
             </button>

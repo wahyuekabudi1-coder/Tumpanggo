@@ -654,43 +654,54 @@ export async function safeAdminSetDocDetailed(collectionName: string, docId: str
     const cleaned = removeUndefinedFields(data);
     
     // Payload size safety guard (Firestore 1 MiB document limit)
-    // Trim duplicate and oversized base64 fields so documents never exceed Firestore's limit
+    // Strip redundant KYC photos from public merchant docs and ensure no oversized base64 images
     if (collectionName === 'merchants') {
       delete cleaned.idPhoto;
       delete cleaned.contractPhoto;
-      // Avoid storing duplicate copy of store photo in both image and businessPhoto
-      if (cleaned.image && cleaned.businessPhoto) {
-        delete cleaned.businessPhoto;
-      }
-      if (cleaned.image && typeof cleaned.image === 'string' && cleaned.image.length > 500 * 1024) {
-        console.warn(`[TumpangFood Admin] Merchant image for ${docId} is large (${Math.round(cleaned.image.length / 1024)} KB). Trimming to standard banner.`);
+      delete cleaned.businessPhoto;
+
+      // Sanitize main image if oversized base64
+      if (cleaned.image && typeof cleaned.image === 'string' && cleaned.image.startsWith('data:image/') && cleaned.image.length > 300 * 1024) {
+        console.warn(`[TumpangFood Admin] Merchant image for ${docId} is large (${Math.round(cleaned.image.length / 1024)} KB). Sanitizing to optimized standard image.`);
         cleaned.image = 'https://images.unsplash.com/photo-1555396273-367ea4eb4db5?w=500&auto=format&fit=crop&q=60';
+      }
+
+      // Sanitize bannerImage if oversized base64
+      if (cleaned.bannerImage && typeof cleaned.bannerImage === 'string' && cleaned.bannerImage.startsWith('data:image/') && cleaned.bannerImage.length > 300 * 1024) {
+        console.warn(`[TumpangFood Admin] Merchant banner image for ${docId} is large (${Math.round(cleaned.bannerImage.length / 1024)} KB). Sanitizing to optimized standard banner.`);
+        cleaned.bannerImage = 'https://images.unsplash.com/photo-1504674900247-0877df9cc836?w=800&auto=format&fit=crop&q=60';
+      }
+
+      // Sanitize QRIS image if oversized base64
+      if (cleaned.qrisImage && typeof cleaned.qrisImage === 'string' && cleaned.qrisImage.startsWith('data:image/') && cleaned.qrisImage.length > 400 * 1024) {
+        console.warn(`[TumpangFood Admin] Merchant QRIS image for ${docId} is large (${Math.round(cleaned.qrisImage.length / 1024)} KB). Resetting to official static asset.`);
+        cleaned.qrisImage = '/qris-merchant.png';
       }
     }
 
     if (collectionName === 'partnerRegistrations') {
       // In partner registrations, if total payload is heavy, cap heavy base64 photos
       const regBytes = Buffer.byteLength(JSON.stringify(cleaned), 'utf-8');
-      if (regBytes > 750 * 1024) {
-        console.warn(`[TumpangFood Admin] Partner registration payload for ${docId} is heavy (${Math.round(regBytes / 1024)} KB). Sanitizing heavy attachments.`);
-        if (cleaned.contractPhoto && typeof cleaned.contractPhoto === 'string' && cleaned.contractPhoto.length > 200 * 1024) {
-          cleaned.contractPhoto = cleaned.contractPhoto.substring(0, 150 * 1024);
+      if (regBytes > 700 * 1024) {
+        console.warn(`[TumpangFood Admin] Partner registration payload for ${docId} is heavy (${Math.round(regBytes / 1024)} KB). Optimizing attachments.`);
+        if (cleaned.contractPhoto && typeof cleaned.contractPhoto === 'string' && cleaned.contractPhoto.length > 250 * 1024) {
+          cleaned.contractPhoto = 'https://images.unsplash.com/photo-1450133064473-71024230f91b?w=500&auto=format&fit=crop&q=60';
         }
-        if (cleaned.idPhoto && typeof cleaned.idPhoto === 'string' && cleaned.idPhoto.length > 200 * 1024) {
-          cleaned.idPhoto = cleaned.idPhoto.substring(0, 150 * 1024);
+        if (cleaned.idPhoto && typeof cleaned.idPhoto === 'string' && cleaned.idPhoto.length > 250 * 1024) {
+          cleaned.idPhoto = 'https://images.unsplash.com/photo-1544717305-2782549b5136?w=500&auto=format&fit=crop&q=60';
         }
-        if (cleaned.businessPhoto && typeof cleaned.businessPhoto === 'string' && cleaned.businessPhoto.length > 200 * 1024) {
-          cleaned.businessPhoto = cleaned.businessPhoto.substring(0, 150 * 1024);
+        if (cleaned.businessPhoto && typeof cleaned.businessPhoto === 'string' && cleaned.businessPhoto.length > 250 * 1024) {
+          cleaned.businessPhoto = 'https://images.unsplash.com/photo-1555396273-367ea4eb4db5?w=500&auto=format&fit=crop&q=60';
         }
       }
     }
 
     const estimatedBytes = Buffer.byteLength(JSON.stringify(cleaned), 'utf-8');
-    if (estimatedBytes > 900 * 1024) {
-      console.warn(`[TumpangFood Admin] Payload for ${collectionName}/${docId} still exceeds safe threshold (${Math.round(estimatedBytes / 1024)} KB). Applying emergency sanitization.`);
+    if (estimatedBytes > 850 * 1024) {
+      console.warn(`[TumpangFood Admin] Payload for ${collectionName}/${docId} exceeds safe threshold (${Math.round(estimatedBytes / 1024)} KB). Applying emergency safe compression.`);
       for (const key of Object.keys(cleaned)) {
         if (typeof cleaned[key] === 'string' && cleaned[key].startsWith('data:image/') && cleaned[key].length > 100 * 1024) {
-          cleaned[key] = cleaned[key].substring(0, 80 * 1024);
+          cleaned[key] = 'https://images.unsplash.com/photo-1555396273-367ea4eb4db5?w=500&auto=format&fit=crop&q=60';
         }
       }
     }
