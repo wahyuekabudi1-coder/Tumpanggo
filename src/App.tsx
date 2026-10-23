@@ -17,7 +17,6 @@ import EvaluationWorkspace from './components/EvaluationWorkspace.tsx';
 import { SystemConfig } from './types.ts';
 import { safeStorage } from './utils/safeStorage.ts';
 import { apiFetch as fetch, extractArrayResponse } from './utils/apiClient.ts';
-import { configure } from '@arto-pay/js-sdk';
 import { ShieldAlert, Key, HelpCircle, Store, Navigation, ChevronRight } from 'lucide-react';
 import { useSEO } from './hooks/useSEO.ts';
 
@@ -152,22 +151,6 @@ export default function App() {
         }
       })
       .catch(err => console.error('Error fetching config:', err));
-
-    // Load ArtoPay public gateway configuration on load
-    fetch('/api/artopay/config')
-      .then(async res => {
-        if (!res.ok) return;
-        const cfg = await res.json();
-        if (cfg.publicKey) {
-          (window as any).__ARTOPAY_PUBLIC_KEY__ = cfg.publicKey;
-          (window as any).VITE_ARTOPAY_PUBLIC_KEY = cfg.publicKey;
-        }
-        (window as any).__ARTOPAY_SANDBOX__ = cfg.sandbox;
-        if (typeof configure === 'function') {
-          configure({ sandbox: cfg.sandbox });
-        }
-      })
-      .catch(() => {});
   }, []);
 
   // Fetch lists for custom selection/login portal

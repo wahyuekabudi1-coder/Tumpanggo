@@ -199,7 +199,7 @@ export const UMKM_ARTICLES: ArticleData[] = [
       {
         heading: '1. Pembayaran Non-Tunai QRIS yang Aman dan Instan',
         paragraphs: [
-          'Era menghitung uang kembalian receh yang basah atau lecek di warung kini digantikan oleh QRIS. Dengan menyediakan opsi QRIS ArtoPay di TumpangGo, pelanggan cukup scan menggunakan aplikasi mobile banking atau e-wallet apa pun.',
+          'Era menghitung uang kembalian receh yang basah atau lecek di warung kini digantikan oleh QRIS. Dengan menyediakan opsi QRIS resmi di TumpangGo, pelanggan cukup scan menggunakan aplikasi mobile banking atau e-wallet apa pun.',
           'Transaksi langsung tercatat otomatis, meminimalkan selisih kas harian dan memberikan rasa aman bagi kedua belah pihak.'
         ]
       },

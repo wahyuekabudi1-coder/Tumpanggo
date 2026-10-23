@@ -13,7 +13,6 @@ import { foodDb } from '../src/server/db';
 import { calculateDeliveryFee, FLAT_TUMPANG_DELIVERY_FEE, FLAT_PAKIS_DELIVERY_FEE } from '../src/utils/deliveryFee';
 import { OrderStatus, PaymentStatus, AssignmentMode, calculateTieredServiceFee } from '../src/types';
 import { verifyPassword, hashPassword, createAuthToken } from '../src/server/auth';
-import { ArtoPayService } from '../src/lib/artopay';
 import { calculateRemainingCooking } from '../src/utils/cookingTimer';
 
 let passedCount = 0;
@@ -293,30 +292,28 @@ async function runTestSuite() {
   assert(deliveredOrder.status === OrderStatus.DELIVERED, 'Driver successfully completed delivery with photo proof');
   assert(Boolean(deliveredOrder.deliveryProof), 'deliveryProof is attached to order record');
 
-  // --- SECTION 12: ARTOPAY WEBHOOK HMAC & IDEMPOTENCY ---
-  console.log('\n--- 12. ARTOPAY WEBHOOK HMAC & IDEMPOTENCY ---');
-  const webhookSecret = 'test_webhook_secret_key_1234567890';
+  // --- SECTION 12: CRYPTOGRAPHIC SIGNATURE & TIMING-SAFE VERIFICATION ---
+  console.log('\n--- 12. CRYPTOGRAPHIC SIGNATURE & TIMING-SAFE VERIFICATION ---');
+  const hmacSecret = 'test_signature_secret_key_1234567890';
   const testPayload = JSON.stringify({
-    event: 'payment.success',
+    event: 'auth.token',
     data: {
-      paymentIntentId: 'pi_test_123456',
       orderId: testOrder.id,
       amount: testOrder.total,
-      currency: 'IDR',
-      status: 'SUCCESS'
+      currency: 'IDR'
     }
   });
 
-  const validHmac = crypto.createHmac('sha256', webhookSecret).update(testPayload).digest('hex');
+  const validHmac = crypto.createHmac('sha256', hmacSecret).update(testPayload).digest('hex');
   const forgedHmac = crypto.createHmac('sha256', 'wrong_secret').update(testPayload).digest('hex');
 
   // Verify HMAC verification behavior
-  const expectedSig = crypto.createHmac('sha256', webhookSecret).update(testPayload).digest('hex');
+  const expectedSig = crypto.createHmac('sha256', hmacSecret).update(testPayload).digest('hex');
   const isMatch = crypto.timingSafeEqual(Buffer.from(validHmac), Buffer.from(expectedSig));
-  assert(isMatch, 'Valid ArtoPay HMAC signature verification passes');
+  assert(isMatch, 'Valid cryptographic HMAC signature verification passes');
 
   const isForgedMatch = crypto.timingSafeEqual(Buffer.from(forgedHmac), Buffer.from(expectedSig));
-  assert(!isForgedMatch, 'Forged/tampered ArtoPay HMAC signature verification is rejected');
+  assert(!isForgedMatch, 'Forged/tampered cryptographic signature verification is rejected');
 
   // --- SECTION 13: TRANSACTION-SAFE DELETION GUARD ---
   console.log('\n--- 13. TRANSACTION-SAFE DELETION GUARD ---');

@@ -62,7 +62,7 @@ def export_zip():
                 
     zip_size_mb = os.path.getsize(output_zip) / (1024 * 1024)
     print(f"✅ Source ZIP created successfully: {file_count} files, {total_bytes / (1024 * 1024):.2f} MB raw, {zip_size_mb:.2f} MB compressed.")
-    print(f"📁 Downloadable path: /tumpanggo-source.zip")
+    print(f"📁 Source archive location: {output_zip}")
 
 if __name__ == '__main__':
     export_zip()

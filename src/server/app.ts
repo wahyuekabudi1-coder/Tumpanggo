@@ -16,7 +16,6 @@ import { merchantRouter } from './routes/merchantRoutes';
 import { driverRouter } from './routes/driverRoutes';
 import { orderRouter } from './routes/orderRoutes';
 import { adminRouter } from './routes/adminRoutes';
-import { artopayRouter } from './routes/artopayRoutes';
 import { pushRouter } from './routes/pushRoutes';
 
 export const app = express();
@@ -304,7 +303,6 @@ app.use('/api/merchants', merchantRouter);
 app.use('/api/drivers', driverRouter);
 app.use('/api/orders', orderRouter);
 app.use('/api', adminRouter);
-app.use('/api/artopay', artopayRouter);
 app.use('/api/push', pushRouter);
 
 // 404 handler for unhandled API routes

@@ -142,20 +142,10 @@ export interface Order {
   paymentExpiresAt: string; // ISO string (createdAt + 10 mins)
   preOrderDate?: string; // e.g. "2026-07-03" (YYYY-MM-DD) - Retained strictly for reading historical transactions
   clientRequestId?: string;
-  paymentMethod?: 'MERCHANT_QRIS' | 'MANUAL_TRANSFER' | 'ARTOPAY_QRIS';
+  paymentMethod?: 'MERCHANT_QRIS' | 'MANUAL_TRANSFER';
   merchantQrisImage?: string;
   receiptNumber?: string;
   receipt?: OrderReceipt;
-  artopayPaymentId?: string;
-  artopayCheckoutUrl?: string;
-  artopayStatus?: 'PENDING' | 'SUCCESS' | 'FAILED' | 'EXPIRED';
-  artopayExpiredAt?: string;
-  artopayQrString?: string;
-  artopayClientSecret?: string;
-  artopayCustomerToken?: string;
-  artopayPublicKey?: string;
-  artopayOrderId?: string;
-  artopaySandbox?: boolean;
 }
 
 export interface OrderReceipt {

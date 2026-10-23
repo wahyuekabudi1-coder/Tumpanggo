@@ -8,12 +8,10 @@
     "build": "vite build && esbuild src/server/serverCore.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs && esbuild src/server/app.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=api/_app.cjs",
     "start": "node server.ts",
     "clean": "rm -rf dist server.cjs api/_app.cjs api/_app.cjs.map",
-    "postinstall": "node scripts/patch-artopay-sdk.cjs",
     "master:recover": "tsx scripts/recover_master_password.ts",
     "lint": "tsc --noEmit"
   },
   "dependencies": {
-    "@arto-pay/js-sdk": "^1.0.4",
     "@google/genai": "^2.4.0",
     "@tailwindcss/vite": "^4.1.14",
     "@types/qrcode": "^1.5.6",

@@ -39,11 +39,9 @@ export default function EReceiptModal({ order, onClose }: EReceiptModalProps) {
       }) + ' WIB'
     : '21 Oktober 2026';
 
-  const transactionRef = order.receipt?.transactionRef || order.artopayPaymentId || `QRIS-TG-${cleanCode}`;
+  const transactionRef = order.receipt?.transactionRef || `QRIS-TG-${cleanCode}`;
   const verifiedBy = order.receipt?.confirmedBy || order.paymentVerifiedBy || 'Admin TumpangGo';
-  const paymentMethodLabel = order.paymentMethod === 'ARTOPAY_QRIS' 
-    ? 'QRIS Dinamis ArtoPay' 
-    : 'QRIS Statis Resmi Merchant';
+  const paymentMethodLabel = 'QRIS Statis Resmi Merchant';
 
   // Format currency helper
   const formatRp = (val: number) => `Rp ${(val || 0).toLocaleString('id-ID')}`;

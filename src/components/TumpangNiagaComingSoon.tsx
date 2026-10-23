@@ -116,7 +116,7 @@ export default function TumpangNiagaComingSoon({ onBackToMain }: TumpangNiagaCom
             <div>
               <h6 className="text-xs font-black text-slate-800">Pembayaran Digital Terpadu</h6>
               <p className="text-[11px] text-slate-500 leading-relaxed mt-0.5">
-                Mendukung QRIS otomatis semua bank & e-wallet, gateway pembayaran ArtoPay, serta transaksi tunai di tempat (COD).
+                Mendukung QRIS praktis semua bank & e-wallet, serta transaksi tunai di tempat (COD).
               </p>
             </div>
           </div>

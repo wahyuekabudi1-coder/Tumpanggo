@@ -1960,7 +1960,7 @@ export class FoodDatabase {
         issuedAt,
         confirmedBy: order.paymentVerifiedBy || 'Admin TumpangGo',
         paymentMethod: order.paymentMethod || 'MERCHANT_QRIS',
-        transactionRef: order.artopayPaymentId || `QRIS-TG-${cleanRef}`,
+        transactionRef: `QRIS-TG-${cleanRef}`,
         subtotal: order.subtotal,
         deliveryFee: order.deliveryFee,
         serviceFee: order.serviceFee,
@@ -2200,7 +2200,7 @@ export class FoodDatabase {
 
     const receiptNumber = order.receiptNumber || `TG-RCP-${String(order.id).replace(/^ord_/, '').toUpperCase()}`;
     const issuedAt = order.paymentVerifiedAt || new Date().toISOString();
-    const transactionRef = order.artopayPaymentId || `QRIS-TG-${String(order.id).replace(/^ord_/, '').toUpperCase()}`;
+    const transactionRef = `QRIS-TG-${String(order.id).replace(/^ord_/, '').toUpperCase()}`;
     const receipt: OrderReceipt = order.receipt || {
       receiptNumber,
       orderId: order.id,

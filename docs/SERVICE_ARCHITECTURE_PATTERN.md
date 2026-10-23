@@ -103,7 +103,7 @@ Dengan pola mounting ini:
 
 ## 4. INTEGRASI ANTARLAYANAN (INTER-SERVICE COMMUNICATION)
 
-Jika layanan lain (seperti sistem pembayaran ArtoPay atau Admin Dashboard terpadu) perlu berinteraksi dengan layanan Anda:
+Jika layanan lain (seperti sistem pembayaran terpadu atau Admin Dashboard) perlu berinteraksi dengan layanan Anda:
 - **BENAR**: Panggil metode via `rideApiClient` atau HTTP endpoint `POST /api/ride/payments/sync`.
 - **SALAH**: Mengimpor `rideDb` langsung di dalam kode `foodDb` atau sebaliknya.
 

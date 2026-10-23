@@ -143,7 +143,7 @@ orderRouter.get('/:id/receipt', async (req: Request, res: Response) => {
         issuedAt,
         confirmedBy: o.paymentVerifiedBy || 'Admin TumpangGo',
         paymentMethod: o.paymentMethod || 'MERCHANT_QRIS',
-        transactionRef: o.artopayPaymentId || `QRIS-TG-${cleanRef}`,
+        transactionRef: `QRIS-TG-${cleanRef}`,
         subtotal: o.subtotal,
         deliveryFee: o.deliveryFee,
         serviceFee: o.serviceFee,

@@ -21,7 +21,7 @@ import express from 'express';
 import { createServer as createViteServer } from 'vite';
 import { app } from './app';
 import { foodDb } from './db';
-import { foodConfig, artopayConfig, reloadEnv } from './config';
+import { foodConfig, reloadEnv } from './config';
 
 export { app };
 
@@ -71,21 +71,6 @@ export async function startServer() {
         template = await vite.transformIndexHtml(url, template);
         
         reloadEnv();
-        const pubKey = artopayConfig.publicKey || '';
-        const isSandbox = artopayConfig.environment !== 'production';
-        const clientConfigScript = 
-          `<script id="arto-pay-sdk-script" data-client-key="${pubKey}" data-sandbox="${isSandbox}"></script>\n` +
-          `    <script>\n` +
-          `      window.__ARTOPAY_PUBLIC_KEY__ = ${JSON.stringify(pubKey)};\n` +
-          `      window.VITE_ARTOPAY_PUBLIC_KEY = ${JSON.stringify(pubKey)};\n` +
-          `      window.__ARTOPAY_SANDBOX__ = ${isSandbox};\n` +
-          `      window.__ARTOPAY_ENVIRONMENT__ = ${JSON.stringify(artopayConfig.environment)};\n` +
-          `    </script>`;
-
-        template = template.replace(
-          /<script id="arto-pay-sdk-script"[^>]*><\/script>\s*<script>[\s\S]*?<\/script>/,
-          clientConfigScript
-        );
 
         const cleanUrl = url.toLowerCase();
         const isMerchant = cleanUrl.startsWith('/merchant') || cleanUrl.includes('role=merchant');
@@ -117,21 +102,6 @@ export async function startServer() {
         const prodIndexPath = path.join(distPath, 'index.html');
         let template = fs.readFileSync(prodIndexPath, 'utf-8');
         reloadEnv();
-        const pubKey = artopayConfig.publicKey || '';
-        const isSandbox = artopayConfig.environment !== 'production';
-        const clientConfigScript = 
-          `<script id="arto-pay-sdk-script" data-client-key="${pubKey}" data-sandbox="${isSandbox}"></script>\n` +
-          `    <script>\n` +
-          `      window.__ARTOPAY_PUBLIC_KEY__ = ${JSON.stringify(pubKey)};\n` +
-          `      window.VITE_ARTOPAY_PUBLIC_KEY = ${JSON.stringify(pubKey)};\n` +
-          `      window.__ARTOPAY_SANDBOX__ = ${isSandbox};\n` +
-          `      window.__ARTOPAY_ENVIRONMENT__ = ${JSON.stringify(artopayConfig.environment)};\n` +
-          `    </script>`;
-
-        template = template.replace(
-          /<script id="arto-pay-sdk-script"[^>]*><\/script>\s*<script>[\s\S]*?<\/script>/,
-          clientConfigScript
-        );
 
         const cleanUrl = req.originalUrl.toLowerCase();
         const isMerchant = cleanUrl.startsWith('/merchant') || cleanUrl.includes('role=merchant');
