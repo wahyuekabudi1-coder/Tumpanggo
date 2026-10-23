@@ -9,7 +9,8 @@
 
 import React, { useState, useEffect } from 'react';
 import { 
-  Order, OrderStatus, PaymentStatus, Merchant, Driver, Settlement, SettlementStatus, SystemConfig, Testimonial 
+  Order, OrderStatus, PaymentStatus, Merchant, Driver, Settlement, SettlementStatus, SystemConfig, Testimonial,
+  MenuItem, Category 
 } from '../types.ts';
 import { safeStorage } from '../utils/safeStorage.ts';
 import { compressImage } from '../utils/imageCompressor.ts';
@@ -20,7 +21,8 @@ import {
   UserPlus, Search, ArrowUpRight, Clock, Phone, MapPin, Building,
   CheckCircle2, XCircle, ChevronRight, Sliders, ArrowDownRight, Wallet, LogOut,
   QrCode, ExternalLink, Trash2, Upload, Quote, Star, Filter, Receipt,
-  Copy, Share2, Database, RotateCcw, AlertOctagon
+  Copy, Share2, Database, RotateCcw, AlertOctagon, Plus, Edit, ArrowLeft,
+  Utensils, ChefHat, Calendar, Lock, Mail, Tag
 } from 'lucide-react';
 import EReceiptModal from './EReceiptModal.tsx';
 import { useHiddenTrigger } from '../hooks/useHiddenTrigger.ts';
@@ -118,6 +120,65 @@ export default function AdminView({ onLogout, systemConfig, onUpdateConfig, onSe
   const [adminQrisFile, setAdminQrisFile] = useState<string | null>(null);
   const [savingAdminQris, setSavingAdminQris] = useState(false);
   const [adminQrisMsg, setAdminQrisMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  // --- MANAJEMEN MERCHANT FULL-PAGE STATES ---
+  const [merchantSubView, setMerchantSubView] = useState<'list' | 'create' | 'edit' | 'detail' | 'delete_confirm'>('list');
+  const [selectedMerchant, setSelectedMerchant] = useState<Merchant | null>(null);
+  const [merchantStatusFilter, setMerchantStatusFilter] = useState<'ALL' | 'ACTIVE' | 'INACTIVE'>('ALL');
+
+  // Create Merchant Form State
+  const defaultCreateMerchantForm = {
+    name: '',
+    ownerName: '',
+    phone: '',
+    email: '',
+    password: '',
+    address: '',
+    category: 'Aneka Nasi & Lauk',
+    description: '',
+    image: '',
+    openTime: '08:00',
+    closeTime: '21:00',
+    cookTimeEstimate: '15-30 min',
+    bankName: 'Bank BRI',
+    bankAccount: '',
+    bankHolder: '',
+    active: true
+  };
+  const [createMerchantForm, setCreateMerchantForm] = useState(defaultCreateMerchantForm);
+  const [createMerchantLoading, setCreateMerchantLoading] = useState(false);
+  const [createMerchantError, setCreateMerchantError] = useState<string | null>(null);
+
+  // Edit Merchant Form State
+  const [editMerchantForm, setEditMerchantForm] = useState<any>(defaultCreateMerchantForm);
+  const [editMerchantLoading, setEditMerchantLoading] = useState(false);
+  const [editMerchantError, setEditMerchantError] = useState<string | null>(null);
+
+  // Detail & Menu Management States
+  const [selectedMerchantMenu, setSelectedMerchantMenu] = useState<MenuItem[]>([]);
+  const [selectedMerchantCategories, setSelectedMerchantCategories] = useState<Category[]>([]);
+  const [loadingMerchantMenu, setLoadingMerchantMenu] = useState(false);
+  const [showAddMenuItemForm, setShowAddMenuItemForm] = useState(false);
+  const [editingMenuItemId, setEditingMenuItemId] = useState<string | null>(null);
+  const initialMenuItemForm = {
+    name: '',
+    categoryId: '',
+    category: 'Menu Utama',
+    price: 15000,
+    description: '',
+    available: true,
+    image: ''
+  };
+  const [menuItemForm, setMenuItemForm] = useState(initialMenuItemForm);
+  const [savingMenuItem, setSavingMenuItem] = useState(false);
+  const [menuItemError, setMenuItemError] = useState<string | null>(null);
+  const [newCategoryName, setNewCategoryName] = useState('');
+  const [savingNewCategory, setSavingNewCategory] = useState(false);
+
+  // Delete Confirmation States
+  const [deleteConfirmInput, setDeleteConfirmInput] = useState('');
+  const [deletingMerchant, setDeletingMerchant] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   // Settlement creation form states
   const [selectedSettlementMerchantId, setSelectedSettlementMerchantId] = useState('');
@@ -665,14 +726,335 @@ export default function AdminView({ onLogout, systemConfig, onUpdateConfig, onSe
     return matchQuery && matchStatus;
   });
 
-  const filteredMerchants = safeMerchants.filter(m => 
-    m && (
-      merchantSearchQuery === '' ||
-      (m.name || '').toLowerCase().includes(merchantSearchQuery.toLowerCase()) ||
-      (m.ownerName || '').toLowerCase().includes(merchantSearchQuery.toLowerCase()) ||
-      (m.category && m.category.toLowerCase().includes(merchantSearchQuery.toLowerCase()))
-    )
-  );
+  const filteredMerchants = safeMerchants.filter(m => {
+    if (!m) return false;
+    const q = merchantSearchQuery.toLowerCase().trim();
+    const matchQuery = !q ||
+      (m.name || '').toLowerCase().includes(q) ||
+      (m.ownerName || '').toLowerCase().includes(q) ||
+      (m.phone || '').toLowerCase().includes(q) ||
+      (m.address || '').toLowerCase().includes(q) ||
+      (m.category && m.category.toLowerCase().includes(q));
+    const matchStatus = merchantStatusFilter === 'ALL' ||
+      (merchantStatusFilter === 'ACTIVE' && m.active) ||
+      (merchantStatusFilter === 'INACTIVE' && !m.active);
+    return matchQuery && matchStatus;
+  });
+
+  // --- MERCHANT MANAGEMENT ACTION HANDLERS ---
+  const fetchMerchantDetailsAndMenu = async (merchantId: string) => {
+    setLoadingMerchantMenu(true);
+    try {
+      const [menuRes, catRes] = await Promise.all([
+        fetch(`/api/merchants/${merchantId}/menu`).then(r => r.ok ? r.json() : []).catch(() => []),
+        fetch(`/api/merchants/${merchantId}/categories`).then(r => r.ok ? r.json() : []).catch(() => [])
+      ]);
+      setSelectedMerchantMenu(Array.isArray(menuRes) ? menuRes : []);
+      setSelectedMerchantCategories(Array.isArray(catRes) ? catRes : []);
+    } catch (err) {
+      console.error('Error fetching merchant menu:', err);
+    } finally {
+      setLoadingMerchantMenu(false);
+    }
+  };
+
+  const handleOpenMerchantDetail = async (merchant: Merchant) => {
+    setSelectedMerchant(merchant);
+    setMerchantSubView('detail');
+    setShowAddMenuItemForm(false);
+    setEditingMenuItemId(null);
+    setMenuItemForm(initialMenuItemForm);
+    await fetchMerchantDetailsAndMenu(merchant.id);
+  };
+
+  const handleOpenEditMerchant = (merchant: Merchant) => {
+    setSelectedMerchant(merchant);
+    setEditMerchantForm({
+      name: merchant.name || '',
+      ownerName: merchant.ownerName || '',
+      phone: merchant.phone || '',
+      email: merchant.email || '',
+      password: '',
+      address: merchant.address || '',
+      category: merchant.category || 'Aneka Nasi & Lauk',
+      description: merchant.description || '',
+      image: merchant.image || '',
+      openTime: merchant.openTime || '08:00',
+      closeTime: merchant.closeTime || '21:00',
+      cookTimeEstimate: merchant.cookTimeEstimate || '15-30 min',
+      bankName: merchant.bankName || 'Bank BRI',
+      bankAccount: merchant.bankAccount || '',
+      bankHolder: merchant.bankHolder || merchant.ownerName || '',
+      active: merchant.active !== undefined ? merchant.active : true
+    });
+    setEditMerchantError(null);
+    setMerchantSubView('edit');
+  };
+
+  const handleOpenDeleteMerchant = (merchant: Merchant) => {
+    setSelectedMerchant(merchant);
+    setDeleteConfirmInput('');
+    setDeleteError(null);
+    setMerchantSubView('delete_confirm');
+  };
+
+  const handleCreateMerchant = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!createMerchantForm.name.trim()) {
+      setCreateMerchantError('Nama usaha / toko wajib diisi.');
+      return;
+    }
+    if (!createMerchantForm.ownerName.trim()) {
+      setCreateMerchantError('Nama pemilik usaha wajib diisi.');
+      return;
+    }
+    if (!createMerchantForm.phone.trim()) {
+      setCreateMerchantError('Nomor WhatsApp / telepon wajib diisi.');
+      return;
+    }
+    if (!createMerchantForm.address.trim()) {
+      setCreateMerchantError('Alamat lengkap toko wajib diisi.');
+      return;
+    }
+    if (!createMerchantForm.email.trim()) {
+      setCreateMerchantError('Email toko wajib diisi untuk kredensial login.');
+      return;
+    }
+    if (!createMerchantForm.password || createMerchantForm.password.length < 6) {
+      setCreateMerchantError('Kata sandi wajib minimal 6 karakter.');
+      return;
+    }
+
+    setCreateMerchantLoading(true);
+    setCreateMerchantError(null);
+    try {
+      const res = await fetch('/api/merchants', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...createMerchantForm,
+          latitude: -7.9942,
+          longitude: 112.7667
+        })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'Gagal mendaftarkan merchant baru.');
+      }
+      await fetchAdminData();
+      setCreateMerchantForm(defaultCreateMerchantForm);
+      setMerchantSubView('list');
+      alert(`Sukses! Merchant "${data.name}" berhasil didaftarkan dan tersimpan di database.`);
+    } catch (err: any) {
+      setCreateMerchantError(err.message || 'Terjadi kesalahan saat mendaftarkan merchant.');
+    } finally {
+      setCreateMerchantLoading(false);
+    }
+  };
+
+  const handleUpdateMerchant = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedMerchant) return;
+    if (!editMerchantForm.name.trim()) {
+      setEditMerchantError('Nama usaha / toko wajib diisi.');
+      return;
+    }
+    if (!editMerchantForm.ownerName.trim()) {
+      setEditMerchantError('Nama pemilik usaha wajib diisi.');
+      return;
+    }
+    if (!editMerchantForm.phone.trim()) {
+      setEditMerchantError('Nomor WhatsApp / telepon wajib diisi.');
+      return;
+    }
+    if (!editMerchantForm.address.trim()) {
+      setEditMerchantError('Alamat lengkap toko wajib diisi.');
+      return;
+    }
+
+    setEditMerchantLoading(true);
+    setEditMerchantError(null);
+    try {
+      const payload: any = { ...editMerchantForm };
+      if (!payload.password || payload.password.trim() === '') {
+        delete payload.password;
+      }
+      const res = await fetch(`/api/merchants/${selectedMerchant.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'Gagal memperbarui data merchant.');
+      }
+      await fetchAdminData();
+      setSelectedMerchant(data);
+      setMerchantSubView('detail');
+      alert(`Data merchant "${data.name}" berhasil diperbarui!`);
+    } catch (err: any) {
+      setEditMerchantError(err.message || 'Terjadi kesalahan saat memperbarui merchant.');
+    } finally {
+      setEditMerchantLoading(false);
+    }
+  };
+
+  const handleToggleMerchantStatus = async (merchant: Merchant) => {
+    const newStatus = !merchant.active;
+    const actionText = newStatus ? 'mengaktifkan' : 'menonaktifkan';
+    if (!confirm(`Apakah Anda yakin ingin ${actionText} status toko "${merchant.name}"?`)) return;
+
+    try {
+      const res = await fetch(`/api/merchants/${merchant.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ active: newStatus })
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || `Gagal ${actionText} merchant.`);
+      }
+      await fetchAdminData();
+      if (selectedMerchant && selectedMerchant.id === merchant.id) {
+        setSelectedMerchant(prev => prev ? { ...prev, active: newStatus } : null);
+      }
+    } catch (err: any) {
+      alert(err.message || `Gagal mengubah status merchant.`);
+    }
+  };
+
+  const handleDeleteMerchantSafely = async (merchant: Merchant) => {
+    const merchantOrders = orders.filter(o => o.merchantId === merchant.id);
+    const merchantSettlements = settlements.filter(s => s.merchantId === merchant.id);
+    const hasHistory = merchantOrders.length > 0 || merchantSettlements.length > 0;
+
+    if (hasHistory) {
+      alert(`Toko "${merchant.name}" memiliki riwayat ${merchantOrders.length} pesanan dan ${merchantSettlements.length} settlement keuangan. Toko tidak dapat dihapus permanen demi integritas audit dan data transaksi. Silakan gunakan opsi "Nonaktifkan Toko".`);
+      return;
+    }
+
+    if (deleteConfirmInput.trim().toLowerCase() !== merchant.name.trim().toLowerCase()) {
+      setDeleteError(`Ketik tepat "${merchant.name}" untuk mengonfirmasi penghapusan.`);
+      return;
+    }
+
+    setDeletingMerchant(true);
+    setDeleteError(null);
+    try {
+      const res = await fetch(`/api/merchants/${merchant.id}`, {
+        method: 'DELETE'
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'Gagal menghapus merchant.');
+      }
+      await fetchAdminData();
+      setSelectedMerchant(null);
+      setMerchantSubView('list');
+      setDeleteConfirmInput('');
+      alert(`Merchant "${merchant.name}" berhasil dihapus dari sistem.`);
+    } catch (err: any) {
+      setDeleteError(err.message || 'Gagal menghapus merchant.');
+    } finally {
+      setDeletingMerchant(false);
+    }
+  };
+
+  const handleSaveMenuItem = async (merchantId: string) => {
+    if (!menuItemForm.name.trim()) {
+      setMenuItemError('Nama menu wajib diisi.');
+      return;
+    }
+    if (!menuItemForm.price || Number(menuItemForm.price) <= 0) {
+      setMenuItemError('Harga menu harus lebih besar dari Rp 0.');
+      return;
+    }
+    setSavingMenuItem(true);
+    setMenuItemError(null);
+    try {
+      const isEdit = Boolean(editingMenuItemId);
+      const url = isEdit
+        ? `/api/merchants/${merchantId}/menu/${editingMenuItemId}`
+        : `/api/merchants/${merchantId}/menu`;
+      const method = isEdit ? 'PUT' : 'POST';
+
+      const res = await fetch(url, {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...menuItemForm,
+          price: Number(menuItemForm.price)
+        })
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || 'Gagal menyimpan menu');
+      }
+      await fetchMerchantDetailsAndMenu(merchantId);
+      await fetchAdminData();
+      setShowAddMenuItemForm(false);
+      setEditingMenuItemId(null);
+      setMenuItemForm(initialMenuItemForm);
+    } catch (err: any) {
+      setMenuItemError(err.message || 'Terjadi kesalahan saat menyimpan menu');
+    } finally {
+      setSavingMenuItem(false);
+    }
+  };
+
+  const handleDeleteMenuItem = async (merchantId: string, menuItemId: string, menuName: string) => {
+    if (!confirm(`Hapus menu "${menuName}" secara permanen?`)) return;
+    try {
+      const res = await fetch(`/api/merchants/${merchantId}/menu/${menuItemId}`, {
+        method: 'DELETE'
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || 'Gagal menghapus menu');
+      }
+      await fetchMerchantDetailsAndMenu(merchantId);
+      await fetchAdminData();
+    } catch (err: any) {
+      alert(err.message || 'Gagal menghapus menu makanan');
+    }
+  };
+
+  const handleToggleMenuItemAvailability = async (merchantId: string, item: MenuItem) => {
+    try {
+      const res = await fetch(`/api/merchants/${merchantId}/menu/${item.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ available: !item.available })
+      });
+      if (res.ok) {
+        setSelectedMerchantMenu(prev => prev.map(m => m.id === item.id ? { ...m, available: !item.available } : m));
+      }
+    } catch (err) {
+      console.error('Failed to toggle menu availability', err);
+    }
+  };
+
+  const handleAddCategory = async (merchantId: string) => {
+    if (!newCategoryName.trim()) return;
+    setSavingNewCategory(true);
+    try {
+      const res = await fetch(`/api/merchants/${merchantId}/categories`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: newCategoryName.trim() })
+      });
+      if (res.ok) {
+        const created = await res.json();
+        setSelectedMerchantCategories(prev => [...prev, created]);
+        setMenuItemForm(prev => ({ ...prev, categoryId: created.id, category: created.name }));
+        setNewCategoryName('');
+      }
+    } catch (err) {
+      console.error('Failed to add category', err);
+    } finally {
+      setSavingNewCategory(false);
+    }
+  };
 
   const handleUpdateReviewStatus = async (id: string, newStatus: string) => {
     try {
@@ -815,7 +1197,7 @@ export default function AdminView({ onLogout, systemConfig, onUpdateConfig, onSe
           {[
             { id: 'verify', label: 'Verifikasi Pembayaran', count: pendingVerificationOrders.length, icon: CheckSquare },
             { id: 'orders', label: 'Kelola Pesanan', count: orders.length, icon: ClipboardList },
-            { id: 'merchants', label: 'Mitra Merchant', count: merchants.length, icon: Store },
+            { id: 'merchants', label: 'Manajemen Merchant', count: merchants.length, icon: Store },
             { id: 'drivers', label: 'Mitra Driver', count: drivers.length, icon: Users },
             { id: 'partners', label: 'Pendaftaran Mitra', count: pendingPartnerRegs.length, icon: UserPlus },
             { id: 'settlements', label: 'Settlement & Payout', count: settlements.length, icon: DollarSign },
@@ -917,7 +1299,7 @@ export default function AdminView({ onLogout, systemConfig, onUpdateConfig, onSe
               {[
                 { id: 'verify', label: 'Verifikasi Pembayaran', count: pendingVerificationOrders.length, icon: CheckSquare },
                 { id: 'orders', label: 'Kelola Pesanan', count: orders.length, icon: ClipboardList },
-                { id: 'merchants', label: 'Mitra Merchant', count: merchants.length, icon: Store },
+                { id: 'merchants', label: 'Manajemen Merchant', count: merchants.length, icon: Store },
                 { id: 'drivers', label: 'Mitra Driver', count: drivers.length, icon: Users },
                 { id: 'partners', label: 'Pendaftaran Mitra', count: pendingPartnerRegs.length, icon: UserPlus },
                 { id: 'settlements', label: 'Settlement & Payout', count: settlements.length, icon: DollarSign },
@@ -1484,155 +1866,1517 @@ export default function AdminView({ onLogout, systemConfig, onUpdateConfig, onSe
           </div>
         )}
 
-        {/* 3. TAB: MITRA MERCHANT */}
+        {/* 3. TAB: MANAJEMEN MERCHANT */}
         {activeTab === 'merchants' && (
-          <div className="space-y-5">
-            <div className="bg-white p-4 sm:p-5 rounded-2xl border border-slate-200/80 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-              <div>
-                <h2 className="font-display font-bold text-base sm:text-lg text-slate-900">Daftar Mitra Toko & Resto</h2>
-                <p className="text-xs text-slate-500 mt-0.5">Kelola status aktif merchant dan kredensial akses.</p>
-              </div>
-
-              <div className="relative">
-                <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                <input
-                  type="text"
-                  placeholder="Cari nama toko, pemilik..."
-                  value={merchantSearchQuery}
-                  onChange={(e) => setMerchantSearchQuery(e.target.value)}
-                  className="pl-9 pr-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-emerald-500 w-56"
-                />
-              </div>
-            </div>
-
-            {filteredMerchants.length === 0 ? (
-              <div className="bg-white rounded-2xl border border-dashed border-slate-300 p-12 text-center flex flex-col items-center justify-center shadow-xs">
-                <Store className="w-12 h-12 text-slate-300 mb-3" />
-                <h3 className="font-display font-bold text-base text-slate-700">Belum Ada Mitra Toko Terdaftar</h3>
-                <p className="text-xs text-slate-400 mt-1 max-w-sm">
-                  {merchantSearchQuery ? 'Tidak ada toko yang sesuai dengan kata kunci pencarian.' : 'Pendaftaran merchant baru akan muncul di sini setelah diverifikasi oleh Admin.'}
-                </p>
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-                {filteredMerchants.map(m => (
-                <div key={m.id} className="bg-white rounded-2xl border border-slate-200/80 shadow-xs p-4 flex flex-col justify-between hover:border-emerald-200 transition-all">
-                  <div className="space-y-3">
-                    <div className="flex items-start gap-3">
-                      <div className="w-12 h-12 rounded-xl bg-slate-100 overflow-hidden border border-slate-200 shrink-0">
-                        {m.image ? (
-                          <img src={m.image} alt={m.name} className="w-full h-full object-cover" />
-                        ) : (
-                          <Store className="w-6 h-6 text-slate-400 m-3" />
-                        )}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center justify-between gap-1">
-                          <h3 className="font-display font-bold text-sm text-slate-900 truncate">{m.name}</h3>
-                          <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full ${
-                            m.active ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-500'
-                          }`}>
-                            {m.active ? 'Buka' : 'Tutup'}
-                          </span>
-                        </div>
-                        <span className="text-[11px] text-slate-500 block truncate">Pemilik: {m.ownerName}</span>
-                        <span className="text-[10px] text-slate-400 block">{m.category || 'Kuliner Tumpang'}</span>
-                      </div>
+          <div className="space-y-6">
+            {/* VIEW 1: FORM TAMBAH MERCHANT BARU */}
+            {merchantSubView === 'create' && (
+              <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xs p-5 sm:p-7 space-y-6">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-slate-100 gap-3">
+                  <div className="flex items-center gap-3">
+                    <button
+                      type="button"
+                      onClick={() => { setMerchantSubView('list'); setCreateMerchantError(null); }}
+                      className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 transition-all cursor-pointer"
+                      title="Kembali ke Daftar"
+                    >
+                      <ArrowLeft className="w-4 h-4" />
+                    </button>
+                    <div>
+                      <h2 className="font-display font-bold text-lg text-slate-900">Tambah Mitra Merchant Baru</h2>
+                      <p className="text-xs text-slate-500">Daftarkan usaha kuliner lokal baru ke dalam ekosistem Tumpang Food.</p>
                     </div>
+                  </div>
+                  <span className="text-[11px] font-bold text-emerald-800 bg-emerald-50 border border-emerald-200 px-3 py-1 rounded-full self-start sm:self-auto">
+                    Form Pendaftaran Resmi
+                  </span>
+                </div>
 
-                    {/* Operational Details */}
-                    <div className="bg-slate-50 rounded-xl p-2.5 text-xs space-y-1">
-                      <div className="flex justify-between text-slate-600">
-                        <span>Jam Buka:</span>
-                        <span className="font-bold">{m.openTime} - {m.closeTime}</span>
-                      </div>
-                      <div className="flex justify-between text-slate-600">
-                        <span>Kontak WA:</span>
-                        <span className="font-medium">{m.phone}</span>
-                      </div>
-                      <div className="flex justify-between text-slate-600">
-                        <span>Bank Rekening:</span>
-                        <span className="font-mono text-[11px]">{m.bankName} - {m.bankAccount}</span>
-                      </div>
-                    </div>
+                {createMerchantError && (
+                  <div className="p-3.5 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-700 flex items-center gap-2">
+                    <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
+                    <span>{createMerchantError}</span>
+                  </div>
+                )}
 
-                    {/* Edit Merchant Email Section */}
-                    <div className="pt-2 border-t border-slate-100">
-                      {editingMerchantId === m.id ? (
-                        <div className="flex items-center gap-1.5 mt-1">
+                <form onSubmit={handleCreateMerchant} className="space-y-6">
+                  {/* Bagian 1: Data Pokok Usaha */}
+                  <div>
+                    <h3 className="font-display font-bold text-sm text-slate-800 mb-3 flex items-center gap-2">
+                      <Store className="w-4 h-4 text-emerald-600" />
+                      1. Identitas Usaha & Toko
+                    </h3>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-700 mb-1">
+                          Nama Usaha / Toko <span className="text-rose-500">*</span>
+                        </label>
+                        <input
+                          type="text"
+                          required
+                          value={createMerchantForm.name}
+                          onChange={(e) => setCreateMerchantForm({ ...createMerchantForm, name: e.target.value })}
+                          placeholder="Contoh: Warung Soto Ayam Bu Siti"
+                          className="w-full px-3.5 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-emerald-500"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-700 mb-1">
+                          Kategori Usaha <span className="text-rose-500">*</span>
+                        </label>
+                        <select
+                          value={createMerchantForm.category}
+                          onChange={(e) => setCreateMerchantForm({ ...createMerchantForm, category: e.target.value })}
+                          className="w-full px-3.5 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-emerald-500"
+                        >
+                          <option value="Aneka Nasi & Lauk">Aneka Nasi & Lauk</option>
+                          <option value="Aneka Mie & Bakso">Aneka Mie & Bakso</option>
+                          <option value="Ayam & Bebek">Ayam & Bebek</option>
+                          <option value="Jajanan & Gorengan">Jajanan & Gorengan</option>
+                          <option value="Minuman & Kopi">Minuman & Kopi</option>
+                          <option value="Martabak & Terang Bulan">Martabak & Terang Bulan</option>
+                          <option value="Seafood & Ikan Bakar">Seafood & Ikan Bakar</option>
+                          <option value="Kue & Roti">Kue & Roti</option>
+                          <option value="Kuliner Tradisional">Kuliner Tradisional</option>
+                          <option value="Lainnya">Lainnya</option>
+                        </select>
+                      </div>
+
+                      <div className="sm:col-span-2">
+                        <label className="block text-xs font-semibold text-slate-700 mb-1">
+                          Deskripsi Usaha
+                        </label>
+                        <textarea
+                          rows={2}
+                          value={createMerchantForm.description}
+                          onChange={(e) => setCreateMerchantForm({ ...createMerchantForm, description: e.target.value })}
+                          placeholder="Deskripsi singkat keunggulan menu atau jam buka toko..."
+                          className="w-full px-3.5 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-emerald-500"
+                        />
+                      </div>
+
+                      <div className="sm:col-span-2">
+                        <label className="block text-xs font-semibold text-slate-700 mb-1">
+                          Foto / Banner Toko (Opsional)
+                        </label>
+                        <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
                           <input
-                            type="email"
-                            value={editingEmail}
-                            onChange={(e) => setEditingEmail(e.target.value)}
-                            placeholder="Email login baru..."
-                            className="flex-1 py-1 px-2.5 bg-slate-50 border border-slate-200 rounded-lg text-xs focus:outline-none"
+                            type="file"
+                            accept="image/*"
+                            onChange={async (e) => {
+                              const file = e.target.files?.[0];
+                              if (file) {
+                                try {
+                                  const comp = await compressImage(file, 800, 0.7);
+                                  setCreateMerchantForm(prev => ({ ...prev, image: comp }));
+                                } catch {
+                                  alert('Gagal memproses gambar');
+                                }
+                              }
+                            }}
+                            className="text-xs text-slate-500 file:mr-3 file:py-1.5 file:px-3 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-emerald-50 file:text-emerald-700 hover:file:bg-emerald-100 cursor-pointer"
                           />
-                          <button
-                            onClick={() => handleSaveMerchantEmail(m.id)}
-                            disabled={savingEmail}
-                            className="px-2.5 py-1 bg-emerald-600 text-white rounded-lg text-xs font-bold"
-                          >
-                            Simpan
-                          </button>
-                          <button
-                            onClick={() => setEditingMerchantId(null)}
-                            className="px-2 py-1 bg-slate-200 text-slate-700 rounded-lg text-xs"
-                          >
-                            Batal
-                          </button>
+                          <span className="text-[11px] text-slate-400">Atau tempel URL gambar langsung:</span>
                         </div>
-                      ) : (
-                        <div className="flex items-center justify-between text-[11px] text-slate-500">
-                          <span className="truncate">Email: <strong className="text-slate-700">{m.email || 'Belum diatur'}</strong></span>
-                          <button
-                            onClick={() => { setEditingMerchantId(m.id); setEditingEmail(m.email || ''); }}
-                            className="text-emerald-700 font-bold hover:underline shrink-0"
-                          >
-                            Ubah Email
-                          </button>
-                        </div>
-                      )}
-                    </div>
-
-                    {/* QRIS Statis Merchant Info & Action */}
-                    <div className="pt-2 border-t border-slate-100 flex items-center justify-between gap-2">
-                      <div className="flex items-center gap-1.5 min-w-0">
-                        <QrCode className="w-3.5 h-3.5 text-slate-500 shrink-0" />
-                        {m.qrisImage ? (
-                          <div className="flex items-center gap-1.5 truncate">
-                            <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full">
-                              QRIS Terpasang
-                            </span>
-                            <button
-                              onClick={() => setShowImageModal(m.qrisImage || null)}
-                              className="text-[10px] text-slate-400 hover:text-emerald-700 underline flex items-center gap-0.5"
-                            >
-                              <ZoomIn className="w-2.5 h-2.5" /> Lihat
-                            </button>
+                        <input
+                          type="url"
+                          value={createMerchantForm.image}
+                          onChange={(e) => setCreateMerchantForm({ ...createMerchantForm, image: e.target.value })}
+                          placeholder="https://..."
+                          className="w-full mt-2 px-3.5 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-emerald-500"
+                        />
+                        {createMerchantForm.image && (
+                          <div className="mt-2 w-20 h-20 rounded-xl border border-slate-200 overflow-hidden bg-slate-100">
+                            <img src={createMerchantForm.image} alt="Preview Toko" className="w-full h-full object-cover" />
                           </div>
-                        ) : (
-                          <span className="text-[10px] font-bold text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full">
-                            Belum Ada QRIS
-                          </span>
                         )}
                       </div>
+                    </div>
+                  </div>
+
+                  {/* Bagian 2: Data Pemilik & Akses Portal */}
+                  <div className="pt-4 border-t border-slate-100">
+                    <h3 className="font-display font-bold text-sm text-slate-800 mb-3 flex items-center gap-2">
+                      <Users className="w-4 h-4 text-emerald-600" />
+                      2. Data Pemilik & Akses Portal Merchant
+                    </h3>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-700 mb-1">
+                          Nama Pemilik Usaha <span className="text-rose-500">*</span>
+                        </label>
+                        <input
+                          type="text"
+                          required
+                          value={createMerchantForm.ownerName}
+                          onChange={(e) => setCreateMerchantForm({ ...createMerchantForm, ownerName: e.target.value })}
+                          placeholder="Nama lengkap penanggung jawab"
+                          className="w-full px-3.5 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-emerald-500"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-700 mb-1">
+                          Nomor WhatsApp / Telepon <span className="text-rose-500">*</span>
+                        </label>
+                        <input
+                          type="tel"
+                          required
+                          value={createMerchantForm.phone}
+                          onChange={(e) => setCreateMerchantForm({ ...createMerchantForm, phone: e.target.value })}
+                          placeholder="Contoh: 081234567890"
+                          className="w-full px-3.5 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-emerald-500"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-700 mb-1">
+                          Email Login Portal <span className="text-rose-500">*</span>
+                        </label>
+                        <input
+                          type="email"
+                          required
+                          value={createMerchantForm.email}
+                          onChange={(e) => setCreateMerchantForm({ ...createMerchantForm, email: e.target.value })}
+                          placeholder="emailtoko@gmail.com"
+                          className="w-full px-3.5 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-emerald-500"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-700 mb-1">
+                          Kata Sandi Akses <span className="text-rose-500">*</span>
+                        </label>
+                        <input
+                          type="password"
+                          required
+                          minLength={6}
+                          value={createMerchantForm.password}
+                          onChange={(e) => setCreateMerchantForm({ ...createMerchantForm, password: e.target.value })}
+                          placeholder="Minimal 6 karakter"
+                          className="w-full px-3.5 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-emerald-500"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Bagian 3: Alamat & Operasional */}
+                  <div className="pt-4 border-t border-slate-100">
+                    <h3 className="font-display font-bold text-sm text-slate-800 mb-3 flex items-center gap-2">
+                      <Clock className="w-4 h-4 text-emerald-600" />
+                      3. Alamat & Jam Operasional
+                    </h3>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                      <div className="sm:col-span-3">
+                        <label className="block text-xs font-semibold text-slate-700 mb-1">
+                          Alamat Lengkap Toko <span className="text-rose-500">*</span>
+                        </label>
+                        <input
+                          type="text"
+                          required
+                          value={createMerchantForm.address}
+                          onChange={(e) => setCreateMerchantForm({ ...createMerchantForm, address: e.target.value })}
+                          placeholder="Jl. Raya Tumpang No. ..., RT/RW, Desa ..., Kec. Tumpang"
+                          className="w-full px-3.5 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-emerald-500"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-700 mb-1">
+                          Jam Buka
+                        </label>
+                        <input
+                          type="time"
+                          value={createMerchantForm.openTime}
+                          onChange={(e) => setCreateMerchantForm({ ...createMerchantForm, openTime: e.target.value })}
+                          className="w-full px-3.5 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-emerald-500"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-700 mb-1">
+                          Jam Tutup
+                        </label>
+                        <input
+                          type="time"
+                          value={createMerchantForm.closeTime}
+                          onChange={(e) => setCreateMerchantForm({ ...createMerchantForm, closeTime: e.target.value })}
+                          className="w-full px-3.5 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-emerald-500"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-700 mb-1">
+                          Estimasi Masak
+                        </label>
+                        <input
+                          type="text"
+                          value={createMerchantForm.cookTimeEstimate}
+                          onChange={(e) => setCreateMerchantForm({ ...createMerchantForm, cookTimeEstimate: e.target.value })}
+                          placeholder="Contoh: 15-30 min"
+                          className="w-full px-3.5 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-emerald-500"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Bagian 4: Rekening Pencairan & Status */}
+                  <div className="pt-4 border-t border-slate-100">
+                    <h3 className="font-display font-bold text-sm text-slate-800 mb-3 flex items-center gap-2">
+                      <Wallet className="w-4 h-4 text-emerald-600" />
+                      4. Rekening Pencairan & Status Awal
+                    </h3>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-700 mb-1">
+                          Nama Bank
+                        </label>
+                        <select
+                          value={createMerchantForm.bankName}
+                          onChange={(e) => setCreateMerchantForm({ ...createMerchantForm, bankName: e.target.value })}
+                          className="w-full px-3.5 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-emerald-500"
+                        >
+                          <option value="Bank BRI">Bank BRI</option>
+                          <option value="Bank BCA">Bank BCA</option>
+                          <option value="Bank Mandiri">Bank Mandiri</option>
+                          <option value="Bank BNI">Bank BNI</option>
+                          <option value="Bank Jatim">Bank Jatim</option>
+                          <option value="DANA">DANA</option>
+                          <option value="GoPay">GoPay</option>
+                          <option value="OVO">OVO</option>
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-700 mb-1">
+                          Nomor Rekening / E-Wallet
+                        </label>
+                        <input
+                          type="text"
+                          value={createMerchantForm.bankAccount}
+                          onChange={(e) => setCreateMerchantForm({ ...createMerchantForm, bankAccount: e.target.value })}
+                          placeholder="Nomor rekening"
+                          className="w-full px-3.5 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-emerald-500"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-700 mb-1">
+                          Atas Nama Rekening
+                        </label>
+                        <input
+                          type="text"
+                          value={createMerchantForm.bankHolder}
+                          onChange={(e) => setCreateMerchantForm({ ...createMerchantForm, bankHolder: e.target.value })}
+                          placeholder="Nama pemilik rekening"
+                          className="w-full px-3.5 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-emerald-500"
+                        />
+                      </div>
+
+                      <div className="sm:col-span-3 pt-2">
+                        <label className="inline-flex items-center gap-2 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={createMerchantForm.active}
+                            onChange={(e) => setCreateMerchantForm({ ...createMerchantForm, active: e.target.checked })}
+                            className="w-4 h-4 rounded text-emerald-600 focus:ring-emerald-500"
+                          />
+                          <span className="text-xs font-bold text-slate-800">
+                            Status Toko Langsung Aktif (Buka dan dapat menerima pesanan pelanggan)
+                          </span>
+                        </label>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Tombol Simpan & Batal */}
+                  <div className="pt-4 border-t border-slate-100 flex items-center justify-end gap-3">
+                    <button
+                      type="button"
+                      onClick={() => { setMerchantSubView('list'); setCreateMerchantError(null); }}
+                      className="px-4 py-2.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-100 text-slate-700 text-xs font-bold transition-all cursor-pointer"
+                    >
+                      Batal
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={createMerchantLoading}
+                      className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-xs transition-all cursor-pointer disabled:opacity-50 inline-flex items-center gap-2"
+                    >
+                      <Plus className="w-4 h-4" />
+                      <span>{createMerchantLoading ? 'Menyimpan ke Database...' : 'Daftarkan Merchant'}</span>
+                    </button>
+                  </div>
+                </form>
+              </div>
+            )}
+
+            {/* VIEW 2: FORM EDIT MERCHANT */}
+            {merchantSubView === 'edit' && selectedMerchant && (
+              <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xs p-5 sm:p-7 space-y-6">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-slate-100 gap-3">
+                  <div className="flex items-center gap-3">
+                    <button
+                      type="button"
+                      onClick={() => { setMerchantSubView('detail'); setEditMerchantError(null); }}
+                      className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 transition-all cursor-pointer"
+                      title="Kembali ke Detail"
+                    >
+                      <ArrowLeft className="w-4 h-4" />
+                    </button>
+                    <div>
+                      <h2 className="font-display font-bold text-lg text-slate-900">Edit Profil Merchant: {selectedMerchant.name}</h2>
+                      <p className="text-xs text-slate-500">Perbarui identitas usaha, kontak pemilik, dan jam operasional.</p>
+                    </div>
+                  </div>
+                  <span className={`text-[11px] font-bold px-3 py-1 rounded-full self-start sm:self-auto ${
+                    editMerchantForm.active ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-600'
+                  }`}>
+                    {editMerchantForm.active ? 'Status: Aktif' : 'Status: Nonaktif'}
+                  </span>
+                </div>
+
+                {editMerchantError && (
+                  <div className="p-3.5 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-700 flex items-center gap-2">
+                    <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
+                    <span>{editMerchantError}</span>
+                  </div>
+                )}
+
+                <form onSubmit={handleUpdateMerchant} className="space-y-6">
+                  {/* Bagian 1: Data Pokok Usaha */}
+                  <div>
+                    <h3 className="font-display font-bold text-sm text-slate-800 mb-3 flex items-center gap-2">
+                      <Store className="w-4 h-4 text-emerald-600" />
+                      1. Identitas Usaha & Toko
+                    </h3>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-700 mb-1">
+                          Nama Usaha / Toko <span className="text-rose-500">*</span>
+                        </label>
+                        <input
+                          type="text"
+                          required
+                          value={editMerchantForm.name}
+                          onChange={(e) => setEditMerchantForm({ ...editMerchantForm, name: e.target.value })}
+                          className="w-full px-3.5 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-emerald-500"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-700 mb-1">
+                          Kategori Usaha <span className="text-rose-500">*</span>
+                        </label>
+                        <select
+                          value={editMerchantForm.category}
+                          onChange={(e) => setEditMerchantForm({ ...editMerchantForm, category: e.target.value })}
+                          className="w-full px-3.5 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-emerald-500"
+                        >
+                          <option value="Aneka Nasi & Lauk">Aneka Nasi & Lauk</option>
+                          <option value="Aneka Mie & Bakso">Aneka Mie & Bakso</option>
+                          <option value="Ayam & Bebek">Ayam & Bebek</option>
+                          <option value="Jajanan & Gorengan">Jajanan & Gorengan</option>
+                          <option value="Minuman & Kopi">Minuman & Kopi</option>
+                          <option value="Martabak & Terang Bulan">Martabak & Terang Bulan</option>
+                          <option value="Seafood & Ikan Bakar">Seafood & Ikan Bakar</option>
+                          <option value="Kue & Roti">Kue & Roti</option>
+                          <option value="Kuliner Tradisional">Kuliner Tradisional</option>
+                          <option value="Lainnya">Lainnya</option>
+                        </select>
+                      </div>
+
+                      <div className="sm:col-span-2">
+                        <label className="block text-xs font-semibold text-slate-700 mb-1">
+                          Deskripsi Usaha
+                        </label>
+                        <textarea
+                          rows={2}
+                          value={editMerchantForm.description}
+                          onChange={(e) => setEditMerchantForm({ ...editMerchantForm, description: e.target.value })}
+                          className="w-full px-3.5 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-emerald-500"
+                        />
+                      </div>
+
+                      <div className="sm:col-span-2">
+                        <label className="block text-xs font-semibold text-slate-700 mb-1">
+                          URL Foto Toko
+                        </label>
+                        <input
+                          type="text"
+                          value={editMerchantForm.image}
+                          onChange={(e) => setEditMerchantForm({ ...editMerchantForm, image: e.target.value })}
+                          className="w-full px-3.5 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-emerald-500"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Bagian 2: Data Pemilik & Kontak */}
+                  <div className="pt-4 border-t border-slate-100">
+                    <h3 className="font-display font-bold text-sm text-slate-800 mb-3 flex items-center gap-2">
+                      <Users className="w-4 h-4 text-emerald-600" />
+                      2. Data Pemilik & Akses
+                    </h3>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-700 mb-1">
+                          Nama Pemilik Usaha <span className="text-rose-500">*</span>
+                        </label>
+                        <input
+                          type="text"
+                          required
+                          value={editMerchantForm.ownerName}
+                          onChange={(e) => setEditMerchantForm({ ...editMerchantForm, ownerName: e.target.value })}
+                          className="w-full px-3.5 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-emerald-500"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-700 mb-1">
+                          Nomor WhatsApp / Telepon <span className="text-rose-500">*</span>
+                        </label>
+                        <input
+                          type="tel"
+                          required
+                          value={editMerchantForm.phone}
+                          onChange={(e) => setEditMerchantForm({ ...editMerchantForm, phone: e.target.value })}
+                          className="w-full px-3.5 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-emerald-500"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-700 mb-1">
+                          Email Login Toko
+                        </label>
+                        <input
+                          type="email"
+                          value={editMerchantForm.email}
+                          onChange={(e) => setEditMerchantForm({ ...editMerchantForm, email: e.target.value })}
+                          className="w-full px-3.5 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-emerald-500"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-700 mb-1">
+                          Kata Sandi Baru (Kosongkan bila tidak diubah)
+                        </label>
+                        <input
+                          type="password"
+                          minLength={6}
+                          value={editMerchantForm.password}
+                          onChange={(e) => setEditMerchantForm({ ...editMerchantForm, password: e.target.value })}
+                          placeholder="Ketik kata sandi baru..."
+                          className="w-full px-3.5 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-emerald-500"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Bagian 3: Alamat & Operasional */}
+                  <div className="pt-4 border-t border-slate-100">
+                    <h3 className="font-display font-bold text-sm text-slate-800 mb-3 flex items-center gap-2">
+                      <Clock className="w-4 h-4 text-emerald-600" />
+                      3. Alamat & Jam Operasional
+                    </h3>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                      <div className="sm:col-span-3">
+                        <label className="block text-xs font-semibold text-slate-700 mb-1">
+                          Alamat Lengkap Toko <span className="text-rose-500">*</span>
+                        </label>
+                        <input
+                          type="text"
+                          required
+                          value={editMerchantForm.address}
+                          onChange={(e) => setEditMerchantForm({ ...editMerchantForm, address: e.target.value })}
+                          className="w-full px-3.5 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-emerald-500"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-700 mb-1">
+                          Jam Buka
+                        </label>
+                        <input
+                          type="time"
+                          value={editMerchantForm.openTime}
+                          onChange={(e) => setEditMerchantForm({ ...editMerchantForm, openTime: e.target.value })}
+                          className="w-full px-3.5 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-emerald-500"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-700 mb-1">
+                          Jam Tutup
+                        </label>
+                        <input
+                          type="time"
+                          value={editMerchantForm.closeTime}
+                          onChange={(e) => setEditMerchantForm({ ...editMerchantForm, closeTime: e.target.value })}
+                          className="w-full px-3.5 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-emerald-500"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-700 mb-1">
+                          Estimasi Masak
+                        </label>
+                        <input
+                          type="text"
+                          value={editMerchantForm.cookTimeEstimate}
+                          onChange={(e) => setEditMerchantForm({ ...editMerchantForm, cookTimeEstimate: e.target.value })}
+                          className="w-full px-3.5 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-emerald-500"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Bagian 4: Rekening & Status */}
+                  <div className="pt-4 border-t border-slate-100">
+                    <h3 className="font-display font-bold text-sm text-slate-800 mb-3 flex items-center gap-2">
+                      <Wallet className="w-4 h-4 text-emerald-600" />
+                      4. Rekening Pencairan & Status Toko
+                    </h3>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-700 mb-1">
+                          Nama Bank
+                        </label>
+                        <input
+                          type="text"
+                          value={editMerchantForm.bankName}
+                          onChange={(e) => setEditMerchantForm({ ...editMerchantForm, bankName: e.target.value })}
+                          className="w-full px-3.5 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-emerald-500"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-700 mb-1">
+                          Nomor Rekening
+                        </label>
+                        <input
+                          type="text"
+                          value={editMerchantForm.bankAccount}
+                          onChange={(e) => setEditMerchantForm({ ...editMerchantForm, bankAccount: e.target.value })}
+                          className="w-full px-3.5 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-emerald-500"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-700 mb-1">
+                          Atas Nama Rekening
+                        </label>
+                        <input
+                          type="text"
+                          value={editMerchantForm.bankHolder}
+                          onChange={(e) => setEditMerchantForm({ ...editMerchantForm, bankHolder: e.target.value })}
+                          className="w-full px-3.5 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-emerald-500"
+                        />
+                      </div>
+
+                      <div className="sm:col-span-3 pt-2">
+                        <label className="inline-flex items-center gap-2 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={editMerchantForm.active}
+                            onChange={(e) => setEditMerchantForm({ ...editMerchantForm, active: e.target.checked })}
+                            className="w-4 h-4 rounded text-emerald-600 focus:ring-emerald-500"
+                          />
+                          <span className="text-xs font-bold text-slate-800">
+                            Status Toko Aktif (Dapat menerima pesanan pelanggan di aplikasi)
+                          </span>
+                        </label>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Tombol Simpan & Batal */}
+                  <div className="pt-4 border-t border-slate-100 flex items-center justify-end gap-3">
+                    <button
+                      type="button"
+                      onClick={() => { setMerchantSubView('detail'); setEditMerchantError(null); }}
+                      className="px-4 py-2.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-100 text-slate-700 text-xs font-bold transition-all cursor-pointer"
+                    >
+                      Batal
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={editMerchantLoading}
+                      className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-xs transition-all cursor-pointer disabled:opacity-50 inline-flex items-center gap-2"
+                    >
+                      <Check className="w-4 h-4" />
+                      <span>{editMerchantLoading ? 'Menyimpan Perubahan...' : 'Simpan Perubahan'}</span>
+                    </button>
+                  </div>
+                </form>
+              </div>
+            )}
+
+            {/* VIEW 3: DETAIL MERCHANT & KELOLA MENU MAKANAN */}
+            {merchantSubView === 'detail' && selectedMerchant && (
+              <div className="space-y-6">
+                {/* Header Detail Toko */}
+                <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xs p-5 sm:p-6 space-y-5">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-slate-100 gap-4">
+                    <div className="flex items-center gap-3">
+                      <button
+                        type="button"
+                        onClick={() => { setMerchantSubView('list'); }}
+                        className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 transition-all cursor-pointer"
+                        title="Kembali ke Daftar Merchant"
+                      >
+                        <ArrowLeft className="w-4 h-4" />
+                      </button>
+                      <div className="flex items-center gap-3">
+                        <div className="w-12 h-12 rounded-xl bg-slate-100 overflow-hidden border border-slate-200 shrink-0">
+                          {selectedMerchant.image ? (
+                            <img src={selectedMerchant.image} alt={selectedMerchant.name} className="w-full h-full object-cover" />
+                          ) : (
+                            <Store className="w-6 h-6 text-slate-400 m-3" />
+                          )}
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <h2 className="font-display font-bold text-lg text-slate-900">{selectedMerchant.name}</h2>
+                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                              selectedMerchant.active ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-600'
+                            }`}>
+                              {selectedMerchant.active ? 'Buka / Aktif' : 'Tutup / Nonaktif'}
+                            </span>
+                          </div>
+                          <span className="text-xs text-slate-500 block">ID: <code className="font-mono text-[11px] text-slate-600">{selectedMerchant.id}</code></span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Aksi Utama Toko */}
+                    <div className="flex flex-wrap items-center gap-2">
+                      <button
+                        onClick={() => handleToggleMerchantStatus(selectedMerchant)}
+                        className={`px-3 py-1.5 rounded-xl text-xs font-bold border transition-all cursor-pointer ${
+                          selectedMerchant.active
+                            ? 'bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100'
+                            : 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100'
+                        }`}
+                      >
+                        {selectedMerchant.active ? 'Tutup Toko (Nonaktif)' : 'Buka Toko (Aktifkan)'}
+                      </button>
+
+                      <button
+                        onClick={() => handleOpenEditMerchant(selectedMerchant)}
+                        className="px-3 py-1.5 rounded-xl text-xs font-bold bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 transition-all cursor-pointer inline-flex items-center gap-1.5"
+                      >
+                        <Edit className="w-3.5 h-3.5 text-slate-500" />
+                        <span>Edit Profil</span>
+                      </button>
+
                       <button
                         onClick={() => {
-                          setAdminQrisModal({ merchant: m, qrisImage: m.qrisImage || '', preview: m.qrisImage || null });
+                          setAdminQrisModal({ merchant: selectedMerchant, qrisImage: selectedMerchant.qrisImage || '', preview: selectedMerchant.qrisImage || null });
                           setAdminQrisFile(null);
                           setAdminQrisMsg(null);
                         }}
-                        className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-700 hover:text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 px-2.5 py-1 rounded-lg transition-all shrink-0 cursor-pointer"
+                        className="px-3 py-1.5 rounded-xl text-xs font-bold bg-emerald-50 border border-emerald-200 text-emerald-800 hover:bg-emerald-100 transition-all cursor-pointer inline-flex items-center gap-1.5"
                       >
-                        <QrCode className="w-3 h-3" />
-                        Kelola QRIS
+                        <QrCode className="w-3.5 h-3.5 text-emerald-600" />
+                        <span>Kelola QRIS</span>
+                      </button>
+
+                      <button
+                        onClick={() => handleOpenDeleteMerchant(selectedMerchant)}
+                        className="px-3 py-1.5 rounded-xl text-xs font-bold bg-rose-50 border border-rose-200 text-rose-700 hover:bg-rose-100 transition-all cursor-pointer inline-flex items-center gap-1.5"
+                      >
+                        <Trash2 className="w-3.5 h-3.5 text-rose-600" />
+                        <span>Hapus Toko</span>
                       </button>
                     </div>
                   </div>
+
+                  {/* Ringkasan Informasi Toko */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 bg-slate-50 p-4 rounded-xl text-xs">
+                    <div>
+                      <span className="text-[11px] text-slate-400 block font-medium">Pemilik Usaha:</span>
+                      <strong className="text-slate-800 text-sm block mt-0.5">{selectedMerchant.ownerName}</strong>
+                      <span className="text-slate-500 font-mono text-[11px] block mt-0.5">{selectedMerchant.phone}</span>
+                    </div>
+
+                    <div>
+                      <span className="text-[11px] text-slate-400 block font-medium">Alamat Usaha:</span>
+                      <p className="text-slate-700 mt-0.5 leading-snug line-clamp-2">{selectedMerchant.address}</p>
+                    </div>
+
+                    <div>
+                      <span className="text-[11px] text-slate-400 block font-medium">Jam & Estimasi:</span>
+                      <span className="text-slate-700 block font-bold mt-0.5">{selectedMerchant.openTime} - {selectedMerchant.closeTime}</span>
+                      <span className="text-slate-500 text-[11px] block">Masak: {selectedMerchant.cookTimeEstimate}</span>
+                    </div>
+
+                    <div>
+                      <span className="text-[11px] text-slate-400 block font-medium">Rekening Bank:</span>
+                      <strong className="text-slate-800 block mt-0.5">{selectedMerchant.bankName}</strong>
+                      <span className="font-mono text-slate-600 text-[11px]">{selectedMerchant.bankAccount || '-'} a.n. {selectedMerchant.bankHolder || selectedMerchant.ownerName}</span>
+                    </div>
+                  </div>
                 </div>
-              ))}
-            </div>
-          )}
+
+                {/* Bagian Katalog Menu Makanan Toko */}
+                <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xs p-5 sm:p-6 space-y-5">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-slate-100 gap-3">
+                    <div>
+                      <h3 className="font-display font-bold text-base text-slate-900 flex items-center gap-2">
+                        <Utensils className="w-4 h-4 text-emerald-600" />
+                        Katalog Menu Makanan ({selectedMerchantMenu.length} Menu)
+                      </h3>
+                      <p className="text-xs text-slate-500">Kelola daftar menu, harga, ketersediaan stok, dan foto makanan milik merchant ini.</p>
+                    </div>
+
+                    {!showAddMenuItemForm && !editingMenuItemId && (
+                      <button
+                        onClick={() => {
+                          setEditingMenuItemId(null);
+                          setMenuItemForm({
+                            ...initialMenuItemForm,
+                            categoryId: selectedMerchantCategories[0]?.id || '',
+                            category: selectedMerchantCategories[0]?.name || 'Menu Utama'
+                          });
+                          setShowAddMenuItemForm(true);
+                          setMenuItemError(null);
+                        }}
+                        className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold inline-flex items-center gap-1.5 transition-all shadow-xs cursor-pointer self-start sm:self-auto"
+                      >
+                        <Plus className="w-4 h-4" />
+                        <span>Tambah Menu Baru</span>
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Form Tambah / Edit Item Menu */}
+                  {(showAddMenuItemForm || editingMenuItemId) && (
+                    <div className="p-4 sm:p-5 bg-slate-50 rounded-2xl border border-emerald-200/80 space-y-4">
+                      <div className="flex items-center justify-between pb-3 border-b border-slate-200">
+                        <h4 className="font-display font-bold text-sm text-slate-900 flex items-center gap-1.5">
+                          {editingMenuItemId ? <Edit className="w-4 h-4 text-emerald-600" /> : <Plus className="w-4 h-4 text-emerald-600" />}
+                          {editingMenuItemId ? 'Edit Menu Makanan' : 'Tambah Menu Makanan Baru'}
+                        </h4>
+                        <button
+                          type="button"
+                          onClick={() => { setShowAddMenuItemForm(false); setEditingMenuItemId(null); }}
+                          className="text-xs text-slate-400 hover:text-slate-600"
+                        >
+                          Batal
+                        </button>
+                      </div>
+
+                      {menuItemError && (
+                        <div className="p-2.5 bg-rose-50 border border-rose-200 rounded-lg text-xs text-rose-700">
+                          {menuItemError}
+                        </div>
+                      )}
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-700 mb-1">
+                            Nama Menu <span className="text-rose-500">*</span>
+                          </label>
+                          <input
+                            type="text"
+                            required
+                            value={menuItemForm.name}
+                            onChange={(e) => setMenuItemForm({ ...menuItemForm, name: e.target.value })}
+                            placeholder="Contoh: Soto Ayam Lamongan"
+                            className="w-full px-3 py-1.5 text-xs bg-white border border-slate-200 rounded-xl focus:outline-none focus:border-emerald-500"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-700 mb-1">
+                            Harga Jual (Rp) <span className="text-rose-500">*</span>
+                          </label>
+                          <input
+                            type="number"
+                            required
+                            min={500}
+                            step={500}
+                            value={menuItemForm.price}
+                            onChange={(e) => setMenuItemForm({ ...menuItemForm, price: Number(e.target.value) })}
+                            placeholder="15000"
+                            className="w-full px-3 py-1.5 text-xs bg-white border border-slate-200 rounded-xl focus:outline-none focus:border-emerald-500"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-700 mb-1">
+                            Kategori Menu
+                          </label>
+                          <select
+                            value={menuItemForm.categoryId || ''}
+                            onChange={(e) => {
+                              const found = selectedMerchantCategories.find(c => c.id === e.target.value);
+                              setMenuItemForm({
+                                ...menuItemForm,
+                                categoryId: e.target.value,
+                                category: found?.name || menuItemForm.category
+                              });
+                            }}
+                            className="w-full px-3 py-1.5 text-xs bg-white border border-slate-200 rounded-xl focus:outline-none focus:border-emerald-500"
+                          >
+                            {selectedMerchantCategories.map(c => (
+                              <option key={c.id} value={c.id}>{c.name}</option>
+                            ))}
+                            <option value="">+ Tambah Kategori Baru</option>
+                          </select>
+                        </div>
+
+                        {/* Opsi Tambah Kategori Baru Cepat */}
+                        {!menuItemForm.categoryId && (
+                          <div className="sm:col-span-3 p-3 bg-emerald-50/60 rounded-xl border border-emerald-100 flex items-center gap-2">
+                            <input
+                              type="text"
+                              value={newCategoryName}
+                              onChange={(e) => setNewCategoryName(e.target.value)}
+                              placeholder="Ketik nama kategori baru (contoh: Minuman Dingin)..."
+                              className="flex-1 px-3 py-1.5 text-xs bg-white border border-slate-200 rounded-lg focus:outline-none"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => handleAddCategory(selectedMerchant.id)}
+                              disabled={savingNewCategory || !newCategoryName.trim()}
+                              className="px-3 py-1.5 bg-emerald-700 text-white rounded-lg text-xs font-bold disabled:opacity-50"
+                            >
+                              {savingNewCategory ? 'Menyimpan...' : 'Tambah Kategori'}
+                            </button>
+                          </div>
+                        )}
+
+                        <div className="sm:col-span-2">
+                          <label className="block text-xs font-semibold text-slate-700 mb-1">
+                            Deskripsi Menu (Pilihan/Porsi)
+                          </label>
+                          <input
+                            type="text"
+                            value={menuItemForm.description}
+                            onChange={(e) => setMenuItemForm({ ...menuItemForm, description: e.target.value })}
+                            placeholder="Termasuk koya gurih, sambal, dan jeruk nipis"
+                            className="w-full px-3 py-1.5 text-xs bg-white border border-slate-200 rounded-xl focus:outline-none focus:border-emerald-500"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-700 mb-1">
+                            Status Ketersediaan
+                          </label>
+                          <select
+                            value={menuItemForm.available ? '1' : '0'}
+                            onChange={(e) => setMenuItemForm({ ...menuItemForm, available: e.target.value === '1' })}
+                            className="w-full px-3 py-1.5 text-xs bg-white border border-slate-200 rounded-xl focus:outline-none focus:border-emerald-500"
+                          >
+                            <option value="1">Tersedia (Bisa dipesan)</option>
+                            <option value="0">Habis (Stok Kosong)</option>
+                          </select>
+                        </div>
+
+                        <div className="sm:col-span-3">
+                          <label className="block text-xs font-semibold text-slate-700 mb-1">
+                            Foto Menu Makanan
+                          </label>
+                          <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
+                            <input
+                              type="file"
+                              accept="image/*"
+                              onChange={async (e) => {
+                                const file = e.target.files?.[0];
+                                if (file) {
+                                  try {
+                                    const comp = await compressImage(file, 600, 0.7);
+                                    setMenuItemForm(prev => ({ ...prev, image: comp }));
+                                  } catch {
+                                    alert('Gagal memproses gambar menu.');
+                                  }
+                                }
+                              }}
+                              className="text-xs text-slate-500 file:mr-3 file:py-1 file:px-2.5 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-emerald-50 file:text-emerald-700 hover:file:bg-emerald-100 cursor-pointer"
+                            />
+                            <input
+                              type="url"
+                              value={menuItemForm.image}
+                              onChange={(e) => setMenuItemForm({ ...menuItemForm, image: e.target.value })}
+                              placeholder="Atau URL gambar https://..."
+                              className="flex-1 px-3 py-1 text-xs bg-white border border-slate-200 rounded-lg focus:outline-none"
+                            />
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="flex justify-end gap-2 pt-2">
+                        <button
+                          type="button"
+                          onClick={() => { setShowAddMenuItemForm(false); setEditingMenuItemId(null); }}
+                          className="px-3.5 py-1.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-100 text-xs font-bold text-slate-700"
+                        >
+                          Batal
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleSaveMenuItem(selectedMerchant.id)}
+                          disabled={savingMenuItem}
+                          className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-xs disabled:opacity-50 inline-flex items-center gap-1.5 cursor-pointer"
+                        >
+                          <Check className="w-3.5 h-3.5" />
+                          <span>{savingMenuItem ? 'Menyimpan...' : (editingMenuItemId ? 'Perbarui Menu' : 'Simpan Menu')}</span>
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Daftar Card Menu Makanan */}
+                  {loadingMerchantMenu ? (
+                    <div className="py-12 text-center text-xs text-slate-400">
+                      <RefreshCw className="w-5 h-5 mx-auto animate-spin text-emerald-600 mb-2" />
+                      Memuat katalog menu toko...
+                    </div>
+                  ) : selectedMerchantMenu.length === 0 ? (
+                    <div className="p-8 text-center border border-dashed border-slate-200 rounded-2xl bg-slate-50/50">
+                      <Utensils className="w-8 h-8 text-slate-300 mx-auto mb-2" />
+                      <h4 className="font-bold text-sm text-slate-700">Belum Ada Menu Terdaftar</h4>
+                      <p className="text-xs text-slate-400 mt-1 max-w-xs mx-auto">
+                        Klik tombol "Tambah Menu Baru" di atas untuk menambahkan sajian makanan atau minuman toko ini.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+                      {selectedMerchantMenu.map(item => (
+                        <div
+                          key={item.id}
+                          className="bg-white rounded-xl border border-slate-200/80 p-3 flex flex-col justify-between hover:border-emerald-300 transition-all shadow-2xs"
+                        >
+                          <div className="space-y-2">
+                            <div className="flex gap-3">
+                              <div className="w-16 h-16 rounded-xl bg-slate-100 overflow-hidden border border-slate-200 shrink-0">
+                                {item.image ? (
+                                  <img src={item.image} alt={item.name} className="w-full h-full object-cover" />
+                                ) : (
+                                  <Utensils className="w-6 h-6 text-slate-400 m-5" />
+                                )}
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-start justify-between gap-1">
+                                  <h4 className="font-display font-bold text-xs sm:text-sm text-slate-900 line-clamp-1">{item.name}</h4>
+                                  <span className={`text-[9px] font-bold px-1.5 py-0.2 rounded-full shrink-0 ${
+                                    item.available ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-700'
+                                  }`}>
+                                    {item.available ? 'Tersedia' : 'Habis'}
+                                  </span>
+                                </div>
+                                <span className="font-mono font-bold text-emerald-700 text-xs block mt-1">
+                                  Rp {item.price.toLocaleString('id-ID')}
+                                </span>
+                                {item.description && (
+                                  <p className="text-[10px] text-slate-400 line-clamp-2 mt-0.5">{item.description}</p>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="pt-2.5 mt-2 border-t border-slate-100 flex items-center justify-between gap-1">
+                            <button
+                              type="button"
+                              onClick={() => handleToggleMenuItemAvailability(selectedMerchant.id, item)}
+                              className={`text-[10px] font-bold px-2 py-1 rounded-lg border transition-all cursor-pointer ${
+                                item.available 
+                                  ? 'bg-slate-100 text-slate-600 border-slate-200 hover:bg-slate-200' 
+                                  : 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100'
+                              }`}
+                            >
+                              {item.available ? 'Set Habis' : 'Set Tersedia'}
+                            </button>
+
+                            <div className="flex items-center gap-1">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setEditingMenuItemId(item.id);
+                                  setMenuItemForm({
+                                    name: item.name,
+                                    categoryId: item.categoryId || '',
+                                    category: item.category || 'Menu Utama',
+                                    price: item.price,
+                                    description: item.description || '',
+                                    available: item.available,
+                                    image: item.image || ''
+                                  });
+                                  setShowAddMenuItemForm(false);
+                                  setMenuItemError(null);
+                                }}
+                                className="p-1.5 text-slate-500 hover:text-emerald-700 hover:bg-slate-100 rounded-lg transition-all"
+                                title="Edit Menu"
+                              >
+                                <Edit className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteMenuItem(selectedMerchant.id, item.id, item.name)}
+                                className="p-1.5 text-slate-500 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-all"
+                                title="Hapus Menu"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* VIEW 4: HALAMAN KONFIRMASI HAPUS MERCHANT (KEAMANAN TRANSAKSI) */}
+            {merchantSubView === 'delete_confirm' && selectedMerchant && (() => {
+              const relatedOrders = orders.filter(o => o.merchantId === selectedMerchant.id);
+              const relatedSettlements = settlements.filter(s => s.merchantId === selectedMerchant.id);
+              const hasTransactions = relatedOrders.length > 0 || relatedSettlements.length > 0;
+
+              return (
+                <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xs p-5 sm:p-7 space-y-6 max-w-2xl mx-auto">
+                  <div className="flex items-center gap-3 pb-4 border-b border-slate-100">
+                    <button
+                      type="button"
+                      onClick={() => { setMerchantSubView('list'); setDeleteError(null); }}
+                      className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 transition-all cursor-pointer"
+                      title="Kembali"
+                    >
+                      <ArrowLeft className="w-4 h-4" />
+                    </button>
+                    <div>
+                      <h2 className="font-display font-bold text-lg text-slate-900">Konfirmasi Penghapusan Merchant</h2>
+                      <p className="text-xs text-slate-500">Tinjau identitas usaha dan perlindungan riwayat transaksi sebelum tindakan diambil.</p>
+                    </div>
+                  </div>
+
+                  {/* Ringkasan Identitas Usaha */}
+                  <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 space-y-2 text-xs">
+                    <div className="flex justify-between items-center text-slate-700">
+                      <span className="font-medium text-slate-500">Nama Usaha:</span>
+                      <strong className="text-slate-900 text-sm">{selectedMerchant.name}</strong>
+                    </div>
+                    <div className="flex justify-between items-center text-slate-700">
+                      <span className="font-medium text-slate-500">Pemilik:</span>
+                      <span className="font-semibold">{selectedMerchant.ownerName}</span>
+                    </div>
+                    <div className="flex justify-between items-center text-slate-700">
+                      <span className="font-medium text-slate-500">Kontak:</span>
+                      <span className="font-mono">{selectedMerchant.phone}</span>
+                    </div>
+                    <div className="flex justify-between items-center text-slate-700">
+                      <span className="font-medium text-slate-500">Alamat:</span>
+                      <span className="max-w-[280px] text-right truncate">{selectedMerchant.address}</span>
+                    </div>
+                    <div className="flex justify-between items-center text-slate-700">
+                      <span className="font-medium text-slate-500">Tanggal Terdaftar:</span>
+                      <span>{new Date(selectedMerchant.createdAt).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })}</span>
+                    </div>
+                    <div className="flex justify-between items-center text-slate-700">
+                      <span className="font-medium text-slate-500">Total Menu Terdaftar:</span>
+                      <span className="font-bold text-emerald-700">{selectedMerchant.menuCount || 0} Menu</span>
+                    </div>
+                  </div>
+
+                  {/* KONDISI A: Toko Memiliki Riwayat Transaksi -> DILARANG HAPUS PERMANEN */}
+                  {hasTransactions ? (
+                    <div className="space-y-4">
+                      <div className="p-4 bg-amber-50 border border-amber-200 rounded-xl text-amber-900 text-xs space-y-2">
+                        <div className="flex items-center gap-2 font-bold text-amber-800">
+                          <AlertOctagon className="w-5 h-5 text-amber-600 shrink-0" />
+                          <span>Penghapusan Permanen Ditolak: Toko Memiliki Riwayat Transaksi</span>
+                        </div>
+                        <p className="leading-relaxed">
+                          Toko ini memiliki <strong>{relatedOrders.length} riwayat pesanan</strong> dan <strong>{relatedSettlements.length} settlement pembayaran</strong>.
+                          Demi kepatuhan audit keuangan dan keabsahan riwayat e-receipt pelanggan, sistem Tumpang Food <strong>melarang penghapusan permanen</strong> akun yang memiliki riwayat transaksi.
+                        </p>
+                        <p className="font-semibold text-amber-800">
+                          💡 Solusi Aman: Gunakan opsi penonaktifan akun (status Nonaktif). Toko tidak akan muncul di aplikasi pemesanan pelanggan, namun data transaksi dan rekapitulasi tetap utuh.
+                        </p>
+                      </div>
+
+                      <div className="flex flex-col sm:flex-row items-center justify-end gap-3 pt-2">
+                        <button
+                          type="button"
+                          onClick={() => setMerchantSubView('list')}
+                          className="w-full sm:w-auto px-4 py-2.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-100 text-slate-700 text-xs font-bold transition-all"
+                        >
+                          Kembali ke Daftar
+                        </button>
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            await handleToggleMerchantStatus(selectedMerchant);
+                            setMerchantSubView('list');
+                          }}
+                          className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold shadow-xs transition-all"
+                        >
+                          Nonaktifkan Toko Ini (Rekomendasi Aman)
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    /* KONDISI B: Toko Baru Tanpa Riwayat Transaksi -> Aman Dihapus */
+                    <div className="space-y-4">
+                      <div className="p-4 bg-rose-50 border border-rose-200 rounded-xl text-rose-900 text-xs space-y-2">
+                        <div className="flex items-center gap-2 font-bold text-rose-800">
+                          <AlertTriangle className="w-5 h-5 text-rose-600 shrink-0" />
+                          <span>Peringatan Penghapusan Permanen</span>
+                        </div>
+                        <p className="leading-relaxed">
+                          Toko ini tidak memiliki riwayat pesanan pelanggan. Tindakan ini akan <strong>menghapus profil toko beserta seluruh menu makanan secara permanen</strong> dari database.
+                        </p>
+                      </div>
+
+                      {deleteError && (
+                        <div className="p-3 bg-rose-100 text-rose-800 rounded-xl text-xs font-medium">
+                          {deleteError}
+                        </div>
+                      )}
+
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-700 mb-1">
+                          Ketik nama toko <code className="font-bold text-rose-600 bg-rose-50 px-1 py-0.5 rounded">{selectedMerchant.name}</code> untuk mengonfirmasi:
+                        </label>
+                        <input
+                          type="text"
+                          value={deleteConfirmInput}
+                          onChange={(e) => setDeleteConfirmInput(e.target.value)}
+                          placeholder={selectedMerchant.name}
+                          className="w-full px-3.5 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-rose-500"
+                        />
+                      </div>
+
+                      <div className="flex flex-col sm:flex-row items-center justify-end gap-3 pt-2">
+                        <button
+                          type="button"
+                          onClick={() => { setMerchantSubView('list'); setDeleteError(null); }}
+                          className="w-full sm:w-auto px-4 py-2.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-100 text-slate-700 text-xs font-bold transition-all"
+                        >
+                          Batal
+                        </button>
+                        <button
+                          type="button"
+                          disabled={deletingMerchant || deleteConfirmInput.trim().toLowerCase() !== selectedMerchant.name.trim().toLowerCase()}
+                          onClick={() => handleDeleteMerchantSafely(selectedMerchant)}
+                          className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold shadow-xs transition-all disabled:opacity-40 cursor-pointer inline-flex items-center justify-center gap-2"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                          <span>{deletingMerchant ? 'Menghapus...' : 'Hapus Merchant Permanen'}</span>
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+
+            {/* VIEW 5: DAFTAR UTAMA MERCHANT (TABEL & CARD RESPONSIVE) */}
+            {merchantSubView === 'list' && (
+              <div className="space-y-5">
+                {/* Header Kontrol & Tombol Tambah */}
+                <div className="bg-white p-4 sm:p-5 rounded-2xl border border-slate-200/80 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
+                  <div>
+                    <h2 className="font-display font-bold text-base sm:text-lg text-slate-900">Manajemen Mitra Merchant</h2>
+                    <p className="text-xs text-slate-500 mt-0.5">Kelola seluruh mitra toko, pendaftaran baru, status operasional, dan katalog menu.</p>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-2.5">
+                    {/* Status Filter */}
+                    <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-1 text-xs">
+                      <Filter className="w-3.5 h-3.5 text-slate-400" />
+                      <select
+                        value={merchantStatusFilter}
+                        onChange={(e) => setMerchantStatusFilter(e.target.value as any)}
+                        className="bg-transparent text-xs font-semibold text-slate-700 focus:outline-none cursor-pointer"
+                      >
+                        <option value="ALL">Semua Status ({safeMerchants.length})</option>
+                        <option value="ACTIVE">Aktif Saja ({safeMerchants.filter(m => m.active).length})</option>
+                        <option value="INACTIVE">Nonaktif Saja ({safeMerchants.filter(m => !m.active).length})</option>
+                      </select>
+                    </div>
+
+                    {/* Search Input */}
+                    <div className="relative flex-1 sm:flex-initial">
+                      <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                      <input
+                        type="text"
+                        placeholder="Cari toko, pemilik, alamat..."
+                        value={merchantSearchQuery}
+                        onChange={(e) => setMerchantSearchQuery(e.target.value)}
+                        className="pl-9 pr-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-emerald-500 w-full sm:w-56"
+                      />
+                    </div>
+
+                    {/* Tombol Tambah Merchant Baru */}
+                    <button
+                      onClick={() => {
+                        setCreateMerchantForm(defaultCreateMerchantForm);
+                        setCreateMerchantError(null);
+                        setMerchantSubView('create');
+                      }}
+                      className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold inline-flex items-center gap-1.5 transition-all shadow-xs cursor-pointer shrink-0"
+                    >
+                      <Plus className="w-4 h-4" />
+                      <span>Tambah Merchant</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* KPI Strip Merchant */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">
+                  <div className="bg-white p-3.5 rounded-xl border border-slate-200/80 shadow-2xs">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Total Merchant</span>
+                    <strong className="text-lg font-display font-extrabold text-slate-900 block mt-0.5">{safeMerchants.length}</strong>
+                    <span className="text-[10px] text-slate-500">Terdaftar di sistem</span>
+                  </div>
+
+                  <div className="bg-white p-3.5 rounded-xl border border-slate-200/80 shadow-2xs">
+                    <span className="text-[10px] font-bold text-emerald-600 uppercase tracking-wider block">Merchant Aktif</span>
+                    <strong className="text-lg font-display font-extrabold text-emerald-700 block mt-0.5">{safeMerchants.filter(m => m.active).length}</strong>
+                    <span className="text-[10px] text-slate-500">Dapat menerima order</span>
+                  </div>
+
+                  <div className="bg-white p-3.5 rounded-xl border border-slate-200/80 shadow-2xs">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Merchant Nonaktif</span>
+                    <strong className="text-lg font-display font-extrabold text-slate-600 block mt-0.5">{safeMerchants.filter(m => !m.active).length}</strong>
+                    <span className="text-[10px] text-slate-500">Tutup / Libur</span>
+                  </div>
+
+                  <div className="bg-white p-3.5 rounded-xl border border-slate-200/80 shadow-2xs">
+                    <span className="text-[10px] font-bold text-blue-600 uppercase tracking-wider block">Total Menu Kuliner</span>
+                    <strong className="text-lg font-display font-extrabold text-blue-700 block mt-0.5">
+                      {safeMerchants.reduce((sum, m) => sum + (m.menuCount || 0), 0)}
+                    </strong>
+                    <span className="text-[10px] text-slate-500">Variasi makanan</span>
+                  </div>
+                </div>
+
+                {/* State Kosong */}
+                {filteredMerchants.length === 0 ? (
+                  <div className="bg-white rounded-2xl border border-dashed border-slate-300 p-12 text-center flex flex-col items-center justify-center shadow-xs">
+                    <Store className="w-12 h-12 text-slate-300 mb-3" />
+                    <h3 className="font-display font-bold text-base text-slate-700">Belum Ada Mitra Merchant Ditemukan</h3>
+                    <p className="text-xs text-slate-400 mt-1 max-w-sm mb-4">
+                      {merchantSearchQuery || merchantStatusFilter !== 'ALL'
+                        ? 'Tidak ada toko yang sesuai dengan filter atau kata kunci pencarian.'
+                        : 'Mulai daftarkan mitra kuliner pertama untuk mengaktifkan pemesanan di Kecamatan Tumpang.'}
+                    </p>
+                    <button
+                      onClick={() => {
+                        setCreateMerchantForm(defaultCreateMerchantForm);
+                        setCreateMerchantError(null);
+                        setMerchantSubView('create');
+                      }}
+                      className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold inline-flex items-center gap-1.5 transition-all shadow-xs cursor-pointer"
+                    >
+                      <Plus className="w-4 h-4" />
+                      <span>Tambah Merchant Pertama</span>
+                    </button>
+                  </div>
+                ) : (
+                  /* Tabel Desktop & Card Mobile */
+                  <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xs overflow-hidden">
+                    {/* Tampilan Tabel Desktop */}
+                    <div className="hidden lg:block overflow-x-auto">
+                      <table className="w-full text-left text-xs">
+                        <thead>
+                          <tr className="bg-slate-50/80 text-slate-500 border-b border-slate-200 font-semibold">
+                            <th className="py-3.5 px-4">Nama Usaha & Kategori</th>
+                            <th className="py-3.5 px-4">Pemilik & Kontak</th>
+                            <th className="py-3.5 px-4">Alamat Toko</th>
+                            <th className="py-3.5 px-4">Jumlah Menu</th>
+                            <th className="py-3.5 px-4">Tanggal Daftar</th>
+                            <th className="py-3.5 px-4">Status</th>
+                            <th className="py-3.5 px-4 text-right">Aksi</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                          {filteredMerchants.map(m => (
+                            <tr key={m.id} className="hover:bg-slate-50/60 transition-colors">
+                              <td className="py-3.5 px-4">
+                                <div className="flex items-center gap-3">
+                                  <div className="w-10 h-10 rounded-xl bg-slate-100 overflow-hidden border border-slate-200 shrink-0">
+                                    {m.image ? (
+                                      <img src={m.image} alt={m.name} className="w-full h-full object-cover" />
+                                    ) : (
+                                      <Store className="w-5 h-5 text-slate-400 m-2.5" />
+                                    )}
+                                  </div>
+                                  <div>
+                                    <strong className="font-display font-bold text-slate-900 block">{m.name}</strong>
+                                    <span className="text-[10px] text-slate-400 block">{m.category || 'Kuliner Tumpang'}</span>
+                                  </div>
+                                </div>
+                              </td>
+
+                              <td className="py-3.5 px-4">
+                                <span className="font-semibold text-slate-800 block">{m.ownerName}</span>
+                                <span className="text-[11px] text-slate-500 font-mono block">{m.phone}</span>
+                                <span className="text-[10px] text-slate-400 block">{m.email || 'Email belum diatur'}</span>
+                              </td>
+
+                              <td className="py-3.5 px-4 max-w-[200px]">
+                                <span className="text-slate-600 line-clamp-2 leading-relaxed">{m.address}</span>
+                              </td>
+
+                              <td className="py-3.5 px-4">
+                                <span className="inline-flex items-center gap-1 font-bold text-slate-800 bg-slate-100 px-2 py-0.8 rounded-lg text-xs">
+                                  <Utensils className="w-3 h-3 text-emerald-600" />
+                                  <span>{m.menuCount !== undefined ? m.menuCount : 0} Menu</span>
+                                </span>
+                              </td>
+
+                              <td className="py-3.5 px-4 text-slate-500">
+                                <span className="text-[11px] block">
+                                  {m.createdAt ? new Date(m.createdAt).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' }) : '-'}
+                                </span>
+                              </td>
+
+                              <td className="py-3.5 px-4">
+                                <button
+                                  type="button"
+                                  onClick={() => handleToggleMerchantStatus(m)}
+                                  className={`inline-flex items-center gap-1 text-[10px] font-bold px-2.5 py-1 rounded-full transition-all cursor-pointer ${
+                                    m.active 
+                                      ? 'bg-emerald-100 text-emerald-800 hover:bg-emerald-200 border border-emerald-200' 
+                                      : 'bg-slate-100 text-slate-600 hover:bg-slate-200 border border-slate-200'
+                                  }`}
+                                  title="Klik untuk ubah status"
+                                >
+                                  <span className={`w-1.5 h-1.5 rounded-full ${m.active ? 'bg-emerald-600' : 'bg-slate-400'}`}></span>
+                                  <span>{m.active ? 'Aktif' : 'Nonaktif'}</span>
+                                </button>
+                              </td>
+
+                              <td className="py-3.5 px-4 text-right">
+                                <div className="flex items-center justify-end gap-1.5">
+                                  <button
+                                    onClick={() => handleOpenMerchantDetail(m)}
+                                    className="px-2.5 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 rounded-lg text-xs font-bold transition-all inline-flex items-center gap-1 cursor-pointer"
+                                    title="Detail & Kelola Menu"
+                                  >
+                                    <Eye className="w-3 h-3" />
+                                    <span>Menu</span>
+                                  </button>
+
+                                  <button
+                                    onClick={() => handleOpenEditMerchant(m)}
+                                    className="p-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg transition-all cursor-pointer"
+                                    title="Edit Profil"
+                                  >
+                                    <Edit className="w-3.5 h-3.5" />
+                                  </button>
+
+                                  <button
+                                    onClick={() => {
+                                      setAdminQrisModal({ merchant: m, qrisImage: m.qrisImage || '', preview: m.qrisImage || null });
+                                      setAdminQrisFile(null);
+                                      setAdminQrisMsg(null);
+                                    }}
+                                    className="p-1.5 bg-slate-100 hover:bg-emerald-50 text-slate-600 hover:text-emerald-700 rounded-lg transition-all cursor-pointer"
+                                    title="Kelola QRIS"
+                                  >
+                                    <QrCode className="w-3.5 h-3.5" />
+                                  </button>
+
+                                  <button
+                                    onClick={() => handleOpenDeleteMerchant(m)}
+                                    className="p-1.5 bg-slate-100 hover:bg-rose-50 text-slate-600 hover:text-rose-600 rounded-lg transition-all cursor-pointer"
+                                    title="Hapus Toko"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+
+                    {/* Tampilan Card Mobile & Tablet */}
+                    <div className="block lg:hidden divide-y divide-slate-100">
+                      {filteredMerchants.map(m => (
+                        <div key={m.id} className="p-4 space-y-3">
+                          <div className="flex items-start gap-3">
+                            <div className="w-12 h-12 rounded-xl bg-slate-100 overflow-hidden border border-slate-200 shrink-0">
+                              {m.image ? (
+                                <img src={m.image} alt={m.name} className="w-full h-full object-cover" />
+                              ) : (
+                                <Store className="w-6 h-6 text-slate-400 m-3" />
+                              )}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-start justify-between gap-1">
+                                <h3 className="font-display font-bold text-sm text-slate-900 truncate">{m.name}</h3>
+                                <button
+                                  type="button"
+                                  onClick={() => handleToggleMerchantStatus(m)}
+                                  className={`text-[9px] font-bold px-2 py-0.5 rounded-full shrink-0 ${
+                                    m.active ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-600'
+                                  }`}
+                                >
+                                  {m.active ? 'Aktif' : 'Nonaktif'}
+                                </button>
+                              </div>
+                              <span className="text-[11px] text-slate-600 block truncate">Pemilik: {m.ownerName}</span>
+                              <span className="text-[10px] text-slate-400 block">{m.category || 'Kuliner Tumpang'}</span>
+                            </div>
+                          </div>
+
+                          <div className="bg-slate-50 p-2.5 rounded-xl text-xs space-y-1 text-slate-600">
+                            <div className="flex justify-between">
+                              <span className="text-slate-400">Kontak:</span>
+                              <span className="font-mono">{m.phone}</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span className="text-slate-400">Jumlah Menu:</span>
+                              <span className="font-bold text-emerald-700">{m.menuCount || 0} Menu</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span className="text-slate-400">Jam Buka:</span>
+                              <span>{m.openTime} - {m.closeTime}</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span className="text-slate-400">Daftar:</span>
+                              <span>{m.createdAt ? new Date(m.createdAt).toLocaleDateString('id-ID') : '-'}</span>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center justify-between pt-1 gap-2">
+                            <button
+                              onClick={() => handleOpenMerchantDetail(m)}
+                              className="flex-1 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-all text-center"
+                            >
+                              Detail & Kelola Menu
+                            </button>
+
+                            <button
+                              onClick={() => handleOpenEditMerchant(m)}
+                              className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition-all"
+                            >
+                              Edit
+                            </button>
+
+                            <button
+                              onClick={() => handleOpenDeleteMerchant(m)}
+                              className="p-1.5 bg-slate-100 hover:bg-rose-50 text-slate-600 hover:text-rose-600 rounded-xl transition-all"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         )}
 

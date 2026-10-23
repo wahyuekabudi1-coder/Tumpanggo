@@ -58,6 +58,7 @@ export interface Merchant {
   email?: string;
   createdAt: string;
   updatedAt: string;
+  menuCount?: number;
   
   // Merchant Static QRIS for payments
   qrisImage?: string;

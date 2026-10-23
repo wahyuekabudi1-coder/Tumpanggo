@@ -1167,8 +1167,12 @@ export class FoodDatabase {
         if (!safe.qrisImage || safe.qrisImage.includes('unsplash')) {
           safe.qrisImage = this.data.systemConfig?.qrisImage || '/qris-merchant.png';
         }
+        const menuCount = Array.isArray(this.data.menuItems)
+          ? this.data.menuItems.filter(item => item && item.merchantId === m.id).length
+          : 0;
         return {
           ...safe,
+          menuCount,
           id: safe.id || 'm_unknown'
         } as Merchant;
       });
@@ -1183,7 +1187,13 @@ export class FoodDatabase {
     if (!safe.qrisImage || safe.qrisImage.includes('unsplash')) {
       safe.qrisImage = this.data.systemConfig?.qrisImage || '/qris-merchant.png';
     }
-    return safe as Merchant;
+    const menuCount = Array.isArray(this.data.menuItems)
+      ? this.data.menuItems.filter(item => item && item.merchantId === m.id).length
+      : 0;
+    return {
+      ...safe,
+      menuCount
+    } as Merchant;
   }
 
   public getMerchantByEmailOrPhone(identifier: string): Merchant | undefined {
@@ -1214,18 +1224,67 @@ export class FoodDatabase {
     });
   }
 
-  public async createMerchant(userId: string, merchantData: Omit<Merchant, 'id' | 'createdAt' | 'updatedAt' | 'rating'>): Promise<Merchant> {
+  public async createMerchant(userId: string, merchantData: Partial<Merchant>): Promise<Merchant> {
     await this.ensureProductionCloudReady('Pendaftaran Merchant');
+
+    if (!merchantData.name || !merchantData.name.trim()) {
+      throw new Error('Nama toko / usaha wajib diisi.');
+    }
+    if (!merchantData.ownerName || !merchantData.ownerName.trim()) {
+      throw new Error('Nama pemilik wajib diisi.');
+    }
+    if (!merchantData.phone || !merchantData.phone.trim()) {
+      throw new Error('Nomor telepon / WhatsApp wajib diisi.');
+    }
+    if (!merchantData.address || !merchantData.address.trim()) {
+      throw new Error('Alamat lengkap toko wajib diisi.');
+    }
+
+    if (merchantData.email && merchantData.email.trim()) {
+      const cleanEmail = merchantData.email.trim().toLowerCase();
+      const existing = this.data.merchants.find(m => m && m.email?.trim().toLowerCase() === cleanEmail);
+      if (existing) {
+        throw new Error(`Email "${cleanEmail}" sudah digunakan oleh toko "${existing.name}".`);
+      }
+    }
+
     const newMerchant: Merchant = {
-      ...merchantData,
+      name: merchantData.name.trim(),
+      ownerName: merchantData.ownerName.trim(),
+      phone: merchantData.phone.trim(),
+      address: merchantData.address.trim(),
+      latitude: merchantData.latitude || -7.9942,
+      longitude: merchantData.longitude || 112.7667,
+      openTime: merchantData.openTime || '08:00',
+      closeTime: merchantData.closeTime || '21:00',
+      bankName: merchantData.bankName || 'Bank BRI',
+      bankAccount: merchantData.bankAccount || '',
+      bankHolder: merchantData.bankHolder || merchantData.ownerName.trim(),
+      active: merchantData.active !== undefined ? Boolean(merchantData.active) : true,
+      rating: 5.0,
+      cookTimeEstimate: merchantData.cookTimeEstimate || '15-30 min',
+      image: merchantData.image || 'https://images.unsplash.com/photo-1555396273-367ea4eb4db5?w=500&auto=format&fit=crop&q=60',
+      bannerImage: merchantData.bannerImage || '',
+      description: merchantData.description || `Mitra Kuliner ${merchantData.name.trim()} Kecamatan Tumpang`,
+      category: merchantData.category || 'Kuliner Tumpang',
+      email: merchantData.email ? merchantData.email.trim().toLowerCase() : undefined,
+      isActivated: merchantData.isActivated !== undefined ? merchantData.isActivated : true,
+      businessPhoto: merchantData.businessPhoto,
+      idPhoto: merchantData.idPhoto,
+      contractPhoto: merchantData.contractPhoto,
       id: 'm_' + Math.random().toString(36).substring(2, 9),
       qrisImage: merchantData.qrisImage || this.data.systemConfig?.qrisImage || '/qris-merchant.png',
-      rating: 5.0,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
     };
-    if (newMerchant.password && !newMerchant.password.startsWith('pbkdf2$')) {
-      newMerchant.password = hashPassword(newMerchant.password);
+
+    if (merchantData.password) {
+      newMerchant.password = merchantData.password.startsWith('pbkdf2$')
+        ? merchantData.password
+        : hashPassword(merchantData.password);
+    } else {
+      const defaultPass = 'TF-' + Math.floor(1000 + Math.random() * 9000);
+      newMerchant.password = hashPassword(defaultPass);
     }
 
     if (isFirestoreAdminConfigured()) {
@@ -1238,6 +1297,8 @@ export class FoodDatabase {
     }
 
     this.data.merchants.push(newMerchant);
+    // Create initial default category for menu
+    this.createCategory(newMerchant.id, 'Menu Utama').catch(() => {});
     this.save();
     this.log(userId, `Created merchant ${newMerchant.name}`, 'ADMIN');
     return newMerchant;
@@ -1283,6 +1344,13 @@ export class FoodDatabase {
     await this.ensureProductionCloudReady('Penghapusan Merchant');
     const index = this.data.merchants.findIndex(m => m.id === id);
     if (index === -1) return false;
+
+    // Strict safety check: Ensure no historical orders or settlements exist
+    const merchantOrders = Array.isArray(this.data.orders) ? this.data.orders.filter(o => o && o.merchantId === id) : [];
+    const merchantSettlements = Array.isArray(this.data.settlements) ? this.data.settlements.filter(s => s && s.merchantId === id) : [];
+    if (merchantOrders.length > 0 || merchantSettlements.length > 0) {
+      throw new Error(`Merchant "${this.data.merchants[index].name}" memiliki riwayat transaksi (${merchantOrders.length} pesanan, ${merchantSettlements.length} settlement keuangan). Demi integritas audit dan data transaksi, merchant tidak dapat dihapus permanen. Silakan nonaktifkan akun.`);
+    }
 
     if (foodConfig.isProduction) {
       const deleted = await safeAdminDeleteDoc('merchants', id);
