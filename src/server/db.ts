@@ -297,56 +297,10 @@ export class FoodDatabase {
       this.data.systemConfig.qrisImage = '/qris-merchant.png';
     }
 
-    if (!this.data.drivers || this.data.drivers.length === 0) {
-      this.data.drivers = [
-        {
-          id: 'd1',
-          name: 'Budi Santoso',
-          phone: '081234567893',
-          email: 'driver1@tumpanggo.com',
-          active: true,
-          online: true,
-          latitude: -7.9482,
-          longitude: 112.7612,
-          password: hashPassword('d1123'),
-          vehicle: 'Honda Vario (N 1234 TP)',
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString()
-        } as any,
-        {
-          id: 'd2',
-          name: 'Agus Setiawan',
-          phone: '081234567894',
-          email: 'driver2@tumpanggo.com',
-          active: true,
-          online: false,
-          latitude: -7.9490,
-          longitude: 112.7620,
-          password: hashPassword('d2123'),
-          vehicle: 'Yamaha NMAX (N 5678 TP)',
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString()
-        } as any
-      ];
-    }
-
-    // Clean up any corrupted menu items and ensure baseline menu_1 for m1 exists
-    this.data.menuItems = this.data.menuItems.filter(i => typeof i.merchantId === 'string');
-    if (!this.data.menuItems.some(i => i.id === 'menu_1')) {
-      this.data.menuItems.unshift({
-        id: 'menu_1',
-        merchantId: 'm1',
-        name: 'Bakso Malang Spesial',
-        price: 15000,
-        description: 'Bakso Malang dengan kuah kaldu sapi gurih dan pangsit renyah',
-        categoryId: 'cat_makanan',
-        category: 'Makanan',
-        image: '/logo44.png',
-        available: true,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString()
-      });
-    }
+    if (!this.data.drivers) this.data.drivers = [];
+    if (!this.data.menuItems) this.data.menuItems = [];
+    // Clean up any invalid menu items without valid merchant association
+    this.data.menuItems = this.data.menuItems.filter(i => typeof i.merchantId === 'string' && i.merchantId !== 'm1');
 
     this.data.merchants.forEach(m => {
       if (!m.qrisImage || m.qrisImage.includes('unsplash')) {
@@ -1202,6 +1156,7 @@ export class FoodDatabase {
 
   // --- MERCHANTS ---
   public getMerchants(): Merchant[] {
+    this.reloadFromDiskIfNeeded();
     if (!this.data || !Array.isArray(this.data.merchants)) {
       return [];
     }
@@ -1220,6 +1175,7 @@ export class FoodDatabase {
   }
 
   public getMerchantById(id: string): Merchant | undefined {
+    this.reloadFromDiskIfNeeded();
     if (!this.data || !Array.isArray(this.data.merchants) || !id) return undefined;
     const m = this.data.merchants.find(m => m && m.id === id);
     if (!m) return undefined;
@@ -1459,10 +1415,12 @@ export class FoodDatabase {
 
   // --- MENU ITEMS ---
   public getMenuItemsByMerchant(merchantId: string): MenuItem[] {
+    this.reloadFromDiskIfNeeded();
     return this.data.menuItems.filter(i => i.merchantId === merchantId);
   }
 
   public getMenuItemById(id: string): MenuItem | undefined {
+    this.reloadFromDiskIfNeeded();
     return this.data.menuItems.find(i => i.id === id);
   }
 

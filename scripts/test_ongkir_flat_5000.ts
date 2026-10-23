@@ -317,9 +317,9 @@ async function runTests() {
       failed++;
     }
 
-  } catch (err: any) {
-    console.error('❌ [API ERROR]:', err.message || err);
-    failed++;
+  } finally {
+    // Reset test data created during test run to maintain 100% clean production slate
+    foodDb.resetAllOperationalData();
   }
 
   console.log('\n===============================================================');

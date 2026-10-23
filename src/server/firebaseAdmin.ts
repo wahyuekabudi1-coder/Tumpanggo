@@ -368,11 +368,17 @@ export function getAdminDb(): Firestore | null {
   return adminDb;
 }
 
+export function getAdminApp(): App | null {
+  return adminApp;
+}
+
+
 // Test simulation hook for fail-safe verification
 export interface FirestoreTestMockState {
   isConfigured?: boolean;
   probeResult?: FirestoreProbeResult;
   writeSuccess?: boolean;
+  deleteSuccess?: boolean;
 }
 
 let testMockState: FirestoreTestMockState | null = null;
@@ -618,6 +624,9 @@ export async function safeAdminSetDoc(collectionName: string, docId: string, dat
  * Safe administrative deleteDoc write.
  */
 export async function safeAdminDeleteDoc(collectionName: string, docId: string): Promise<boolean> {
+  if (testMockState && testMockState.deleteSuccess !== undefined) {
+    return testMockState.deleteSuccess;
+  }
   if (!adminDb || !isConfiguredWithServiceAccount) return false;
   try {
     await adminDb.collection(collectionName).doc(docId).delete();

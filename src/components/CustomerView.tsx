@@ -3329,9 +3329,23 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
 
               {/* Menu List */}
               <div className="flex flex-col gap-3 mt-3">
-                {(Array.isArray(selectedMerchantMenu) ? selectedMerchantMenu : [])
-                  .filter(item => item && (selectedCategory === 'all' || item.categoryId === selectedCategory))
-                  .map(item => (
+                {(() => {
+                  const filteredMenu = (Array.isArray(selectedMerchantMenu) ? selectedMerchantMenu : [])
+                    .filter(item => item && (selectedCategory === 'all' || item.categoryId === selectedCategory));
+
+                  if (filteredMenu.length === 0) {
+                    return (
+                      <div className="text-center py-10 px-4 bg-white rounded-2xl border border-slate-200/80 shadow-xs flex flex-col items-center justify-center gap-2">
+                        <Utensils className="w-8 h-8 text-slate-300" />
+                        <p className="text-xs font-bold text-slate-700">Belum ada menu makanan</p>
+                        <p className="text-[11px] text-slate-500 max-w-xs leading-relaxed">
+                          Mitra kuliner ini sedang menyiapkan daftar menu lezat untuk Anda.
+                        </p>
+                      </div>
+                    );
+                  }
+
+                  return filteredMenu.map(item => (
                     <div 
                       key={item.id}
                       className="bg-white border border-slate-200 hover:border-rose-200 rounded-xl p-3.5 shadow-sm flex gap-3 items-center transition-all"
@@ -3411,7 +3425,8 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
                         );
                       })()}
                     </div>
-                  ))}
+                  ));
+                })()}
               </div>
             </div>
           </div>

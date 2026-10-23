@@ -1688,69 +1688,89 @@ export default function MerchantView({ merchantId: rawMerchantId, onLogout, onSe
             )}
 
             {/* Menu Items Grid */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-              {filteredMenuItems.map(item => (
-                <div key={item.id} className="bg-white rounded-2xl border border-slate-200/80 shadow-xs overflow-hidden flex flex-col justify-between hover:border-emerald-200 transition-all">
-                  <div>
-                    <div className="aspect-video w-full bg-slate-100 relative overflow-hidden">
-                      {item.image ? (
-                        <img src={item.image} alt={item.name} className="w-full h-full object-cover" />
-                      ) : (
-                        <div className="w-full h-full flex items-center justify-center text-slate-300">
-                          <Utensils className="w-8 h-8" />
+            {filteredMenuItems.length === 0 ? (
+              <div className="py-12 px-4 text-center bg-white rounded-2xl border border-dashed border-slate-200">
+                <Utensils className="w-10 h-10 text-slate-300 mx-auto mb-2" />
+                <h4 className="font-display font-bold text-sm text-slate-800">Belum ada menu makanan</h4>
+                <p className="text-xs text-slate-500 mt-1 max-w-sm mx-auto">
+                  Toko Anda belum memiliki menu makanan. Klik tombol &ldquo;Tambah Menu Baru&rdquo; di atas untuk mulai memasukkan produk kuliner Anda.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEditingItem({ name: '', price: 10000, description: '', categoryId: categories[0]?.id || '', category: categories[0]?.name || 'Menu Utama', available: true, image: '' });
+                    setShowItemForm(true);
+                  }}
+                  className="mt-3 px-4 py-2 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl text-xs font-bold shadow-xs cursor-pointer inline-flex items-center gap-1.5"
+                >
+                  <Plus className="w-3.5 h-3.5" /> Tambah Menu Pertama
+                </button>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                {filteredMenuItems.map(item => (
+                  <div key={item.id} className="bg-white rounded-2xl border border-slate-200/80 shadow-xs overflow-hidden flex flex-col justify-between hover:border-emerald-200 transition-all">
+                    <div>
+                      <div className="aspect-video w-full bg-slate-100 relative overflow-hidden">
+                        {item.image ? (
+                          <img src={item.image} alt={item.name} className="w-full h-full object-cover" />
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center text-slate-300">
+                            <Utensils className="w-8 h-8" />
+                          </div>
+                        )}
+                        
+                        {/* Availability status badge */}
+                        <button
+                          type="button"
+                          onClick={() => toggleItemAvailability(item)}
+                          className={`absolute top-2 right-2 text-[10px] font-extrabold px-2.5 py-0.5 rounded-full cursor-pointer shadow-xs transition-transform active:scale-95 ${
+                            item.available ? 'bg-emerald-600 text-white' : 'bg-rose-600 text-white'
+                          }`}
+                          title="Klik untuk mengubah ketersediaan menu"
+                        >
+                          {item.available ? '✓ Tersedia' : '✕ Habis'}
+                        </button>
+                      </div>
+
+                      <div className="p-3.5 space-y-1">
+                        <h4 className="font-display font-bold text-sm text-slate-900 truncate">{item.name}</h4>
+                        <p className="text-[11px] text-slate-500 line-clamp-2 leading-relaxed">{item.description || 'Menu lezat pilihan khas UMKM Tumpang.'}</p>
+                        <div className="pt-2 flex items-center justify-between">
+                          <span className="font-mono font-bold text-sm text-emerald-800">Rp {item.price.toLocaleString('id-ID')}</span>
                         </div>
-                      )}
-                      
-                      {/* Availability status badge */}
+                      </div>
+                    </div>
+
+                    <div className="p-3 bg-slate-50 border-t border-slate-100 flex items-center justify-between">
                       <button
                         type="button"
                         onClick={() => toggleItemAvailability(item)}
-                        className={`absolute top-2 right-2 text-[10px] font-extrabold px-2.5 py-0.5 rounded-full cursor-pointer shadow-xs transition-transform active:scale-95 ${
-                          item.available ? 'bg-emerald-600 text-white' : 'bg-rose-600 text-white'
-                        }`}
-                        title="Klik untuk mengubah ketersediaan menu"
+                        className="text-[11px] font-bold text-slate-600 hover:text-slate-900 cursor-pointer"
                       >
-                        {item.available ? '✓ Tersedia' : '✕ Habis'}
+                        {item.available ? 'Set Habis' : 'Set Tersedia'}
                       </button>
-                    </div>
-
-                    <div className="p-3.5 space-y-1">
-                      <h4 className="font-display font-bold text-sm text-slate-900 truncate">{item.name}</h4>
-                      <p className="text-[11px] text-slate-500 line-clamp-2 leading-relaxed">{item.description || 'Menu lezat pilihan khas UMKM Tumpang.'}</p>
-                      <div className="pt-2 flex items-center justify-between">
-                        <span className="font-mono font-bold text-sm text-emerald-800">Rp {item.price.toLocaleString('id-ID')}</span>
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          onClick={() => { setEditingItem(item); setShowItemForm(true); }}
+                          className="p-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-100 text-slate-700 cursor-pointer"
+                          title="Edit Menu"
+                        >
+                          <Edit className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          onClick={() => deleteItem(item.id)}
+                          className="p-1.5 rounded-lg border border-rose-200 bg-white hover:bg-rose-50 text-rose-600 cursor-pointer"
+                          title="Hapus Menu"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
                       </div>
                     </div>
                   </div>
-
-                  <div className="p-3 bg-slate-50 border-t border-slate-100 flex items-center justify-between">
-                    <button
-                      type="button"
-                      onClick={() => toggleItemAvailability(item)}
-                      className="text-[11px] font-bold text-slate-600 hover:text-slate-900 cursor-pointer"
-                    >
-                      {item.available ? 'Set Habis' : 'Set Tersedia'}
-                    </button>
-                    <div className="flex items-center gap-1.5">
-                      <button
-                        onClick={() => { setEditingItem(item); setShowItemForm(true); }}
-                        className="p-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-100 text-slate-700 cursor-pointer"
-                        title="Edit Menu"
-                      >
-                        <Edit className="w-3.5 h-3.5" />
-                      </button>
-                      <button
-                        onClick={() => deleteItem(item.id)}
-                        className="p-1.5 rounded-lg border border-rose-200 bg-white hover:bg-rose-50 text-rose-600 cursor-pointer"
-                        title="Hapus Menu"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
 

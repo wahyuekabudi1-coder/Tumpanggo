@@ -11,7 +11,8 @@ def export_zip():
         '.git',
         '.cache',
         '.aistudio',
-        '.turbo'
+        '.turbo',
+        'backups'
     }
     
     exclude_extensions = {

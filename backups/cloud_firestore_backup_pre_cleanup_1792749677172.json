@@ -1,0 +1,34 @@
+{
+  "backupId": "pre_cleanup_1792749677172",
+  "cloudVerified": true,
+  "metadata": {
+    "source": "Tumpang Food Safe Dummy Cleanup Utility",
+    "activeProjectId": "tumpanggo-70479",
+    "expectedProjectId": "tumpanggo-70479",
+    "databaseId": "(default)",
+    "documentCount": 2,
+    "createdAt": "2026-10-23T10:01:17.172Z"
+  },
+  "collections": {
+    "merchants": [
+      {
+        "id": "m1",
+        "name": "Warung Barokah Bu Siti",
+        "isDemo": true
+      },
+      {
+        "id": "merch_real",
+        "name": "Warung Asli Tumpang",
+        "phone": "0812345678",
+        "address": "Jl. Raya"
+      }
+    ],
+    "categories": [],
+    "menuItems": [],
+    "drivers": [],
+    "orders": [],
+    "settlements": [],
+    "testimonials": [],
+    "partnerRegistrations": []
+  }
+}
