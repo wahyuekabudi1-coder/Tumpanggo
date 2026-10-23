@@ -9,8 +9,6 @@
 import express from 'express';
 import { foodDb } from './db';
 import { foodConfig } from './config';
-import { shopApp } from '../services/shop/api/shopApp';
-import { shopApiClient } from '../services/shop/client/shopApiClient';
 import { isFirestoreAdminConfigured, isUsingServiceAccount, testFirestoreConnection, getFirestoreDiagnosticStatus, getAdminDb, safeAdminCountDocs } from './firebaseAdmin';
 import { authenticateToken } from './auth';
 import { authRouter } from './routes/authRoutes';
@@ -133,10 +131,7 @@ app.use(authenticateToken);
 // Health check endpoint - Distinguishes server process vitality from database readiness
 app.get('/api/health', async (req, res) => {
   try {
-    const [foodStorageStatus, shopStorageStatus] = await Promise.all([
-      foodDb.getStorageStatus(),
-      shopApiClient.getHealth()
-    ]);
+    const foodStorageStatus = await foodDb.getStorageStatus();
     const isHealthy = foodStorageStatus.liveCloudConnected;
     const isProd = foodConfig.isProduction;
 
@@ -150,7 +145,6 @@ app.get('/api/health', async (req, res) => {
       diagnosticDetail: foodStorageStatus.diagnosticDetail,
       remediationStep: foodStorageStatus.remediationStep,
       foodDatabase: foodStorageStatus,
-      shopDatabase: shopStorageStatus,
       timestamp: new Date().toISOString()
     });
   } catch (err: any) {
@@ -257,7 +251,6 @@ app.use('/api/merchants', merchantRouter);
 app.use('/api/drivers', driverRouter);
 app.use('/api/orders', orderRouter);
 app.use('/api', adminRouter);
-app.use('/api/shop', shopApp);
 app.use('/api/artopay', artopayRouter);
 app.use('/api/push', pushRouter);
 

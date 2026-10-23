@@ -9,9 +9,7 @@
 import { Router, Request, Response } from 'express';
 import { ArtoPayService } from '../../lib/artopay';
 import { foodDb } from '../db';
-import { shopApiClient } from '../../services/shop/client/shopApiClient';
 import { OrderStatus } from '../../types';
-import { ShopPaymentStatus, ShopOrderStatus } from '../../types/shop';
 import { artopayConfig, reloadEnv } from '../config';
 
 export const artopayRouter = Router();
@@ -89,165 +87,99 @@ artopayRouter.get('/config', (_req: Request, res: Response) => {
 
 /**
  * POST /api/artopay/payment-intent
- * Creates an ArtoPay dynamic QRIS payment intent.
+ * Creates an ArtoPay dynamic QRIS payment intent for Tumpang Food.
  * Strict server-side nominal extraction from database records.
  */
 artopayRouter.post('/payment-intent', async (req: Request, res: Response) => {
   try {
     reloadEnv();
-    const { orderId, serviceType, customerPhone, amount: clientAmount } = req.body;
+    const { orderId, serviceType, amount: clientAmount } = req.body;
 
     const cleanOrderId = typeof orderId === 'string' ? orderId.trim() : '';
     if (!cleanOrderId) {
       return res.status(400).json({ error: 'orderId wajib diisi dan berupa string non-kosong.' });
     }
 
-    const type = (serviceType || '').toUpperCase();
-    if (type !== 'FOOD' && type !== 'SHOP') {
-      return res.status(400).json({ error: 'serviceType harus bernilai "FOOD" atau "SHOP".' });
+    const type = (serviceType || 'FOOD').toUpperCase();
+    if (type !== 'FOOD') {
+      return res.status(400).json({ error: 'serviceType harus bernilai "FOOD".' });
     }
 
-    if (type === 'FOOD') {
-      const order = await foodDb.findOrder(cleanOrderId);
-      if (!order) {
-        return res.status(404).json({ error: `Pesanan Tumpang Food dengan ID "${cleanOrderId}" tidak ditemukan.` });
-      }
-
-      const verifiedOrderId = String(order.id || '').trim();
-      if (!verifiedOrderId) {
-        return res.status(400).json({ error: 'ID pesanan Tumpang Food tidak valid di database.' });
-      }
-
-      // Check order status
-      if (order.status !== OrderStatus.WAITING_PAYMENT) {
-        if (order.status === OrderStatus.PAYMENT_VERIFIED || order.status === OrderStatus.COOKING || order.status === OrderStatus.READY_FOR_PICKUP || order.status === OrderStatus.ORDER_PICKED_UP || order.status === OrderStatus.DELIVERED || order.status === OrderStatus.COMPLETED) {
-          return res.status(400).json({ error: 'Pesanan ini sudah terbayar / lunas.' });
-        }
-        if (order.status === OrderStatus.CANCELLED || order.status === OrderStatus.EXPIRED) {
-          return res.status(400).json({ error: `Pesanan tidak dapat dibayar karena berstatus ${order.status}.` });
-        }
-      }
-
-      // Expiration check
-      if (order.paymentExpiresAt && new Date(order.paymentExpiresAt).getTime() < Date.now()) {
-        return res.status(400).json({ error: 'Batas waktu pembayaran pesanan telah habis (Expired).' });
-      }
-
-      // Server-side financial enforcement: reject manipulated client amount
-      const serverAmount = Math.round(Number(order.total));
-      if (clientAmount !== undefined && Number(clientAmount) !== serverAmount) {
-        return res.status(400).json({ 
-          error: `Manipulasi nominal terdeteksi: nominal client (${clientAmount}) berbeda dengan total server (${serverAmount}).` 
-        });
-      }
-
-      const proto = req.headers['x-forwarded-proto'] || req.protocol || 'http';
-      const host = req.get('host') || 'localhost:3000';
-      const origin = `${proto}://${host}`;
-
-      // Create Payment Intent via ArtoPay
-      const intent = await ArtoPayService.createPaymentIntent({
-        orderId: verifiedOrderId,
-        amount: serverAmount,
-        currency: 'IDR',
-        customerName: order.customerName,
-        customerPhone: order.customerPhone,
-        customerEmail: (order as any).customerEmail || undefined,
-        serviceType: 'FOOD',
-        description: `Pembayaran Tumpang Food #${verifiedOrderId} (${order.merchantName})`,
-        expiryMinutes: 15,
-        callbackUrl: req.body.callbackUrl || `${origin}/api/artopay/webhook`,
-        returnUrl: req.body.returnUrl || `${origin}/?tab=tracking&orderId=${verifiedOrderId}`,
-        allowSdkModal: true
-      });
-
-      // Attach ArtoPay payment details to Food Order
-      await foodDb.updateOrder('SYSTEM_ARTOPAY', order.id, {
-        paymentMethod: 'ARTOPAY_QRIS',
-        artopayPaymentId: intent.paymentIntentId,
-        artopayCheckoutUrl: intent.checkoutUrl,
-        artopayStatus: 'PENDING',
-        artopayExpiredAt: intent.expiresAt,
-        artopayClientSecret: intent.clientSecret,
-        artopayCustomerToken: intent.customerToken,
-        artopayPublicKey: intent.publicKey,
-        artopayOrderId: intent.orderId,
-        artopaySandbox: intent.sandbox
-      }, 'SYSTEM');
-
-      return res.status(200).json(intent);
-
-    } else {
-      // SHOP (Processed via decoupled shopApiClient)
-      let order = await shopApiClient.findOrder(cleanOrderId, customerPhone ? String(customerPhone).trim() : undefined);
-
-      if (!order) {
-        return res.status(404).json({ error: `Pesanan Tumpang Shop dengan ID "${cleanOrderId}" tidak ditemukan.` });
-      }
-
-      const verifiedOrderId = String(order.id || order.orderNumber || '').trim();
-      if (!verifiedOrderId) {
-        return res.status(400).json({ error: 'ID pesanan Tumpang Shop tidak valid di database.' });
-      }
-
-      // Check payment status
-      if (order.paymentStatus === ShopPaymentStatus.PAID) {
-        return res.status(400).json({ error: 'Pesanan belanja ini sudah lunas.' });
-      }
-
-      if (order.paymentStatus === ShopPaymentStatus.EXPIRED || order.orderStatus === ShopOrderStatus.CANCELLED) {
-        return res.status(400).json({ error: 'Pesanan belanja sudah kedaluwarsa atau dibatalkan.' });
-      }
-
-      // Expiration check
-      if (order.paymentExpiresAt && new Date(order.paymentExpiresAt).getTime() < Date.now()) {
-        return res.status(400).json({ error: 'Batas waktu pembayaran belanja telah habis (Expired).' });
-      }
-
-      // Server-side financial enforcement: reject manipulated client amount
-      const serverAmount = Math.round(Number(order.total));
-      if (clientAmount !== undefined && Number(clientAmount) !== serverAmount) {
-        return res.status(400).json({ 
-          error: `Manipulasi nominal terdeteksi: nominal client (${clientAmount}) berbeda dengan total server (${serverAmount}).` 
-        });
-      }
-
-      const proto = req.headers['x-forwarded-proto'] || req.protocol || 'http';
-      const host = req.get('host') || 'localhost:3000';
-      const origin = `${proto}://${host}`;
-
-      // Create Payment Intent via ArtoPay
-      const intent = await ArtoPayService.createPaymentIntent({
-        orderId: verifiedOrderId,
-        amount: serverAmount,
-        currency: 'IDR',
-        customerName: order.customerName,
-        customerPhone: order.customerPhone,
-        customerEmail: (order as any).customerEmail || undefined,
-        serviceType: 'SHOP',
-        description: `Pembayaran Tumpang Shop #${order.orderNumber || verifiedOrderId}`,
-        expiryMinutes: 20,
-        callbackUrl: req.body.callbackUrl || `${origin}/api/artopay/webhook`,
-        returnUrl: req.body.returnUrl || `${origin}/?page=shop&orderId=${order.orderNumber || verifiedOrderId}&tab=tracking`,
-        allowSdkModal: true
-      });
-
-      // Attach ArtoPay payment details to Shop Order via Inter-Service Client
-      await shopApiClient.attachPaymentDetails(order.id, {
-        paymentMethod: 'ARTOPAY_QRIS',
-        artopayPaymentId: intent.paymentIntentId,
-        artopayCheckoutUrl: intent.checkoutUrl,
-        artopayStatus: 'PENDING',
-        artopayExpiredAt: intent.expiresAt,
-        artopayClientSecret: intent.clientSecret,
-        artopayCustomerToken: intent.customerToken,
-        artopayPublicKey: intent.publicKey,
-        artopayOrderId: intent.orderId,
-        artopaySandbox: intent.sandbox
-      });
-
-      return res.status(200).json(intent);
+    const order = await foodDb.findOrder(cleanOrderId);
+    if (!order) {
+      return res.status(404).json({ error: `Pesanan Tumpang Food dengan ID "${cleanOrderId}" tidak ditemukan.` });
     }
+
+    const verifiedOrderId = String(order.id || '').trim();
+    if (!verifiedOrderId) {
+      return res.status(400).json({ error: 'ID pesanan Tumpang Food tidak valid di database.' });
+    }
+
+    // Check order status
+    if (order.status !== OrderStatus.WAITING_PAYMENT) {
+      if (
+        order.status === OrderStatus.PAYMENT_VERIFIED ||
+        order.status === OrderStatus.COOKING ||
+        order.status === OrderStatus.READY_FOR_PICKUP ||
+        order.status === OrderStatus.ORDER_PICKED_UP ||
+        order.status === OrderStatus.DELIVERED ||
+        order.status === OrderStatus.COMPLETED
+      ) {
+        return res.status(400).json({ error: 'Pesanan ini sudah terbayar / lunas.' });
+      }
+      if (order.status === OrderStatus.CANCELLED || order.status === OrderStatus.EXPIRED) {
+        return res.status(400).json({ error: `Pesanan tidak dapat dibayar karena berstatus ${order.status}.` });
+      }
+    }
+
+    // Expiration check
+    if (order.paymentExpiresAt && new Date(order.paymentExpiresAt).getTime() < Date.now()) {
+      return res.status(400).json({ error: 'Batas waktu pembayaran pesanan telah habis (Expired).' });
+    }
+
+    // Server-side financial enforcement: reject manipulated client amount
+    const serverAmount = Math.round(Number(order.total));
+    if (clientAmount !== undefined && Number(clientAmount) !== serverAmount) {
+      return res.status(400).json({ 
+        error: `Manipulasi nominal terdeteksi: nominal client (${clientAmount}) berbeda dengan total server (${serverAmount}).` 
+      });
+    }
+
+    const proto = req.headers['x-forwarded-proto'] || req.protocol || 'http';
+    const host = req.get('host') || 'localhost:3000';
+    const origin = `${proto}://${host}`;
+
+    // Create Payment Intent via ArtoPay
+    const intent = await ArtoPayService.createPaymentIntent({
+      orderId: verifiedOrderId,
+      amount: serverAmount,
+      currency: 'IDR',
+      customerName: order.customerName,
+      customerPhone: order.customerPhone,
+      customerEmail: (order as any).customerEmail || undefined,
+      serviceType: 'FOOD',
+      description: `Pembayaran Tumpang Food #${verifiedOrderId} (${order.merchantName})`,
+      expiryMinutes: 15,
+      callbackUrl: req.body.callbackUrl || `${origin}/api/artopay/webhook`,
+      returnUrl: req.body.returnUrl || `${origin}/?tab=tracking&orderId=${verifiedOrderId}`,
+      allowSdkModal: true
+    });
+
+    // Attach ArtoPay payment details to Food Order
+    await foodDb.updateOrder('SYSTEM_ARTOPAY', order.id, {
+      paymentMethod: 'ARTOPAY_QRIS',
+      artopayPaymentId: intent.paymentIntentId,
+      artopayCheckoutUrl: intent.checkoutUrl,
+      artopayStatus: 'PENDING',
+      artopayExpiredAt: intent.expiresAt,
+      artopayClientSecret: intent.clientSecret,
+      artopayCustomerToken: intent.customerToken,
+      artopayPublicKey: intent.publicKey,
+      artopayOrderId: intent.orderId,
+      artopaySandbox: intent.sandbox
+    }, 'SYSTEM');
+
+    return res.status(200).json(intent);
   } catch (err: any) {
     console.error('[ArtoPay Create Intent Error]', err);
     return res.status(500).json({ error: err.message || 'Gagal membuat transaksi ArtoPay.' });
@@ -256,7 +188,7 @@ artopayRouter.post('/payment-intent', async (req: Request, res: Response) => {
 
 /**
  * POST /api/artopay/webhook
- * Receives and processes real-time transaction updates from ArtoPay.
+ * Receives and processes real-time transaction updates from ArtoPay for Tumpang Food.
  * Validates HMAC signature, prevents replay attacks, checks idempotency, and verifies order amounts.
  */
 artopayRouter.post('/webhook', async (req: Request, res: Response) => {
@@ -276,12 +208,10 @@ artopayRouter.post('/webhook', async (req: Request, res: Response) => {
     }
 
     const payload = req.body;
-    const event = payload.event || 'payment.update';
     const data = payload.data || payload;
 
     const paymentIntentId = String(data.paymentIntentId || data.id || '').trim();
     const orderId = String(data.orderId || data.referenceId || '').trim();
-    const serviceType = (data.serviceType || '').toUpperCase();
     const amount = Number(data.amount);
     const currency = (data.currency || 'IDR').toUpperCase();
     const rawStatus = (data.status || '').toUpperCase();
@@ -300,34 +230,23 @@ artopayRouter.post('/webhook', async (req: Request, res: Response) => {
       });
     }
 
-    // 3. Locate Target Order (Food vs Shop)
+    // 3. Locate Target Food Order
     let foodOrder = await foodDb.findOrder(orderId);
-    let shopOrder: any = undefined;
-
     if (!foodOrder) {
-      shopOrder = await shopApiClient.findOrder(orderId);
-    }
-
-    if (!foodOrder && !shopOrder) {
       // Search by artopayPaymentId as fallback
       foodOrder = foodDb.getOrders().find(o => o.artopayPaymentId === paymentIntentId);
-      if (!foodOrder) {
-        shopOrder = await shopApiClient.findOrder(paymentIntentId);
-      }
     }
 
-    if (!foodOrder && !shopOrder) {
+    if (!foodOrder) {
       return res.status(404).json({ 
-        error: `Pesanan dengan ID "${orderId}" atau paymentIntentId "${paymentIntentId}" tidak ditemukan.` 
+        error: `Pesanan Tumpang Food dengan ID "${orderId}" atau paymentIntentId "${paymentIntentId}" tidak ditemukan.` 
       });
     }
 
-    const isFood = !!foodOrder;
-    const targetOrder = isFood ? foodOrder! : shopOrder!;
+    const targetOrder = foodOrder;
     const serverTotal = Math.round(Number(targetOrder.total));
 
     // 4. Strict Matching of Stored Transaction Identity
-    // Prevent updating an order if its recorded paymentIntentId does not match the webhook
     if (targetOrder.artopayPaymentId && targetOrder.artopayPaymentId !== paymentIntentId) {
       console.warn(`[ArtoPay Security Alert] Mismatch between recorded transaction ID (${targetOrder.artopayPaymentId}) and webhook transaction ID (${paymentIntentId}) for order ${orderId}`);
       return res.status(400).json({ 
@@ -347,87 +266,53 @@ artopayRouter.post('/webhook', async (req: Request, res: Response) => {
       return res.status(400).json({ error: `Mata uang tidak valid (${currency}). Harus IDR.` });
     }
 
-    // 6. Persistent Idempotency Check (handles server restart & multi-instance concurrency)
+    // 6. Status check
     const isPaid = ['PAID', 'SUCCESS', 'SETTLED', 'CAPTURE', 'SETTLEMENT'].includes(rawStatus);
     const isFailedOrExpired = ['EXPIRED', 'FAILED', 'CANCELLED', 'REJECTED', 'DENY', 'CANCEL'].includes(rawStatus);
 
-    if (isFood) {
-      const alreadyPaid = (
-        targetOrder.status === OrderStatus.PAYMENT_VERIFIED ||
-        targetOrder.status === OrderStatus.COOKING ||
-        targetOrder.status === OrderStatus.READY_FOR_PICKUP ||
-        targetOrder.status === OrderStatus.ORDER_PICKED_UP ||
-        targetOrder.status === OrderStatus.DELIVERED ||
-        targetOrder.status === OrderStatus.COMPLETED
-      );
+    const alreadyPaid = (
+      targetOrder.status === OrderStatus.PAYMENT_VERIFIED ||
+      targetOrder.status === OrderStatus.COOKING ||
+      targetOrder.status === OrderStatus.READY_FOR_PICKUP ||
+      targetOrder.status === OrderStatus.ORDER_PICKED_UP ||
+      targetOrder.status === OrderStatus.DELIVERED ||
+      targetOrder.status === OrderStatus.COMPLETED
+    );
 
-      if (isPaid && alreadyPaid) {
-        processedWebhookKeys.add(idempotencyKey);
-        return res.status(200).json({
-          received: true,
-          idempotent: true,
-          message: 'Pesanan makanan ini sudah berstatus lunas / terverifikasi sebelumnya.'
-        });
+    if (isPaid && alreadyPaid) {
+      processedWebhookKeys.add(idempotencyKey);
+      return res.status(200).json({
+        received: true,
+        idempotent: true,
+        message: 'Pesanan makanan ini sudah berstatus lunas / terverifikasi sebelumnya.'
+      });
+    }
+
+    if (isPaid) {
+      if (
+        targetOrder.status === OrderStatus.WAITING_PAYMENT || 
+        targetOrder.status === OrderStatus.WAITING_PAYMENT_VERIFICATION
+      ) {
+        await foodDb.updateOrder('SYSTEM_ARTOPAY_WEBHOOK', targetOrder.id, {
+          status: OrderStatus.PAYMENT_VERIFIED,
+          paymentMethod: 'ARTOPAY_QRIS',
+          artopayPaymentId: paymentIntentId,
+          artopayStatus: 'SUCCESS',
+          paymentVerifiedAt: data.paidAt || new Date().toISOString()
+        }, 'SYSTEM');
+
+        foodDb.log(
+          'SYSTEM_ARTOPAY_WEBHOOK',
+          `Pembayaran ArtoPay terverifikasi via webhook (ID: ${paymentIntentId}, Rp ${amount}) - Order ${targetOrder.id}`,
+          'SYSTEM'
+        );
+        console.log(`[ArtoPay Webhook] Food Order ${targetOrder.id} successfully marked as PAID.`);
       }
-
-      if (isPaid) {
-        // Advance only if waiting for payment
-        if (
-          targetOrder.status === OrderStatus.WAITING_PAYMENT || 
-          targetOrder.status === OrderStatus.WAITING_PAYMENT_VERIFICATION
-        ) {
-          await foodDb.updateOrder('SYSTEM_ARTOPAY_WEBHOOK', targetOrder.id, {
-            status: OrderStatus.PAYMENT_VERIFIED,
-            paymentMethod: 'ARTOPAY_QRIS',
-            artopayPaymentId: paymentIntentId,
-            artopayStatus: 'SUCCESS',
-            paymentVerifiedAt: data.paidAt || new Date().toISOString()
-          }, 'SYSTEM');
-
-          foodDb.log(
-            'SYSTEM_ARTOPAY_WEBHOOK',
-            `Pembayaran ArtoPay terverifikasi via webhook (ID: ${paymentIntentId}, Rp ${amount}) - Order ${targetOrder.id}`,
-            'SYSTEM'
-          );
-          console.log(`[ArtoPay Webhook] Food Order ${targetOrder.id} successfully marked as PAID.`);
-        }
-      } else if (isFailedOrExpired) {
-        if (targetOrder.status === OrderStatus.WAITING_PAYMENT) {
-          await foodDb.updateOrder('SYSTEM_ARTOPAY_WEBHOOK', targetOrder.id, {
-            artopayStatus: rawStatus === 'EXPIRED' ? 'EXPIRED' : 'FAILED'
-          }, 'SYSTEM');
-        }
-      }
-    } else {
-      // SHOP
-      if (isPaid && targetOrder.paymentStatus === ShopPaymentStatus.PAID) {
-        processedWebhookKeys.add(idempotencyKey);
-        return res.status(200).json({
-          received: true,
-          idempotent: true,
-          message: 'Pesanan belanja ini sudah berstatus lunas sebelumnya.'
-        });
-      }
-
-      if (isPaid) {
-        if (targetOrder.paymentStatus !== ShopPaymentStatus.PAID) {
-          await shopApiClient.syncPaymentStatus({
-            orderId: targetOrder.id,
-            paymentIntentId,
-            amountPaid: Number(amount)
-          });
-          console.log(`[ArtoPay Webhook] Shop Order ${targetOrder.orderNumber} successfully marked as PAID.`);
-        }
-      } else if (isFailedOrExpired) {
-        if (targetOrder.paymentStatus === ShopPaymentStatus.UNPAID) {
-          await shopApiClient.attachPaymentDetails(targetOrder.id, {
-            paymentMethod: 'ARTOPAY_QRIS',
-            artopayPaymentId: paymentIntentId,
-            artopayCheckoutUrl: targetOrder.artopayCheckoutUrl || '',
-            artopayStatus: rawStatus === 'EXPIRED' ? 'EXPIRED' : 'FAILED',
-            artopayExpiredAt: targetOrder.artopayExpiredAt
-          });
-        }
+    } else if (isFailedOrExpired) {
+      if (targetOrder.status === OrderStatus.WAITING_PAYMENT) {
+        await foodDb.updateOrder('SYSTEM_ARTOPAY_WEBHOOK', targetOrder.id, {
+          artopayStatus: rawStatus === 'EXPIRED' ? 'EXPIRED' : 'FAILED'
+        }, 'SYSTEM');
       }
     }
 
@@ -456,56 +341,35 @@ artopayRouter.post('/webhook', async (req: Request, res: Response) => {
 artopayRouter.get('/status/:orderId', async (req: Request, res: Response) => {
   try {
     const orderId = req.params.orderId.trim();
-    const serviceType = ((req.query.serviceType as string) || '').toUpperCase();
 
-    let foodOrder: any = undefined;
-    let shopOrder: any = undefined;
-
-    if (serviceType === 'SHOP') {
-      shopOrder = await shopApiClient.findOrder(orderId);
-    } else if (serviceType === 'FOOD') {
-      foodOrder = await foodDb.findOrder(orderId);
-    } else {
-      foodOrder = await foodDb.findOrder(orderId);
-      if (!foodOrder) {
-        shopOrder = await shopApiClient.findOrder(orderId);
-      }
+    const targetOrder = await foodDb.findOrder(orderId);
+    if (!targetOrder) {
+      return res.status(404).json({ error: 'Pesanan Tumpang Food tidak ditemukan.' });
     }
 
-    if (!foodOrder && !shopOrder) {
-      return res.status(404).json({ error: 'Pesanan tidak ditemukan.' });
-    }
-
-    const isFood = !!foodOrder;
-    const targetOrder = isFood ? foodOrder : shopOrder;
-    const isCurrentlyPaid = isFood
-      ? targetOrder.status !== OrderStatus.WAITING_PAYMENT && targetOrder.status !== OrderStatus.WAITING_PAYMENT_VERIFICATION && targetOrder.status !== OrderStatus.CANCELLED && targetOrder.status !== OrderStatus.EXPIRED
-      : targetOrder.paymentStatus === ShopPaymentStatus.PAID;
+    const isCurrentlyPaid = (
+      targetOrder.status !== OrderStatus.WAITING_PAYMENT &&
+      targetOrder.status !== OrderStatus.WAITING_PAYMENT_VERIFICATION &&
+      targetOrder.status !== OrderStatus.CANCELLED &&
+      targetOrder.status !== OrderStatus.EXPIRED
+    );
 
     // If still pending, query gateway actively
     if (!isCurrentlyPaid && targetOrder.artopayPaymentId) {
       const liveCheck = await ArtoPayService.checkPaymentStatus(targetOrder.artopayPaymentId);
       if (liveCheck.status === 'SUCCESS') {
-        if (isFood) {
-          await foodDb.updateOrder('SYSTEM_ARTOPAY_POLL', targetOrder.id, {
-            status: OrderStatus.PAYMENT_VERIFIED,
-            paymentMethod: 'ARTOPAY_QRIS',
-            artopayStatus: 'SUCCESS',
-            paymentVerifiedAt: liveCheck.paidAt || new Date().toISOString()
-          }, 'SYSTEM');
-        } else {
-          await shopApiClient.syncPaymentStatus({
-            orderId: targetOrder.id,
-            paymentIntentId: targetOrder.artopayPaymentId,
-            amountPaid: Number(targetOrder.total)
-          });
-        }
+        await foodDb.updateOrder('SYSTEM_ARTOPAY_POLL', targetOrder.id, {
+          status: OrderStatus.PAYMENT_VERIFIED,
+          paymentMethod: 'ARTOPAY_QRIS',
+          artopayStatus: 'SUCCESS',
+          paymentVerifiedAt: liveCheck.paidAt || new Date().toISOString()
+        }, 'SYSTEM');
 
         return res.json({
           orderId: targetOrder.id,
-          serviceType: isFood ? 'FOOD' : 'SHOP',
+          serviceType: 'FOOD',
           isPaid: true,
-          status: isFood ? OrderStatus.PAYMENT_VERIFIED : ShopPaymentStatus.PAID,
+          status: OrderStatus.PAYMENT_VERIFIED,
           artopayStatus: 'SUCCESS'
         });
       }
@@ -513,9 +377,9 @@ artopayRouter.get('/status/:orderId', async (req: Request, res: Response) => {
 
     return res.json({
       orderId: targetOrder.id,
-      serviceType: isFood ? 'FOOD' : 'SHOP',
+      serviceType: 'FOOD',
       isPaid: isCurrentlyPaid,
-      status: isFood ? targetOrder.status : targetOrder.paymentStatus,
+      status: targetOrder.status,
       artopayStatus: targetOrder.artopayStatus || (isCurrentlyPaid ? 'SUCCESS' : 'PENDING'),
       checkoutUrl: targetOrder.artopayCheckoutUrl,
       paymentIntentId: targetOrder.artopayPaymentId,
@@ -526,4 +390,3 @@ artopayRouter.get('/status/:orderId', async (req: Request, res: Response) => {
     return res.status(500).json({ error: err.message || 'Gagal memeriksa status pembayaran ArtoPay.' });
   }
 });
-

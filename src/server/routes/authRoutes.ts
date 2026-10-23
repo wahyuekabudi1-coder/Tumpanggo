@@ -557,19 +557,31 @@ authRouter.post(['/master/emergency-reset', '/auth/master/emergency-reset'], asy
     }
   }
 
-  // 2. Check against secure single-use token file if not authorized yet
+  // 2. Check against secure single-use token file with atomic POSIX rename (local dev only)
   if (!isAuthorized && fs.existsSync(tokenFilePath)) {
+    const consumingFilePath = path.resolve(process.cwd(), `.master_recovery_token.food.${Date.now()}.${crypto.randomBytes(4).toString('hex')}.consuming`);
+    let renamed = false;
     try {
-      const fileContent = fs.readFileSync(tokenFilePath, 'utf-8').trim();
-      if (fileContent && fileContent.length >= 16) {
-        const bufProvided = Buffer.from(providedKey);
-        const bufFile = Buffer.from(fileContent);
-        if (bufProvided.length === bufFile.length && crypto.timingSafeEqual(bufProvided, bufFile)) {
-          isAuthorized = true;
-          isOneTimeFile = true;
+      fs.renameSync(tokenFilePath, consumingFilePath);
+      renamed = true;
+    } catch {
+      renamed = false;
+    }
+
+    if (renamed && fs.existsSync(consumingFilePath)) {
+      try {
+        const fileContent = fs.readFileSync(consumingFilePath, 'utf-8').trim();
+        if (fileContent && fileContent.length >= 16) {
+          const bufProvided = Buffer.from(providedKey);
+          const bufFile = Buffer.from(fileContent);
+          if (bufProvided.length === bufFile.length && crypto.timingSafeEqual(bufProvided, bufFile)) {
+            isAuthorized = true;
+          }
         }
+      } finally {
+        try { fs.unlinkSync(consumingFilePath); } catch {}
       }
-    } catch {}
+    }
   }
 
   if (!isAuthorized) {
@@ -594,13 +606,6 @@ authRouter.post(['/master/emergency-reset', '/auth/master/emergency-reset'], asy
   // Update persistent database and runtime memory
   foodDb.updateMasterAccountPassword(cleanPass);
   updateRuntimeMasterPassword(cleanPass);
-
-  // If this was a single-use token from file, immediately destroy it
-  if (isOneTimeFile && fs.existsSync(tokenFilePath)) {
-    try {
-      fs.unlinkSync(tokenFilePath);
-    } catch {}
-  }
 
   foodDb.log('master-recovery', 'Master Account password recovered successfully via trusted administrative process', 'MASTER_ADMIN');
   console.log('[MasterRecovery] BERHASIL: Kata sandi Master Account berhasil dipulihkan dan disimpan ke database persisten.');

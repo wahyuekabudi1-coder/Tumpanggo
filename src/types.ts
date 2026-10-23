@@ -207,11 +207,10 @@ export enum Role {
   MERCHANT = 'MERCHANT',
   DRIVER = 'DRIVER',
   ADMIN = 'ADMIN',
-  SHOP_ADMIN = 'SHOP_ADMIN',
   MASTER_ADMIN = 'MASTER_ADMIN'
 }
 
-export type AppRole = 'ADMIN' | 'MERCHANT' | 'DRIVER' | 'SYSTEM' | 'CUSTOMER' | 'SHOP_ADMIN' | 'MASTER_ADMIN';
+export type AppRole = 'ADMIN' | 'MERCHANT' | 'DRIVER' | 'SYSTEM' | 'CUSTOMER' | 'MASTER_ADMIN';
 
 export interface AuditLog {
   id: string;
@@ -326,7 +325,4 @@ export function calculateTieredServiceFee(subtotal: number): number {
   if (amount <= 700000) return 5000;
   return 10000;
 }
-
-// Re-export isolated Tumpang Shop types
-export * from './types/shop';
 

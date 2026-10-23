@@ -265,6 +265,8 @@ async function runTests() {
     const { getMasterAccountCredentials } = await import('../src/server/config');
     const masterCreds = getMasterAccountCredentials();
     const { shopApp } = await import('../src/services/shop/api/shopApp');
+    const { shopDb: mainShopDb } = await import('../src/services/shop/database/shopDatabase');
+    await mainShopDb.updateMasterAccountPassword(masterCreds.password, masterCreds.email);
 
     let loginStatusCode = 0;
     let loginResponseData: any = null;
@@ -309,7 +311,6 @@ async function runTests() {
     assert(Boolean(loginResponseData?.token), 'Shop issued valid dedicated auth token');
     
     // Verify master account was stored/verified in Shop's dedicated schema
-    const { shopDb: mainShopDb } = await import('../src/services/shop/database/shopDatabase');
     const shopMasterRecord = mainShopDb.getMasterAccount();
     assert(shopMasterRecord !== undefined, 'Shop database stores dedicated Master Account credentials');
     assert(shopMasterRecord?.email === masterCreds.email, 'Shop Master Account record has matching email');
@@ -513,6 +514,10 @@ async function runTests() {
     newPassword: 'EmergencyResetPass#2026'
   }, { 'x-master-recovery-key': 'invalid-recovery-key-12345678' });
   assert(wrongKeyReset.statusCode === 401, 'Emergency reset with invalid key rejected with HTTP 401');
+  assert(wrongKeyReset.data?.diagnostic?.code === 'INVALID_RECOVERY_KEY', 'Diagnostic code confirms INVALID_RECOVERY_KEY');
+
+  // Reset rate limit after invalid attempt
+  await testShopDbInst.resetRecoveryRateLimitForTesting();
 
   // 9c. Request with short password rejected
   process.env.SHOP_MASTER_RECOVERY_KEY = 'super-secret-shop-recovery-key-min-16-chars';
@@ -520,14 +525,16 @@ async function runTests() {
     newPassword: 'short'
   }, { 'x-master-recovery-key': 'super-secret-shop-recovery-key-min-16-chars' });
   assert(shortPassReset.statusCode === 400, 'Emergency reset with password < 8 chars rejected with HTTP 400');
+  assert(shortPassReset.data?.diagnostic?.code === 'PASSWORD_TOO_SHORT', 'Diagnostic code confirms PASSWORD_TOO_SHORT');
 
-  // 9d. Request with valid recovery key succeeds
+  // 9d. Request with valid environment recovery key succeeds
   const emergencyRecoveredPass = 'EmergencyRecovered#2026Secret';
   const validReset = await callShopEndpoint('/auth/master/emergency-reset', 'POST', {
     newPassword: emergencyRecoveredPass
   }, { 'x-master-recovery-key': 'super-secret-shop-recovery-key-min-16-chars' });
   assert(validReset.statusCode === 200, 'Emergency reset with valid key succeeded with HTTP 200');
   assert(validReset.data?.success === true, 'Emergency reset returned success: true');
+  assert(validReset.data?.mechanism === 'HIGH_ENTROPY_ENV_KEY', 'Emergency reset used HIGH_ENTROPY_ENV_KEY');
 
   // Verify previous rotated password is now invalid
   const rotatedAfterReset = await callShopEndpoint('/auth/login', 'POST', {
@@ -543,23 +550,108 @@ async function runTests() {
   });
   assert(recoveredLogin.statusCode === 200, 'Recovered password logs in successfully with HTTP 200');
 
-  // 9e. Single-use file token recovery (.master_recovery_token)
-  const fs = await import('fs');
-  const path = await import('path');
-  const tokenFilePath = path.resolve(process.cwd(), '.master_recovery_token');
-  const singleUseToken = 'single-use-file-recovery-token-xyz-12345';
-  fs.writeFileSync(tokenFilePath, singleUseToken, 'utf-8');
-  assert(fs.existsSync(tokenFilePath) === true, 'Single-use recovery token file created for test');
-
+  // 9e. PERSISTENT SINGLE-USE TOKEN CREATION AND CONCURRENT CONSUMPTION TEST
+  // Clear env keys so persistent token is tested in isolation
   delete process.env.SHOP_MASTER_RECOVERY_KEY;
   delete process.env.MASTER_RECOVERY_KEY;
 
-  const finalRecoveredPass = 'FinalRecoveredPass#2026Key';
-  const fileTokenReset = await callShopEndpoint('/auth/master/emergency-reset', 'POST', {
-    newPassword: finalRecoveredPass
-  }, { 'x-master-recovery-key': singleUseToken });
-  assert(fileTokenReset.statusCode === 200, 'Single-use file token reset succeeded with HTTP 200');
-  assert(fs.existsSync(tokenFilePath) === false, 'Single-use token file was destroyed immediately upon use');
+  const persistentTokenCreated = await testShopDbInst.createRecoveryToken(30);
+  assert(Boolean(persistentTokenCreated.token), 'Persistent recovery token generated');
+  assert(Boolean(persistentTokenCreated.id), 'Persistent recovery token assigned ID');
+  assert(persistentTokenCreated.token.length >= 64, 'Persistent recovery token has 256 bits of entropy');
+
+  // 9f. TWO CONCURRENT RECOVERY REQUESTS WITH THE SAME SINGLE-USE TOKEN
+  // One must succeed (200), and the other MUST fail (401 TOKEN_ALREADY_USED)
+  const concurrentPassA = 'ConcurrentPassA#2026New';
+  const concurrentPassB = 'ConcurrentPassB#2026New';
+
+  const [reqA, reqB] = await Promise.all([
+    callShopEndpoint('/auth/master/emergency-reset', 'POST', {
+      newPassword: concurrentPassA
+    }, { 'x-master-recovery-key': persistentTokenCreated.token }),
+    callShopEndpoint('/auth/master/emergency-reset', 'POST', {
+      newPassword: concurrentPassB
+    }, { 'x-master-recovery-key': persistentTokenCreated.token })
+  ]);
+
+  const successfulCount = (reqA.statusCode === 200 ? 1 : 0) + (reqB.statusCode === 200 ? 1 : 0);
+  const rejectedCount = (reqA.statusCode === 401 ? 1 : 0) + (reqB.statusCode === 401 ? 1 : 0);
+  assert(successfulCount === 1, 'CRITICAL ATOMICITY: Exactly ONE of two concurrent requests with same token succeeded');
+  assert(rejectedCount === 1, 'CRITICAL ATOMICITY: Exactly ONE of two concurrent requests was rejected');
+
+  const rejectedReq = reqA.statusCode === 401 ? reqA : reqB;
+  assert(rejectedReq.data?.diagnostic?.code === 'TOKEN_ALREADY_USED', 'Concurrent rejected request returned TOKEN_ALREADY_USED');
+
+  // 9g. REPLAY ATTACK TEST: Attempting to use the already consumed token again
+  const replayAttempt = await callShopEndpoint('/auth/master/emergency-reset', 'POST', {
+    newPassword: 'ReplayAttemptPass#2026'
+  }, { 'x-master-recovery-key': persistentTokenCreated.token });
+  assert(replayAttempt.statusCode === 401, 'Replay of consumed persistent token strictly rejected with HTTP 401');
+  assert(replayAttempt.data?.diagnostic?.code === 'TOKEN_ALREADY_USED', 'Diagnostic code confirms TOKEN_ALREADY_USED');
+
+  // 9h. STORAGE PERSISTENCE FAILURE DURING EMERGENCY RESET
+  const freshTokenForStorageFailure = await testShopDbInst.createRecoveryToken(30);
+  (shopPersistence as any).executeAtomicMutation = async () => {
+    const { ShopStorageError } = await import('../src/services/shop/database/shopPersistence');
+    throw new ShopStorageError('Simulated PostgreSQL failure during emergency reset');
+  };
+
+  const failingReset = await callShopEndpoint('/auth/master/emergency-reset', 'POST', {
+    newPassword: 'StorageFailPass#2026'
+  }, { 'x-master-recovery-key': freshTokenForStorageFailure.token });
+  assert(failingReset.statusCode === 503, 'Storage failure during emergency reset returns HTTP 503');
+  assert(failingReset.data?.code === 'STORAGE_PERSISTENCE_FAILED', 'Storage failure code is STORAGE_PERSISTENCE_FAILED');
+  assert(failingReset.data?.success !== true, 'Storage failure strictly refuses to report success = true');
+
+  // Restore atomic mutation
+  (shopPersistence as any).executeAtomicMutation = originalMutate;
+
+  // 9i. LOCAL ATOMIC FILE TOKEN RECOVERY & CONCURRENT CONSUMPTION TEST
+  const fs = await import('fs');
+  const path = await import('path');
+  const tokenFilePath = path.resolve(process.cwd(), '.master_recovery_token');
+  const fileToken = 'local-file-token-atomic-test-1234567890';
+  fs.writeFileSync(tokenFilePath, fileToken, 'utf-8');
+  assert(fs.existsSync(tokenFilePath) === true, 'Local recovery token file created for test');
+
+  // Two concurrent requests against local file token: POSIX rename ensures only ONE gets it
+  const [fileReqA, fileReqB] = await Promise.all([
+    callShopEndpoint('/auth/master/emergency-reset', 'POST', {
+      newPassword: 'LocalFilePassA#2026'
+    }, { 'x-master-recovery-key': fileToken }),
+    callShopEndpoint('/auth/master/emergency-reset', 'POST', {
+      newPassword: 'LocalFilePassB#2026'
+    }, { 'x-master-recovery-key': fileToken })
+  ]);
+
+  const fileSuccessCount = (fileReqA.statusCode === 200 ? 1 : 0) + (fileReqB.statusCode === 200 ? 1 : 0);
+  const fileRejectCount = (fileReqA.statusCode === 401 ? 1 : 0) + (fileReqB.statusCode === 401 ? 1 : 0);
+  assert(fileSuccessCount === 1, 'POSIX ATOMIC RENAME: Exactly ONE concurrent request consumed the file token');
+  assert(fileRejectCount === 1, 'POSIX ATOMIC RENAME: Second concurrent request was rejected (ENOENT on claimed file)');
+  assert(fs.existsSync(tokenFilePath) === false, 'Local token file completely unlinked and removed');
+
+  // 9j. RATE LIMITING & LOCKOUT TEST
+  await testShopDbInst.resetRecoveryRateLimitForTesting();
+  process.env.SHOP_MASTER_RECOVERY_KEY = 'rate-limit-test-key-min-16-chars';
+  
+  // 5 consecutive wrong attempts
+  for (let i = 1; i <= 5; i++) {
+    const wrongRes = await callShopEndpoint('/auth/master/emergency-reset', 'POST', {
+      newPassword: 'RateLimitAttemptPass#2026'
+    }, { 'x-master-recovery-key': `wrong-key-attempt-${i}` });
+    assert(wrongRes.statusCode === 401, `Failed attempt ${i} rejected with HTTP 401`);
+  }
+
+  // 6th attempt must be locked out with HTTP 429
+  const lockedRes = await callShopEndpoint('/auth/master/emergency-reset', 'POST', {
+    newPassword: 'RateLimitAttemptPass#2026'
+  }, { 'x-master-recovery-key': 'rate-limit-test-key-min-16-chars' });
+  assert(lockedRes.statusCode === 429, 'Rate limit lockout returns HTTP 429 after 5 failures');
+  assert(lockedRes.data?.diagnostic?.code === 'RECOVERY_LOCKED', 'Diagnostic confirms RECOVERY_LOCKED');
+
+  // Reset rate limit counter and restore original master credentials
+  await testShopDbInst.resetRecoveryRateLimitForTesting();
+  delete process.env.SHOP_MASTER_RECOVERY_KEY;
 
   // Clean-up and restore original environment password in Shop database
   await testShopDbInst.updateMasterAccountPassword(originalMasterPassword, masterCreds.email);

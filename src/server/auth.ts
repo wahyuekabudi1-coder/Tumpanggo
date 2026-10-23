@@ -8,14 +8,13 @@
 
 import crypto from 'crypto';
 import { Request, Response, NextFunction } from 'express';
-import { foodConfig, shopConfig } from './config';
+import { foodConfig } from './config';
 
 export interface AuthUser {
   userId: string;
-  role: 'ADMIN' | 'MERCHANT' | 'DRIVER' | 'CUSTOMER' | 'SHOP_ADMIN' | 'MASTER_ADMIN';
+  role: 'ADMIN' | 'MERCHANT' | 'DRIVER' | 'CUSTOMER' | 'MASTER_ADMIN';
   email?: string;
   entityId?: string; // Merchant ID or Driver ID
-  scope?: 'food' | 'shop';
   isMasterAdmin?: boolean;
 }
 
@@ -111,43 +110,7 @@ export function createAuthToken(user: AuthUser, expiresInHours = 72): string {
 }
 
 /**
- * Create HMAC-SHA256 signed JWT token specifically for Tumpang Shop Admin.
- * Fails securely in production if SHOP_AUTH_SECRET is not configured or uses a fallback.
- */
-export function createShopAuthToken(user: AuthUser, expiresInHours = 72): string {
-  const secret = shopConfig.jwtSecret || (process.env.SHOP_AUTH_SECRET || '').trim();
-  let effectiveSecret = secret;
-
-  if (shopConfig.isProduction) {
-    if (!secret || secret.length < 32 || secret.includes('fallback') || secret.includes('shop_secret')) {
-      throw new Error('Gagal menerbitkan token Shop: SHOP_AUTH_SECRET belum dikonfigurasi untuk lingkungan produksi (wajib minimal 32 karakter dan bukan fallback).');
-    }
-  } else {
-    if (!effectiveSecret || effectiveSecret.length < 32) {
-      effectiveSecret = 'shop_secret_fallback_dev_min_32_characters_ok';
-    }
-  }
-
-  const header = Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).toString('base64url');
-  const payload = Buffer.from(
-    JSON.stringify({
-      ...user,
-      scope: 'shop',
-      exp: Math.floor(Date.now() / 1000) + expiresInHours * 3600
-    })
-  ).toString('base64url');
-
-  const signature = crypto
-    .createHmac('sha256', effectiveSecret)
-    .update(`${header}.${payload}`)
-    .digest('base64url');
-
-  return `${header}.${payload}.${signature}`;
-}
-
-/**
  * Verify signed token and return AuthUser.
- * Checks both Food and Shop cryptographic signatures securely.
  * Rejects fallback secrets in production.
  */
 export function verifyAuthToken(token: string): AuthUser | null {
@@ -160,7 +123,7 @@ export function verifyAuthToken(token: string): AuthUser | null {
 
     let isValid = false;
 
-    // Check with food secret first if secret is configured and valid for current mode
+    // Check with food secret if secret is configured and valid for current mode
     const foodSecret = foodConfig.jwtSecret || (process.env.FOOD_AUTH_SECRET || '').trim();
     const isFoodSecretValid = Boolean(
       foodSecret && 
@@ -179,24 +142,6 @@ export function verifyAuthToken(token: string): AuthUser | null {
       }
     }
 
-    // If not matching food secret, verify with isolated shop secret
-    const shopSecret = shopConfig.jwtSecret || (process.env.SHOP_AUTH_SECRET || '').trim();
-    const isShopSecretValid = Boolean(
-      shopSecret && 
-      shopSecret.length >= 16 && 
-      (!shopConfig.isProduction || (!shopSecret.includes('fallback') && !shopSecret.includes('shop_secret')))
-    );
-
-    if (!isValid && isShopSecretValid) {
-      const shopSig = crypto
-        .createHmac('sha256', shopSecret)
-        .update(`${header}.${payload}`)
-        .digest('base64url');
-      if (signature.length === shopSig.length) {
-        isValid = crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(shopSig));
-      }
-    }
-
     if (!isValid) {
       return null;
     }
@@ -211,30 +156,11 @@ export function verifyAuthToken(token: string): AuthUser | null {
       role: data.role,
       email: data.email,
       entityId: data.entityId,
-      scope: data.scope,
       isMasterAdmin: data.isMasterAdmin || data.role === 'MASTER_ADMIN'
     };
   } catch {
     return null;
   }
-}
-
-/**
- * Strict authorization middleware for Tumpang Shop Administrator.
- * Accepts authenticated users with role 'SHOP_ADMIN' or universal 'MASTER_ADMIN'.
- * Food admin credentials cannot access Shop endpoints.
- */
-export function requireShopAdmin(req: Request, res: Response, next: NextFunction) {
-  const user = req.user;
-  if (!user) {
-    return res.status(401).json({ error: 'Akses ditolak: Autentikasi Admin Tumpang Shop diperlukan. Silakan login terlebih dahulu.' });
-  }
-
-  if (user.role !== 'SHOP_ADMIN' && user.role !== 'MASTER_ADMIN') {
-    return res.status(403).json({ error: 'Akses ditolak: Hanya Administrator Tumpang Shop atau Master Admin yang memiliki hak akses untuk tindakan ini.' });
-  }
-
-  next();
 }
 
 /**
@@ -282,7 +208,7 @@ export function isAdminEmail(email?: string): boolean {
 /**
  * Strict role-based access control middleware
  */
-export function requireRole(allowedRoles: Array<'ADMIN' | 'MERCHANT' | 'DRIVER' | 'CUSTOMER' | 'SHOP_ADMIN' | 'MASTER_ADMIN'>) {
+export function requireRole(allowedRoles: Array<'ADMIN' | 'MERCHANT' | 'DRIVER' | 'CUSTOMER' | 'MASTER_ADMIN'>) {
   return (req: Request, res: Response, next: NextFunction) => {
     const user = req.user;
     if (!user) {

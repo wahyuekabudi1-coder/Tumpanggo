@@ -26,6 +26,7 @@ import path from 'path';
 import crypto from 'crypto';
 import { hashPassword, verifyPassword } from '../src/server/auth';
 import { getMasterAccountCredentials } from '../src/server/config';
+import { shopDb } from '../src/services/shop/database/shopDatabase';
 
 const DB_FILE = path.resolve(process.cwd(), 'tumpang_food_db.json');
 const BACKUP_FILE = path.resolve(process.cwd(), 'tumpang_food_db.json.backup.json');
@@ -36,17 +37,31 @@ async function main() {
 
   // Mode A: Generate single-use recovery token
   if (args.includes('--generate-token')) {
-    const token = crypto.randomBytes(24).toString('hex');
+    // 1. Generate persistent database recovery token for Tumpang Shop
+    let shopTokenInfo: any = null;
+    try {
+      shopTokenInfo = await shopDb.createRecoveryToken(60); // 60 minutes expiry
+    } catch (err: any) {
+      console.warn('⚠️ Gagal membuat token persisten di database Shop:', err?.message || err);
+    }
+
+    // 2. Generate local single-use file token (.master_recovery_token)
+    const token = shopTokenInfo?.token || crypto.randomBytes(32).toString('hex');
     fs.writeFileSync(TOKEN_FILE, token, { mode: 0o600 });
+
     console.log('================================================================');
     console.log('🔑 TOKEN PEMULIHAN ADMINISTRATIF SATU KALI DIBUAT SECARA AMAN');
     console.log('================================================================');
-    console.log('File token tersimpan di: .master_recovery_token (izin 0600)');
+    if (shopTokenInfo) {
+      console.log(`✅ Token Persisten Shop (Multi-Instance Aman): [ID: ${shopTokenInfo.id}]`);
+      console.log(`   Kedaluwarsa: ${shopTokenInfo.expiresAt}`);
+    }
+    console.log('File token lokal tersimpan di: .master_recovery_token (izin 0600)');
     console.log('Token ini dapat digunakan satu kali untuk memanggil endpoint:');
-    console.log('  POST /api/auth/master/emergency-reset');
+    console.log('  POST /api/auth/master/emergency-reset atau /auth/master/emergency-reset');
     console.log('  Header: X-Master-Recovery-Key: <token>');
     console.log('  Body: { "newPassword": "<KataSandiBaru>" }');
-    console.log('Token akan langsung dihapus setelah satu kali pemakaian berhasil.');
+    console.log('Token akan dikonsumsi secara atomik dan tidak dapat digunakan kembali.');
     console.log('================================================================');
     return;
   }
@@ -147,6 +162,16 @@ async function main() {
   } catch (cloudErr: any) {
     console.log(`\n3. Cloud Firestore:`);
     console.log(`   ℹ️  Penyimpanan lokal digunakan (${cloudErr?.message || 'offline'}).`);
+  }
+
+  // 5. Update Shop Database
+  try {
+    await shopDb.updateMasterAccountPassword(cleanPass, targetEmail);
+    console.log(`\n4. Database Tumpang Shop:`);
+    console.log(`   ✅ Kredensial Master Account khusus Tumpang Shop berhasil disinkronisasi`);
+  } catch (shopErr: any) {
+    console.log(`\n4. Database Tumpang Shop:`);
+    console.log(`   ⚠️ Sinkronisasi Shop dilewati/offline: ${shopErr?.message || shopErr}`);
   }
 
   console.log('\n================================================================');

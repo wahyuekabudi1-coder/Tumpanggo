@@ -161,25 +161,6 @@ export function validateProductionEnvironment(): { isValid: boolean; errors: str
     }
   }
 
-  const shopSecret = process.env.SHOP_AUTH_SECRET;
-  if (!shopSecret || shopSecret.trim().length < 32) {
-    errors.push('SHOP_AUTH_SECRET wajib disetel dan memiliki minimal 32 karakter untuk Tumpang Shop.');
-  } else if (shopSecret.includes('shop_secret_fallback') || shopSecret.includes('fallback_key')) {
-    errors.push('SHOP_AUTH_SECRET tidak boleh menggunakan string fallback/development pada mode produksi.');
-  }
-
-  const shopAdminEmail = process.env.SHOP_ADMIN_EMAIL;
-  if (!shopAdminEmail || !shopAdminEmail.includes('@')) {
-    errors.push('SHOP_ADMIN_EMAIL wajib disetel dengan alamat email yang sah untuk Tumpang Shop.');
-  }
-
-  const shopAdminPassword = process.env.SHOP_ADMIN_PASSWORD;
-  if (!shopAdminPassword || shopAdminPassword.trim().length < 8) {
-    errors.push('SHOP_ADMIN_PASSWORD wajib disetel dengan minimal 8 karakter untuk Tumpang Shop.');
-  } else if (shopAdminPassword === 'TumpangShopAdmin#2026') {
-    errors.push('SHOP_ADMIN_PASSWORD tidak boleh menggunakan kata sandi default/contoh ("TumpangShopAdmin#2026") pada mode produksi.');
-  }
-
   const portVal = resolveServerPort();
   if (isNaN(portVal) || portVal < 1 || portVal > 65535) {
     errors.push('PORT atau FOOD_PORT harus berupa angka port TCP yang valid (1-65535).');
@@ -314,10 +295,6 @@ export function updateRuntimeMasterPassword(newPassword: string): void {
   runtimeMasterAdminPassword = newPassword.trim();
   process.env.MASTER_ADMIN_PASSWORD = newPassword.trim();
 }
-
-// --- TUMPANG SHOP ISOLATED CONFIGURATION ---
-// Re-exported from dedicated microservice configuration in src/services/shop/config/shopEnv.ts
-export { shopConfig } from '../services/shop/config/shopEnv';
 
 export function reloadEnv() {
   dotenv.config();
