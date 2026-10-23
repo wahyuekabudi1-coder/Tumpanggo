@@ -20,6 +20,8 @@ import { isDestinationInKecamatanTumpang, FLAT_TUMPANG_DELIVERY_FEE, normalizeOr
 import {
   getAdminDb,
   safeAdminSetDoc,
+  safeAdminSetDocDetailed,
+  getLastFirestoreWriteError,
   safeAdminDeleteDoc,
   safeAdminGetDoc,
   safeAdminGetDocs,
@@ -1585,8 +1587,7 @@ export class FoodDatabase {
       email: merchantData.email ? merchantData.email.trim().toLowerCase() : undefined,
       isActivated: merchantData.isActivated !== undefined ? merchantData.isActivated : true,
       businessPhoto: merchantData.businessPhoto,
-      idPhoto: merchantData.idPhoto,
-      contractPhoto: merchantData.contractPhoto,
+      // KYC photos (idPhoto, contractPhoto) are preserved in partnerRegistrations, not bloated in public merchant doc
       id: 'm_' + Math.random().toString(36).substring(2, 9),
       qrisImage: merchantData.qrisImage || this.data.systemConfig?.qrisImage || '/qris-merchant.png',
       createdAt: new Date().toISOString(),
@@ -1603,9 +1604,10 @@ export class FoodDatabase {
     }
 
     if (isFirestoreAdminConfigured()) {
-      const persisted = await safeFirestoreSetDoc('merchants', newMerchant.id, newMerchant);
-      if (!persisted && foodConfig.isProduction) {
-        throw new Error('[Produksi] Gagal menyimpan merchant ke cloud Firestore. Transaksi dibatalkan demi menjaga integritas data.');
+      const writeResult = await safeAdminSetDocDetailed('merchants', newMerchant.id, newMerchant);
+      if (!writeResult.success && foodConfig.isProduction) {
+        const errorDetail = writeResult.error || getLastFirestoreWriteError() || 'Gagal menulis dokumen ke Cloud Firestore';
+        throw new Error(`[Produksi] Gagal menyimpan merchant ke cloud Firestore: ${errorDetail}. Transaksi dibatalkan demi menjaga integritas data.`);
       }
     } else {
       safeFirestoreSetDoc('merchants', newMerchant.id, newMerchant);
@@ -3024,75 +3026,112 @@ export class FoodDatabase {
   public async approvePartnerRegistration(userId: string, id: string): Promise<{ success: boolean; error?: string; registration?: PartnerRegistration }> {
     await this.ensureProductionCloudReady('Persetujuan Mitra');
     const reg = this.data.partnerRegistrations.find(r => r.id === id);
-    if (!reg) return { success: false, error: 'Registration not found' };
-    if (reg.status !== 'PENDING') return { success: false, error: 'Registration already processed' };
+    if (!reg) return { success: false, error: 'Pendaftaran tidak ditemukan.' };
+    if (reg.status !== 'PENDING') return { success: false, error: `Pendaftaran sudah diproses sebelumnya (Status: ${reg.status}).` };
 
     const prevStatus = reg.status;
-    reg.status = 'APPROVED';
+    let createdMerchantId: string | null = null;
+    let createdDriverId: string | null = null;
 
-    if (reg.type === 'MERCHANT') {
-      const generatedPassword = reg.password || ('TF-' + Math.floor(1000 + Math.random() * 9000));
-      reg.password = generatedPassword;
+    try {
+      if (reg.type === 'MERCHANT') {
+        const generatedPassword = reg.password || ('TF-' + Math.floor(1000 + Math.random() * 9000));
+        reg.password = generatedPassword;
 
-      const newMerchant = await this.createMerchant(userId, {
-        name: reg.storeName || (reg.name + ' Store'),
-        ownerName: reg.name,
-        phone: reg.phone,
-        address: reg.storeAddress || 'Kecamatan Tumpang, Kabupaten Malang',
-        latitude: reg.latitude || -7.9482,
-        longitude: reg.longitude || 112.7612,
-        openTime: '08:00',
-        closeTime: '21:00',
-        bankName: reg.bankName || 'Bank BRI',
-        bankAccount: reg.bankAccountNumber || '1234567890',
-        bankHolder: reg.bankAccountHolder || reg.name,
-        active: true,
-        cookTimeEstimate: '15-30 min',
-        image: reg.businessPhoto || 'https://images.unsplash.com/photo-1555396273-367ea4eb4db5?w=500&auto=format&fit=crop&q=60',
-        description: reg.description || `Mitra Toko Kuliner ${reg.storeName || reg.name} Kecamatan Tumpang`,
-        category: reg.category || 'Nasi & Lauk',
-        email: reg.email,
-        isActivated: true,
-        password: hashPassword(generatedPassword),
-        businessPhoto: reg.businessPhoto,
-        idPhoto: reg.idPhoto,
-        contractPhoto: reg.contractPhoto
-      });
+        // Check if merchant was already created previously
+        let existingMerchant = reg.storeId ? this.data.merchants.find(m => m.id === reg.storeId) : undefined;
+        if (!existingMerchant && reg.phone) {
+          existingMerchant = this.getMerchantByEmailOrPhone(reg.phone);
+        }
 
-      reg.storeId = newMerchant.id;
+        let merchantRecord = existingMerchant;
+        if (!merchantRecord) {
+          merchantRecord = await this.createMerchant(userId, {
+            name: reg.storeName || (reg.name + ' Store'),
+            ownerName: reg.name,
+            phone: reg.phone,
+            address: reg.storeAddress || 'Kecamatan Tumpang, Kabupaten Malang',
+            latitude: reg.latitude || -7.9482,
+            longitude: reg.longitude || 112.7612,
+            openTime: '08:00',
+            closeTime: '21:00',
+            bankName: reg.bankName || 'Bank BRI',
+            bankAccount: reg.bankAccountNumber || '1234567890',
+            bankHolder: reg.bankAccountHolder || reg.name,
+            active: true,
+            cookTimeEstimate: '15-30 min',
+            image: reg.businessPhoto || 'https://images.unsplash.com/photo-1555396273-367ea4eb4db5?w=500&auto=format&fit=crop&q=60',
+            description: reg.description || `Mitra Toko Kuliner ${reg.storeName || reg.name} Kecamatan Tumpang`,
+            category: reg.category || 'Nasi & Lauk',
+            email: reg.email,
+            isActivated: true,
+            password: hashPassword(generatedPassword),
+            businessPhoto: reg.businessPhoto
+          });
+          createdMerchantId = merchantRecord.id;
+        }
 
-      // Initialize default category without inserting fake dummy menu items
-      await this.createCategory(newMerchant.id, 'Menu Utama');
-    } else if (reg.type === 'DRIVER') {
-      const generatedDriverPassword = reg.password || ('TF-DRV-' + Math.floor(1000 + Math.random() * 9000));
-      reg.password = generatedDriverPassword;
-      const newDriver = await this.createDriver(userId, {
-        name: reg.name,
-        phone: reg.phone,
-        email: reg.email,
-        active: true,
-        online: false,
-        latitude: -7.9482,
-        longitude: 112.7612,
-        password: hashPassword(generatedDriverPassword),
-        vehicle: (reg as any).vehicleNumber || 'Motor'
-      } as any);
-      (reg as any).driverId = newDriver.id;
-    }
+        reg.storeId = merchantRecord.id;
 
-    if (isFirestoreAdminConfigured()) {
-      const persisted = await safeFirestoreSetDoc('partnerRegistrations', reg.id, reg);
-      if (!persisted && foodConfig.isProduction) {
-        reg.status = prevStatus;
-        throw new Error('[Produksi] Gagal memperbarui status registrasi mitra ke cloud Firestore.');
+        // Initialize default category without inserting fake dummy menu items
+        await this.createCategory(merchantRecord.id, 'Menu Utama').catch(() => {});
+      } else if (reg.type === 'DRIVER') {
+        const generatedDriverPassword = reg.password || ('TF-DRV-' + Math.floor(1000 + Math.random() * 9000));
+        reg.password = generatedDriverPassword;
+        const newDriver = await this.createDriver(userId, {
+          name: reg.name,
+          phone: reg.phone,
+          email: reg.email,
+          active: true,
+          online: false,
+          latitude: -7.9482,
+          longitude: 112.7612,
+          password: hashPassword(generatedDriverPassword),
+          vehicle: (reg as any).vehicleNumber || 'Motor'
+        } as any);
+        createdDriverId = newDriver.id;
+        (reg as any).driverId = newDriver.id;
       }
-    } else {
-      safeFirestoreSetDoc('partnerRegistrations', reg.id, reg);
-    }
 
-    this.save();
-    this.log(userId, `Approved partner registration ${reg.id} (${reg.name})`, 'ADMIN');
-    return { success: true, registration: reg };
+      // Mark registration as APPROVED only after merchant/driver entity is successfully created
+      reg.status = 'APPROVED';
+
+      if (isFirestoreAdminConfigured()) {
+        const persisted = await safeAdminSetDocDetailed('partnerRegistrations', reg.id, reg);
+        if (!persisted.success && foodConfig.isProduction) {
+          const detail = persisted.error || getLastFirestoreWriteError() || 'Gagal memperbarui status registrasi mitra ke cloud Firestore.';
+          throw new Error(`[Produksi] ${detail}`);
+        }
+      } else {
+        safeFirestoreSetDoc('partnerRegistrations', reg.id, reg);
+      }
+
+      this.save();
+      this.log(userId, `Approved partner registration ${reg.id} (${reg.name})`, 'ADMIN');
+      return { success: true, registration: reg };
+
+    } catch (err: any) {
+      // ATOMIC ROLLBACK: Revert registration status to previous state (PENDING)
+      reg.status = prevStatus;
+
+      // Rollback created merchant if it was newly created in this transaction
+      if (createdMerchantId) {
+        this.data.merchants = this.data.merchants.filter(m => m.id !== createdMerchantId);
+        safeAdminDeleteDoc('merchants', createdMerchantId).catch(() => {});
+        delete reg.storeId;
+      }
+
+      // Rollback created driver if it was newly created in this transaction
+      if (createdDriverId) {
+        this.data.drivers = this.data.drivers.filter(d => d.id !== createdDriverId);
+        safeAdminDeleteDoc('drivers', createdDriverId).catch(() => {});
+        delete (reg as any).driverId;
+      }
+
+      const safeErrorMsg = err?.message || 'Terjadi kesalahan sistem saat menyetujui pendaftaran mitra.';
+      console.error(`[TumpangFood DB] approvePartnerRegistration failed for ${id}:`, safeErrorMsg);
+      return { success: false, error: safeErrorMsg };
+    }
   }
 
   public async rejectPartnerRegistration(userId: string, id: string): Promise<boolean> {

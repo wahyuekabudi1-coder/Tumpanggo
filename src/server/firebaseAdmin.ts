@@ -627,25 +627,58 @@ export async function resetFirebaseAdmin(): Promise<void> {
   lastDiagnosticReason = 'MISSING_CREDENTIALS';
   lastDiagnosticDetail = 'Variabel lingkungan FIREBASE_SERVICE_ACCOUNT_KEY belum dikonfigurasi di Environment Variables Vercel.';
   lastRemediationStep = 'Buka Vercel Dashboard -> Project Settings -> Environment Variables, lalu tambahkan FIREBASE_SERVICE_ACCOUNT_KEY berisi JSON Service Account dari Firebase Console.';
+let lastFirestoreWriteError: string | null = null;
+
+export function getLastFirestoreWriteError(): string | null {
+  return lastFirestoreWriteError;
+}
+
+/**
+ * Safe administrative setDoc write. Bypasses client Firestore Security Rules.
+ * Validates document payload size to prevent Firestore 1 MiB limit rejection.
+ */
+export async function safeAdminSetDocDetailed(collectionName: string, docId: string, data: any): Promise<{ success: boolean; error?: string }> {
+  if (testMockState && testMockState.writeSuccess !== undefined) {
+    return { success: testMockState.writeSuccess };
+  }
+  const db = getAdminDb();
+  if (!db || !isUsingServiceAccount()) {
+    const reason = 'Firestore Admin SDK belum terhubung dengan akun layanan valid.';
+    lastFirestoreWriteError = reason;
+    return { success: false, error: reason };
+  }
+  try {
+    const cleaned = removeUndefinedFields(data);
+    
+    // Payload size safety guard (Firestore 1 MiB document limit)
+    // If a document contains enormous base64 photos, trim non-essential audit fields in public collections
+    const estimatedBytes = Buffer.byteLength(JSON.stringify(cleaned), 'utf-8');
+    if (estimatedBytes > 950 * 1024) {
+      console.warn(`[TumpangFood Admin] Payload for ${collectionName}/${docId} is large (${Math.round(estimatedBytes / 1024)} KB). Sanitizing heavy fields.`);
+      if (collectionName === 'merchants') {
+        // Strip heavy KYC photos from public catalog document
+        delete cleaned.idPhoto;
+        delete cleaned.contractPhoto;
+      }
+    }
+
+    await db.collection(collectionName).doc(docId).set(cleaned, { merge: true });
+    lastFirestoreWriteError = null;
+    return { success: true };
+  } catch (err: any) {
+    const safeMsg = sanitizeErrorMessage(err.message || String(err));
+    lastFirestoreWriteError = safeMsg;
+    console.error(`[TumpangFood Admin] safeAdminSetDoc failed for ${collectionName}/${docId}:`, safeMsg);
+    return { success: false, error: safeMsg };
+  }
 }
 
 /**
  * Safe administrative setDoc write. Bypasses client Firestore Security Rules.
  */
 export async function safeAdminSetDoc(collectionName: string, docId: string, data: any): Promise<boolean> {
-  if (testMockState && testMockState.writeSuccess !== undefined) {
-    return testMockState.writeSuccess;
-  }
-  const db = getAdminDb();
-  if (!db || !isUsingServiceAccount()) return false;
-  try {
-    const cleaned = removeUndefinedFields(data);
-    await db.collection(collectionName).doc(docId).set(cleaned, { merge: true });
-    return true;
-  } catch (err: any) {
-    console.warn(`[TumpangFood Admin] safeAdminSetDoc failed for ${collectionName}/${docId}:`, sanitizeErrorMessage(err.message));
-    return false;
-  }
+  const result = await safeAdminSetDocDetailed(collectionName, docId, data);
+  return result.success;
 }
 
 /**
