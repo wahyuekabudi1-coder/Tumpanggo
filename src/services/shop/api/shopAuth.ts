@@ -15,6 +15,7 @@ export interface ShopAuthUser {
   userId: string;
   role: 'SHOP_ADMIN' | 'SHOP_CUSTOMER';
   email?: string;
+  isMasterAdmin?: boolean;
   scope: 'shop';
 }
 
@@ -29,7 +30,10 @@ declare global {
 /**
  * Issue signed HMAC-SHA256 token for Shop Admin
  */
-export function createShopAuthToken(user: { userId: string; email?: string; role?: 'SHOP_ADMIN' | 'SHOP_CUSTOMER' }, expiresInHours = 24): string {
+export function createShopAuthToken(
+  user: { userId: string; email?: string; role?: 'SHOP_ADMIN' | 'SHOP_CUSTOMER'; isMasterAdmin?: boolean },
+  expiresInHours = 24
+): string {
   const secret = shopEnv.auth.jwtSecret || (process.env.SHOP_AUTH_SECRET || '').trim();
   let effectiveSecret = secret;
 
@@ -49,6 +53,7 @@ export function createShopAuthToken(user: { userId: string; email?: string; role
       userId: user.userId,
       email: user.email,
       role: user.role || 'SHOP_ADMIN',
+      isMasterAdmin: Boolean(user.isMasterAdmin),
       scope: 'shop',
       exp: Math.floor(Date.now() / 1000) + expiresInHours * 3600
     })
@@ -98,6 +103,7 @@ export function verifyShopAuthToken(token: string): ShopAuthUser | null {
       userId: decoded.userId,
       email: decoded.email,
       role: decoded.role,
+      isMasterAdmin: Boolean(decoded.isMasterAdmin),
       scope: 'shop'
     };
   } catch {
@@ -123,6 +129,7 @@ export function attachShopUser(req: Request, _res: Response, next: NextFunction)
           userId: globalUser.userId,
           email: globalUser.email,
           role: 'SHOP_ADMIN',
+          isMasterAdmin: true,
           scope: 'shop'
         };
       }

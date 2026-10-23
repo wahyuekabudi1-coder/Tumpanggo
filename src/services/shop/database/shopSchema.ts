@@ -23,6 +23,12 @@ export interface ShopMigrationRecord {
   notes?: string;
 }
 
+export interface ShopMasterAccount {
+  email: string;
+  passwordHash: string;
+  updatedAt: string;
+}
+
 export interface ShopDatabaseSchema {
   config: ShopConfig;
   categories: ShopCategory[];
@@ -31,6 +37,7 @@ export interface ShopDatabaseSchema {
   shipments: ShopShipment[];
   auditLogs: ShopAuditLog[];
   migrations?: ShopMigrationRecord[];
+  masterAccount?: ShopMasterAccount;
 }
 
 export class ShopSchemaValidator {

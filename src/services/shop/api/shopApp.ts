@@ -8,6 +8,8 @@
  */
 
 import crypto from 'crypto';
+import fs from 'fs';
+import path from 'path';
 import express, { Request, Response, NextFunction } from 'express';
 import { shopDb } from '../database/shopDatabase';
 import { shopEnv } from '../config/shopEnv';
@@ -18,7 +20,7 @@ import {
 import { ArtoPayService } from '../../../lib/artopay';
 import { isMasterAdminEmail, getMasterAccountCredentials } from '../../../server/config';
 import { verifyPassword } from '../../../server/auth';
-import { foodDb } from '../../../server/db';
+import { shopPersistence } from '../database/shopPersistence';
 
 export const shopApp = express();
 
@@ -45,6 +47,27 @@ shopApp.use((req: any, res, next) => {
 // Initialize Shop Database safely in background on startup (no per-request blocking)
 shopDb.ensureInitialized().catch((err: any) => {
   console.warn('[Shop Database Startup Init Warning]', err?.message || err);
+});
+
+// Ensure database is initialized before handling requests; retry safely if startup init had failed
+shopApp.use(async (req, res, next) => {
+  if (req.path === '/health' || req.path === '/api/shop/health') {
+    return next();
+  }
+  if (!shopDb.getIsInitialized()) {
+    try {
+      await shopDb.ensureInitialized();
+    } catch (err: any) {
+      if (shopPersistence.isPostgresConfigured()) {
+        return res.status(503).json({
+          error: 'Layanan database Tumpang Shop belum siap atau koneksi database terputus. Silakan coba sesaat lagi.',
+          code: 'SHOP_DATABASE_UNAVAILABLE',
+          diagnostic: err?.message || String(err)
+        });
+      }
+    }
+  }
+  next();
 });
 
 // Attach authenticated Shop user
@@ -93,7 +116,7 @@ router.get('/health', async (_req: Request, res: Response) => {
 // ==========================================
 // 2. AUTHENTICATION (SHOP ADMIN ONLY)
 // ==========================================
-router.post(['/auth/login', '/login'], (req: Request, res: Response) => {
+router.post(['/auth/login', '/login'], async (req: Request, res: Response) => {
   const { username, email, password } = req.body;
   const targetUser = (username || email || '').trim().toLowerCase();
   const rawPassStr = String(password || '');
@@ -124,29 +147,40 @@ router.post(['/auth/login', '/login'], (req: Request, res: Response) => {
     }
   }
 
-  // Master Account Cross-Portal Login
+  // Master Account Cross-Portal Login (Isolated within Shop Database)
   const isMasterUser = isMasterAdminEmail(targetUser);
   if (isMasterUser) {
     const creds = getMasterAccountCredentials();
-    const activeMasterPassword = creds.password;
-    const dbMaster = foodDb.getMasterAccount();
+    const dbMaster = shopDb.getMasterAccount();
     let isMasterPassValid = false;
 
-    // 1. Verify against PBKDF2 hash stored in persistent database
+    // Single Authoritative Authentication Source:
+    // 1. If Shop Database has an existing passwordHash, that hash is the SOLE authority.
     if (dbMaster?.passwordHash && dbMaster.passwordHash.startsWith('pbkdf2$')) {
       const { valid: validTrimmed } = verifyPassword(targetPass, dbMaster.passwordHash);
       const { valid: validRaw } = verifyPassword(rawPassStr, dbMaster.passwordHash);
-      if (validTrimmed || validRaw) isMasterPassValid = true;
-    }
-
-    // 2. Verify against active configured master password
-    if (!isMasterPassValid && activeMasterPassword) {
-      const hashTarget = crypto.createHash('sha256').update(activeMasterPassword).digest();
-      const hashTrimmed = crypto.createHash('sha256').update(targetPass).digest();
-      const hashRaw = crypto.createHash('sha256').update(rawPassStr).digest();
-      if (crypto.timingSafeEqual(hashTrimmed, hashTarget) || crypto.timingSafeEqual(hashRaw, hashTarget)) {
+      if (validTrimmed || validRaw) {
         isMasterPassValid = true;
-        foodDb.updateMasterAccountPassword(activeMasterPassword);
+      }
+      // Note: If invalid, do NOT fall back to activeMasterPassword or env! Once rotated/initialized,
+      // old passwords or environment defaults are strictly rejected.
+    } else {
+      // 2. Initial Bootstrap Only: No password hash exists in Shop DB yet.
+      // Verify against configured master credentials and persist the PBKDF2 hash into Shop DB.
+      const activeMasterPassword = creds.password;
+      if (activeMasterPassword) {
+        const hashTarget = crypto.createHash('sha256').update(activeMasterPassword).digest();
+        const hashTrimmed = crypto.createHash('sha256').update(targetPass).digest();
+        const hashRaw = crypto.createHash('sha256').update(rawPassStr).digest();
+        if (crypto.timingSafeEqual(hashTrimmed, hashTarget) || crypto.timingSafeEqual(hashRaw, hashTarget)) {
+          try {
+            await shopDb.updateMasterAccountPassword(activeMasterPassword, targetUser);
+            isMasterPassValid = true;
+          } catch (storageErr: any) {
+            // Storage failure must NOT grant login success!
+            return handleShopError(res, storageErr, 'Gagal menyimpan kredensial awal Master Account Shop.');
+          }
+        }
       }
     }
 
@@ -154,7 +188,8 @@ router.post(['/auth/login', '/login'], (req: Request, res: Response) => {
       const token = createShopAuthToken({
         userId: 'master-admin',
         role: 'SHOP_ADMIN',
-        email: targetUser
+        email: targetUser,
+        isMasterAdmin: true
       });
       shopDb.logAudit('SHOP_ADMIN_LOGIN', `Master Account ${targetUser} login ke portal Shop`, 'master-admin');
       return res.json({
@@ -177,8 +212,7 @@ router.post(['/auth/login', '/login'], (req: Request, res: Response) => {
           emailMatched: true,
           dbHashPresent: hasDbHash,
           envConfigLoaded: creds.hasExplicitEnv,
-          configSource: creds.source,
-          envPasswordByteLength: creds.byteLength
+          configSource: creds.source
         }
       });
     }
@@ -221,6 +255,177 @@ router.get('/auth/me', requireShopAdmin, (req: Request, res: Response) => {
   return res.json({
     user: req.shopUser || (req as any).user,
     store: shopDb.getConfig().storeName
+  });
+});
+
+/**
+ * POST /auth/master/rotate-password or /master/rotate-password
+ * Secure password rotation for Master Admin within Tumpang Shop.
+ * Requires authenticated Master Admin session.
+ * Strictly verifies current password before updating to the new password.
+ * Never logs credentials, hashes, or secrets.
+ */
+router.post(['/auth/master/rotate-password', '/master/rotate-password'], requireShopAdmin, async (req: Request, res: Response) => {
+  const shopUser = (req as any).shopUser || (req as any).user;
+  const isMaster = shopUser?.isMasterAdmin || isMasterAdminEmail(shopUser?.email || '');
+  if (!isMaster) {
+    return res.status(403).json({
+      error: 'Akses ditolak: Hanya Master Admin yang memiliki wewenang merotasi kata sandi Master Account Shop.',
+      code: 'FORBIDDEN_MASTER_ONLY'
+    });
+  }
+
+  const { currentPassword, newPassword } = req.body || {};
+  const cleanCurrent = String(currentPassword || '').trim();
+  const rawCurrent = String(currentPassword || '');
+  const cleanNew = String(newPassword || '').trim();
+
+  if (!cleanCurrent || !cleanNew) {
+    return res.status(400).json({
+      error: 'Kata sandi saat ini dan kata sandi baru wajib diisi.',
+      code: 'MISSING_FIELDS'
+    });
+  }
+
+  if (cleanNew.length < 8) {
+    return res.status(400).json({
+      error: 'Kata sandi baru minimal harus terdiri dari 8 karakter.',
+      code: 'PASSWORD_TOO_SHORT'
+    });
+  }
+
+  const creds = getMasterAccountCredentials();
+  const dbMaster = shopDb.getMasterAccount();
+  let isCurrentValid = false;
+
+  if (dbMaster?.passwordHash && dbMaster.passwordHash.startsWith('pbkdf2$')) {
+    const { valid: validTrimmed } = verifyPassword(cleanCurrent, dbMaster.passwordHash);
+    const { valid: validRaw } = verifyPassword(rawCurrent, dbMaster.passwordHash);
+    if (validTrimmed || validRaw) isCurrentValid = true;
+  } else if (creds.password) {
+    const hashTarget = crypto.createHash('sha256').update(creds.password).digest();
+    const hashTrimmed = crypto.createHash('sha256').update(cleanCurrent).digest();
+    const hashRaw = crypto.createHash('sha256').update(rawCurrent).digest();
+    if (crypto.timingSafeEqual(hashTrimmed, hashTarget) || crypto.timingSafeEqual(hashRaw, hashTarget)) {
+      isCurrentValid = true;
+    }
+  }
+
+  if (!isCurrentValid) {
+    return res.status(401).json({
+      error: 'Kata sandi saat ini tidak cocok.',
+      code: 'INVALID_CURRENT_PASSWORD'
+    });
+  }
+
+  try {
+    const targetEmail = shopUser?.email || dbMaster?.email || creds.email || 'tumpanggo@gmail.com';
+    await shopDb.updateMasterAccountPassword(cleanNew, targetEmail);
+    shopDb.logAudit('SHOP_MASTER_PASSWORD_ROTATED', 'Master Account password rotated and saved to Shop database successfully', shopUser?.id || 'master-admin');
+    return res.json({
+      success: true,
+      message: 'Kata sandi Master Account Shop berhasil diperbarui.',
+      email: targetEmail
+    });
+  } catch (storageErr: any) {
+    return handleShopError(res, storageErr, 'Gagal menyimpan kata sandi baru ke database Shop.');
+  }
+});
+
+/**
+ * POST /auth/master/emergency-reset or /master/emergency-reset
+ * Trusted administrative recovery mechanism for Master Account in Shop.
+ * Requires explicit authorization via X-Master-Recovery-Key or Authorization Bearer token.
+ * Validates against process.env.SHOP_MASTER_RECOVERY_KEY, process.env.MASTER_RECOVERY_KEY,
+ * or a secure single-use recovery token file (.master_recovery_token).
+ * Single-use tokens are destroyed immediately upon successful verification.
+ * Never logs credentials, hashes, or tokens.
+ */
+router.post(['/auth/master/emergency-reset', '/master/emergency-reset'], async (req: Request, res: Response) => {
+  const recoveryKey = String(req.headers['x-master-recovery-key'] || req.body?.recoveryKey || '').trim();
+  let authBearer = '';
+  const authHeader = req.headers['authorization'];
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    authBearer = authHeader.substring(7).trim();
+  }
+  const providedKey = recoveryKey || authBearer;
+
+  if (!providedKey) {
+    return res.status(401).json({
+      error: 'Akses ditolak: Otorisasi pemulihan administratif diperlukan. Sertakan header X-Master-Recovery-Key.',
+      diagnostic: { code: 'ADMINISTRATIVE_AUTHORIZATION_REQUIRED' }
+    });
+  }
+
+  // 1. Check against environment recovery keys
+  const envKey = (process.env.SHOP_MASTER_RECOVERY_KEY || process.env.MASTER_RECOVERY_KEY || '').trim();
+  let isAuthorized = false;
+  let isOneTimeFile = false;
+  const tokenFilePath = path.resolve(process.cwd(), '.master_recovery_token');
+
+  if (envKey && envKey.length >= 16) {
+    const bufProvided = Buffer.from(providedKey);
+    const bufEnv = Buffer.from(envKey);
+    if (bufProvided.length === bufEnv.length && crypto.timingSafeEqual(bufProvided, bufEnv)) {
+      isAuthorized = true;
+    }
+  }
+
+  // 2. Check against secure single-use token file if not authorized yet
+  if (!isAuthorized && fs.existsSync(tokenFilePath)) {
+    try {
+      const fileContent = fs.readFileSync(tokenFilePath, 'utf-8').trim();
+      if (fileContent && fileContent.length >= 16) {
+        const bufProvided = Buffer.from(providedKey);
+        const bufFile = Buffer.from(fileContent);
+        if (bufProvided.length === bufFile.length && crypto.timingSafeEqual(bufProvided, bufFile)) {
+          isAuthorized = true;
+          isOneTimeFile = true;
+        }
+      }
+    } catch {}
+  }
+
+  if (!isAuthorized) {
+    console.warn('[ShopMasterRecovery] Otorisasi pemulihan ditolak: kunci pemulihan administratif tidak cocok.');
+    return res.status(401).json({
+      error: 'Kunci pemulihan administratif tidak valid atau telah kedaluwarsa.',
+      diagnostic: { code: 'INVALID_RECOVERY_KEY' }
+    });
+  }
+
+  const { newPassword } = req.body || {};
+  if (!newPassword || typeof newPassword !== 'string' || newPassword.trim().length < 8) {
+    return res.status(400).json({
+      error: 'Kata sandi baru minimal harus terdiri dari 8 karakter.',
+      diagnostic: { code: 'PASSWORD_TOO_SHORT' }
+    });
+  }
+
+  const cleanPass = newPassword.trim();
+  const creds = getMasterAccountCredentials();
+  const targetEmail = creds.email || 'tumpanggo@gmail.com';
+
+  try {
+    await shopDb.updateMasterAccountPassword(cleanPass, targetEmail);
+  } catch (storageErr: any) {
+    return handleShopError(res, storageErr, 'Gagal memperbarui kata sandi Master Account Shop selama pemulihan.');
+  }
+
+  // If this was a single-use token from file, immediately destroy it
+  if (isOneTimeFile && fs.existsSync(tokenFilePath)) {
+    try {
+      fs.unlinkSync(tokenFilePath);
+    } catch {}
+  }
+
+  shopDb.logAudit('SHOP_MASTER_RECOVERY', 'Master Account Shop password recovered successfully via trusted administrative process', 'MASTER_RECOVERY');
+
+  return res.json({
+    success: true,
+    message: 'Kredensial Master Account Shop berhasil dipulihkan secara aman.',
+    email: targetEmail,
+    hashAlgorithm: 'PBKDF2-SHA512 (iterations: 10000)'
   });
 });
 

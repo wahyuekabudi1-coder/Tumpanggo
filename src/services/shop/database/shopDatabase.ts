@@ -22,9 +22,11 @@ import {
 } from '../../../types/shop';
 import { courierRegistry } from '../shipping/courierAdapters';
 import { shopEnv } from '../config/shopEnv';
-import { ShopDatabaseSchema, ShopSchemaValidator } from './shopSchema';
+import { ShopDatabaseSchema, ShopSchemaValidator, ShopMasterAccount } from './shopSchema';
 import { ShopMigrationRunner } from './shopMigration';
 import { shopPersistence, ShopStorageError } from './shopPersistence';
+import { hashPassword } from '../../../server/auth';
+import { getMasterAccountCredentials } from '../../../server/config';
 
 export class ShopDatabase {
   private schema: ShopDatabaseSchema = {
@@ -79,6 +81,15 @@ export class ShopDatabase {
     return shopPersistence.createBackup();
   }
 
+  public getIsInitialized(): boolean {
+    return this.isInitialized;
+  }
+
+  public resetInitializationForTesting(): void {
+    this.isInitialized = false;
+    this.initPromise = null;
+  }
+
   /**
    * Ensure database is initialized and migrated safely with mutex locking.
    * Completely decoupled from Food Firestore to prevent quota consumption.
@@ -89,33 +100,83 @@ export class ShopDatabase {
 
     this.initPromise = (async () => {
       try {
-        // If PostgreSQL is configured, load remote persistent state
-        const pgState = await shopPersistence.loadFromPostgres();
-        if (pgState) {
-          this.schema = {
-            ...this.schema,
-            ...pgState,
-            config: { ...this.schema.config, ...(pgState.config || {}) }
-          };
+        // Load initial local state as base
+        let workingSchema = shopPersistence.loadInitialState(this.schema);
+
+        // If PostgreSQL is configured, load remote persistent state (throws if configured but unreachable)
+        if (shopPersistence.isPostgresConfigured()) {
+          const pgState = await shopPersistence.loadFromPostgres();
+          if (pgState) {
+            workingSchema = {
+              ...workingSchema,
+              ...pgState,
+              config: { ...workingSchema.config, ...(pgState.config || {}) }
+            };
+          }
         }
 
-        // Run automatic migrations & schema audit
-        const { updatedDb, result } = await this.migrationRunner.runMigrations(this.schema);
+        // Run automatic migrations & schema audit on workingSchema
+        const { updatedDb, result } = await this.migrationRunner.runMigrations(workingSchema);
+
+        // Persist the migrated state (throws ShopStorageError on persistence failure)
+        await shopPersistence.persistState(updatedDb);
+
+        // Commit to in-memory state and mark initialized ONLY on complete success
         this.schema = updatedDb;
-        await shopPersistence.persistState(this.schema);
+        this.isInitialized = true;
+
         if (result.appliedCount > 0) {
           console.log(`[ShopDatabase] Migrasi database Shop diterapkan: ${result.message}`);
         }
-        this.isInitialized = true;
       } catch (err: any) {
+        this.isInitialized = false;
         console.warn('[ShopDatabase Init Error]', err?.message || err);
-        this.isInitialized = true; // Fallback to memory
+        throw err;
       } finally {
         this.initPromise = null;
       }
     })();
 
     return this.initPromise;
+  }
+
+  // --- MASTER ACCOUNT ISOLATION (TUMPANG SHOP DEDICATED) ---
+  public getMasterAccount(): ShopMasterAccount | undefined {
+    return this.schema.masterAccount;
+  }
+
+  public async updateMasterAccountPassword(newPlaintext: string, customEmail?: string): Promise<boolean> {
+    const creds = getMasterAccountCredentials();
+    const cleanPlaintext = newPlaintext.trim();
+    const hashed = hashPassword(cleanPlaintext);
+    return this.mutate(current => {
+      const targetEmail = (customEmail?.trim().toLowerCase()) || current.masterAccount?.email || creds.email || 'tumpanggo@gmail.com';
+      const masterAccount: ShopMasterAccount = {
+        email: targetEmail,
+        passwordHash: hashed,
+        updatedAt: new Date().toISOString()
+      };
+      const log = this.createAuditLog('UPDATE_SHOP_MASTER_CREDENTIALS', `Kredensial Master Account khusus Tumpang Shop diperbarui`, 'SYSTEM');
+      const auditLogs = [log, ...current.auditLogs].slice(0, 500);
+      return {
+        updatedSchema: { ...current, masterAccount, auditLogs },
+        result: true
+      };
+    });
+  }
+
+  public async setMasterAccount(email: string, passwordHash: string): Promise<boolean> {
+    return this.mutate(current => {
+      const masterAccount: ShopMasterAccount = {
+        email: email.trim().toLowerCase(),
+        passwordHash,
+        updatedAt: new Date().toISOString()
+      };
+      return {
+        updatedSchema: { ...current, masterAccount },
+        result: true
+      };
+    });
   }
 
   /**

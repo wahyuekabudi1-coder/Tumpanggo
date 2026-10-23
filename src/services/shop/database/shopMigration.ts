@@ -88,6 +88,8 @@ export class ShopMigrationRunner {
       };
       currentDb.migrations.push(v1Record);
       appliedCount++;
+    } else if (!currentDb.products || currentDb.products.length === 0) {
+      this.ensureBaselineData(currentDb);
     }
 
     // Migration V2: Ensure SKU & Inventory Tracking fields
@@ -259,8 +261,63 @@ export class ShopMigrationRunner {
       ];
     }
 
-    if (!Array.isArray(db.products)) {
-      db.products = [];
+    if (!Array.isArray(db.products) || db.products.length === 0) {
+      db.products = [
+        {
+          id: 'sprod_beras_5kg',
+          sku: 'TS-SEM-001',
+          name: 'Beras Ramos Super 5kg',
+          description: 'Beras pulen pilihan kualitas premium, bersih dan wangi alami.',
+          categoryId: 'scat_sembako',
+          price: 74000,
+          basePrice: 74000,
+          stock: 45,
+          unit: 'karung 5kg',
+          image: 'https://images.unsplash.com/photo-1586201375761-83865001e31c?auto=format&fit=crop&w=600&q=80',
+          images: ['https://images.unsplash.com/photo-1586201375761-83865001e31c?auto=format&fit=crop&w=600&q=80'],
+          isActive: true,
+          isFeatured: true,
+          minOrder: 1,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString()
+        },
+        {
+          id: 'sprod_minyak_2l',
+          sku: 'TS-SEM-002',
+          name: 'Minyak Goreng Sawit 2 Liter',
+          description: 'Minyak goreng bening dan higienis kemasan pouch 2L.',
+          categoryId: 'scat_sembako',
+          price: 36000,
+          basePrice: 36000,
+          stock: 60,
+          unit: 'pouch 2L',
+          image: 'https://images.unsplash.com/photo-1474979266404-7eaacbcd87c5?auto=format&fit=crop&w=600&q=80',
+          images: ['https://images.unsplash.com/photo-1474979266404-7eaacbcd87c5?auto=format&fit=crop&w=600&q=80'],
+          isActive: true,
+          isFeatured: true,
+          minOrder: 1,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString()
+        },
+        {
+          id: 'sprod_kopi_dampit',
+          sku: 'TS-KHAS-001',
+          name: 'Kopi Robusta Lereng Semeru Dampit 250gr',
+          description: 'Kopi bubuk khas Malang lereng Gunung Semeru beraroma pekat dan legit.',
+          categoryId: 'scat_khas',
+          price: 28000,
+          basePrice: 28000,
+          stock: 35,
+          unit: 'pack 250gr',
+          image: 'https://images.unsplash.com/photo-1514432324607-a09d9b4aefdd?auto=format&fit=crop&w=600&q=80',
+          images: ['https://images.unsplash.com/photo-1514432324607-a09d9b4aefdd?auto=format&fit=crop&w=600&q=80'],
+          isActive: true,
+          isFeatured: true,
+          minOrder: 1,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString()
+        }
+      ];
     }
 
     if (!Array.isArray(db.orders)) db.orders = [];

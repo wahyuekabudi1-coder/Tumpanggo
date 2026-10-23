@@ -151,14 +151,23 @@ export class ShopPersistenceManager {
     }
   }
 
+  public isPostgresConfigured(): boolean {
+    return Boolean(this.databaseUrl);
+  }
+
   /**
    * Query persistent schema state from PostgreSQL
    */
   public async loadFromPostgres(): Promise<ShopDatabaseSchema | null> {
-    if (!this.pgPool) return null;
+    if (!this.databaseUrl) return null;
+    if (!this.pgPool) {
+      throw new ShopStorageError(`PostgreSQL dikonfigurasi tetapi pool koneksi gagal diinisialisasi: ${this.lastPgConnectionError || 'Invalid URL'}`);
+    }
     try {
       const tableReady = await this.ensurePgTable();
-      if (!tableReady) return null;
+      if (!tableReady) {
+        throw new ShopStorageError(`PostgreSQL dikonfigurasi tetapi tabel shop_datastore tidak dapat diinisialisasi: ${this.lastPgConnectionError || 'Koneksi gagal'}`);
+      }
 
       const res = await this.pgPool.query(
         'SELECT data FROM shop_datastore WHERE key = $1 LIMIT 1',
@@ -172,11 +181,13 @@ export class ShopPersistenceManager {
         console.log('[ShopPersistence PG] Berhasil memuat data persisten Shop dari PostgreSQL.');
         return remoteData as ShopDatabaseSchema;
       }
+      return null;
     } catch (err: any) {
       this.lastPgConnectionError = err?.message || String(err);
       console.warn('[ShopPersistence PG] Gagal membaca data dari PostgreSQL:', this.lastPgConnectionError);
+      if (err instanceof ShopStorageError) throw err;
+      throw new ShopStorageError(`PostgreSQL dikonfigurasi tetapi pembacaan data gagal: ${this.lastPgConnectionError}`, err);
     }
-    return null;
   }
 
   /**
@@ -392,7 +403,8 @@ export class ShopPersistenceManager {
             orders: Array.isArray(parsed.orders) ? parsed.orders : [],
             shipments: Array.isArray(parsed.shipments) ? parsed.shipments : [],
             auditLogs: Array.isArray(parsed.auditLogs) ? parsed.auditLogs : [],
-            migrations: Array.isArray(parsed.migrations) ? parsed.migrations : []
+            migrations: Array.isArray(parsed.migrations) ? parsed.migrations : [],
+            masterAccount: parsed.masterAccount || defaultSchema.masterAccount
           };
         }
       }
