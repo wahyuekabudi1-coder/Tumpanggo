@@ -14,7 +14,7 @@ import { safeStorage } from '../utils/safeStorage.ts';
 import { apiFetch as fetch, extractArrayResponse, getApiBaseUrl } from '../utils/apiClient.ts';
 import { calculateDeliveryFee, FLAT_TUMPANG_DELIVERY_FEE, isDestinationInKecamatanTumpang, normalizeOrderDeliveryFee } from '../utils/deliveryFee.ts';
 import { useSEO } from '../hooks/useSEO.ts';
-import UmkmEducationModule, { UMKM_ARTICLES } from './UmkmEducationModule.tsx';
+import UmkmEducationModule from './UmkmEducationModule.tsx';
 import UserTestimonialsSection from './UserTestimonialsSection.tsx';
 import { HelpCenterView } from './HelpCenterView.tsx';
 import { SocialMediaButtons } from './SocialMediaButtons.tsx';
@@ -1566,7 +1566,7 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
           onClick={handleCopyrightClick}
           className="text-[10px] text-emerald-200/70 font-normal mt-1.5 select-none cursor-default"
         >
-          © 2026 TumpangGo. All rights reserved.
+          © 2026 tumpang go. All rights reserved.
         </p>
 
         {/* Portal Login & Akses Dashboard (Secret - Unlocked strictly between 10 to 13 clicks on copyright) */}
@@ -1797,7 +1797,7 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
           </div>
         )}
 
-        {/* PWA Educational Information Modal */}
+        {/* Educational Information Modal */}
         {showPWAInfo && (
           <div className="fixed inset-0 bg-slate-900/60 flex items-center justify-center p-4 z-[110] backdrop-blur-sm">
             <div className="bg-white rounded-3xl p-6 max-w-sm w-full shadow-2xl border border-slate-100 max-h-[85vh] overflow-y-auto">
@@ -1813,18 +1813,18 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
                 </button>
               </div>
               
-              <h4 className="font-display font-bold text-base text-slate-800 mt-4">Apa itu Fitur Aplikasi (PWA)?</h4>
+              <h4 className="font-display font-bold text-base text-slate-800 mt-4">Cara Memasang Aplikasi Tumpang Go</h4>
               <p className="text-slate-500 text-xs mt-1.5 leading-relaxed">
-                <span className="font-semibold text-rose-600">PWA (Progressive Web App)</span> adalah teknologi modern yang memungkinkan website Tumpang Food diubah menjadi aplikasi ponsel/komputer yang ringan.
+                Nikmati kemudahan pesan kuliner lokal langsung dari layar ponsel Anda dengan aplikasi yang sangat ringan dan cepat dibuka.
               </p>
 
               <div className="mt-5 space-y-4">
                 <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
                   <h5 className="font-bold text-xs text-slate-800 flex items-center gap-1.5">
-                    🚀 Ringan & Hemat Memori
+                    🚀 Ringan &amp; Hemat Memori
                   </h5>
                   <p className="text-[11px] text-slate-500 mt-0.5 leading-relaxed">
-                    Tidak perlu mengunduh puluhan megabyte dari Play Store/App Store. Aplikasi ini terpasang dalam hitungan detik dan sangat hemat kuota data Anda.
+                    Tidak perlu mengunduh file besar dari Play Store/App Store. Aplikasi ini terpasang dalam hitungan detik dan sangat hemat kuota data Anda.
                   </p>
                 </div>
 
@@ -1833,16 +1833,16 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
                     📱 Langsung di Layar Utama HP
                   </h5>
                   <p className="text-[11px] text-slate-500 mt-0.5 leading-relaxed">
-                    Tumpang Food akan memiliki ikon cantik di layar utama ponsel/komputer Anda, dapat dibuka sekali ketuk tanpa repot membuka browser atau mengetik alamat web.
+                    Tumpang Go akan memiliki ikon di layar utama ponsel Anda, dapat dibuka sekali ketuk tanpa repot membuka browser atau mengetik alamat web.
                   </p>
                 </div>
 
                 <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
                   <h5 className="font-bold text-xs text-slate-800 flex items-center gap-1.5">
-                    ⚙️ Cara Pasang Manual
+                    ⚙️ Cara Pasang Manual di Browser
                   </h5>
                   <p className="text-[11px] text-slate-500 mt-0.5 leading-relaxed">
-                    Jika tombol pasang tidak muncul, ketuk tombol <span className="font-bold text-slate-800">Titik Tiga (⋮)</span> di kanan atas browser Chrome Anda, lalu pilih <span className="font-bold text-rose-600">"Instal Aplikasi"</span> atau <span className="font-bold text-rose-600">"Tambahkan ke Layar Utama"</span>.
+                    Jika tombol pasang tidak muncul otomatis, ketuk tombol <span className="font-bold text-slate-800">Titik Tiga (⋮)</span> di kanan atas browser Chrome/Edge Anda, lalu pilih <span className="font-bold text-rose-600">"Instal Aplikasi"</span> atau <span className="font-bold text-rose-600">"Tambahkan ke Layar Utama"</span>.
                   </p>
                 </div>
               </div>
@@ -1851,7 +1851,7 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
                 onClick={() => setShowPWAInfo(false)}
                 className="w-full mt-6 py-2.5 text-sm font-semibold text-white bg-rose-600 rounded-xl hover:bg-rose-700 transition-colors shadow-lg shadow-rose-600/20 cursor-pointer"
               >
-                Tutup & Kembali
+                Tutup &amp; Kembali
               </button>
             </div>
           </div>
@@ -1863,7 +1863,7 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
             {/* If we are on the main landing dashboard */}
             {homeSubView === 'main' && (
               <div className="flex flex-col gap-5 pb-1">
-                {/* Compact Simple PWA Bar */}
+                {/* Compact Simple Install Bar */}
                 {!isStandalone && !dismissedPrompt && (
                   <div className="bg-gradient-to-r from-rose-50 to-amber-50 border border-rose-200/80 rounded-xl px-3 py-2 flex items-center justify-between gap-2 shadow-sm">
                     <div className="flex items-center gap-2 min-w-0">
@@ -1872,7 +1872,7 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
                       </div>
                       <div className="min-w-0">
                         <p className="text-xs font-bold text-slate-800 truncate leading-tight">
-                          Pasang Aplikasi Tumpang Go
+                          Install Aplikasi Tumpang Go
                         </p>
                         <p className="text-[10px] text-slate-500 truncate hidden sm:block">
                           Akses cepat langsung dari layar HP Anda
@@ -1885,12 +1885,12 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
                         className="bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold px-3 py-1.5 rounded-lg shadow-sm flex items-center gap-1 transition-all cursor-pointer active:scale-95"
                       >
                         <Download className="w-3.5 h-3.5" />
-                        <span>Install TumpangGo</span>
+                        <span>Install Aplikasi</span>
                       </button>
                       <button 
                         onClick={() => setShowPWAInfo(true)}
                         className="text-slate-400 hover:text-slate-600 p-1 rounded-lg transition-colors cursor-pointer"
-                        title="Info PWA"
+                        title="Info Install Aplikasi"
                       >
                         <Info className="w-3.5 h-3.5" />
                       </button>
@@ -2168,7 +2168,7 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
                   </div>
                 )}
 
-                {/* Section Edukasi & Strategi UMKM Naik Kelas */}
+                {/* Section Edukasi Customer TumpangGo (Ringkas & Responsif) */}
                 <section aria-labelledby="section-edukasi-title" className="bg-white rounded-3xl border border-slate-100 p-4 sm:p-5 shadow-xs flex flex-col gap-3.5 my-2">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2.5">
@@ -2177,56 +2177,88 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
                       </div>
                       <div>
                         <h2 id="section-edukasi-title" className="font-display font-extrabold text-sm sm:text-base text-slate-900 leading-tight">
-                          Edukasi &amp; Tips UMKM Naik Kelas
+                          Panduan Praktis
                         </h2>
                         <p className="text-[11px] sm:text-xs text-slate-500 font-medium">
-                          Strategi bisnis digital untuk pengusaha milenial &amp; lokal
+                          Pesan kuliner hemat &amp; dukung usaha lokal Tumpang
                         </p>
                       </div>
                     </div>
                     <button
+                      type="button"
                       onClick={() => setActiveTab('edukasi')}
-                      className="text-xs font-extrabold text-emerald-800 hover:underline flex items-center gap-0.5 shrink-0 cursor-pointer"
+                      className="text-xs font-extrabold text-emerald-800 hover:text-emerald-900 hover:underline flex items-center gap-0.5 shrink-0 cursor-pointer"
+                      aria-label="Lihat materi edukasi selengkapnya"
                     >
-                      Semua <ChevronRight className="w-4 h-4" />
+                      <span>Lihat selengkapnya</span>
+                      <ChevronRight className="w-4 h-4" />
                     </button>
                   </div>
 
-                  <div className="grid grid-cols-1 gap-2.5">
-                    {UMKM_ARTICLES.slice(0, 3).map((article) => (
-                      <div
-                        key={`home-article-${article.id}`}
-                        onClick={() => setActiveTab('edukasi')}
-                        className="bg-slate-50 hover:bg-emerald-50/50 border border-slate-100/80 rounded-2xl p-3 sm:p-3.5 transition-all cursor-pointer flex flex-col gap-1 group"
-                      >
-                        <div className="flex items-center justify-between text-[10px]">
-                          <span className="font-black uppercase px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-800">
-                            {article.category}
-                          </span>
-                          <span className="text-slate-400 font-medium flex items-center gap-1">
-                            <Clock className="w-3 h-3" /> {article.readTime}
-                          </span>
-                        </div>
-                        <h3 className="font-extrabold text-xs sm:text-sm text-slate-900 group-hover:text-emerald-800 transition-colors line-clamp-1 pt-0.5">
-                          {article.title}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+                    {/* Kartu 1: Cara Pesan */}
+                    <div 
+                      onClick={() => {
+                        setHomeSubView('food');
+                        setActiveTab('home');
+                      }}
+                      className="bg-slate-50 hover:bg-emerald-50/40 border border-slate-100 hover:border-emerald-200/70 rounded-2xl p-3.5 flex flex-col gap-2 transition-all cursor-pointer group"
+                    >
+                      <div className="w-8 h-8 rounded-xl bg-emerald-100 text-emerald-800 flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
+                        <ShoppingBag className="w-4 h-4 text-emerald-800" />
+                      </div>
+                      <div>
+                        <h3 className="font-extrabold text-xs sm:text-sm text-slate-900 group-hover:text-emerald-800 transition-colors">
+                          Cara Pesan
                         </h3>
-                        <p className="text-[11px] text-slate-500 line-clamp-2 leading-relaxed">
-                          {article.summary}
+                        <p className="text-[11px] sm:text-xs text-slate-500 leading-relaxed mt-0.5">
+                          Pilih makanan favorit, masukkan ke keranjang, lalu selesaikan pesanan.
                         </p>
                       </div>
-                    ))}
-                  </div>
+                    </div>
 
-                  <button
-                    onClick={() => setActiveTab('edukasi')}
-                    className="w-full bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs py-2.5 px-4 rounded-xl transition-all text-center flex items-center justify-center gap-1.5 cursor-pointer"
-                  >
-                    <BookOpen className="w-3.5 h-3.5 text-emerald-700" />
-                    <span>Baca Semua Panduan &amp; Tips Usaha ({UMKM_ARTICLES.length} Artikel)</span>
-                  </button>
+                    {/* Kartu 2: Pembayaran QRIS */}
+                    <div 
+                      onClick={() => setActiveTab('edukasi')}
+                      className="bg-slate-50 hover:bg-amber-50/40 border border-slate-100 hover:border-amber-200/70 rounded-2xl p-3.5 flex flex-col gap-2 transition-all cursor-pointer group"
+                    >
+                      <div className="w-8 h-8 rounded-xl bg-amber-100 text-amber-800 flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
+                        <QrCode className="w-4 h-4 text-amber-800" />
+                      </div>
+                      <div>
+                        <h3 className="font-extrabold text-xs sm:text-sm text-slate-900 group-hover:text-amber-800 transition-colors">
+                          Pembayaran QRIS
+                        </h3>
+                        <p className="text-[11px] sm:text-xs text-slate-500 leading-relaxed mt-0.5">
+                          Ikuti petunjuk pembayaran dan unggah bukti transfer untuk diverifikasi.
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Kartu 3: Dukung UMKM Lokal */}
+                    <div 
+                      onClick={() => {
+                        setHomeSubView('food');
+                        setActiveTab('home');
+                      }}
+                      className="bg-slate-50 hover:bg-emerald-50/40 border border-slate-100 hover:border-emerald-200/70 rounded-2xl p-3.5 flex flex-col gap-2 transition-all cursor-pointer group sm:col-span-2 md:col-span-1"
+                    >
+                      <div className="w-8 h-8 rounded-xl bg-emerald-100 text-emerald-800 flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
+                        <Store className="w-4 h-4 text-emerald-800" />
+                      </div>
+                      <div>
+                        <h3 className="font-extrabold text-xs sm:text-sm text-slate-900 group-hover:text-emerald-800 transition-colors">
+                          Dukung UMKM Lokal
+                        </h3>
+                        <p className="text-[11px] sm:text-xs text-slate-500 leading-relaxed mt-0.5">
+                          Pesan dari warung sekitar dan bantu usaha lokal berkembang.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
                 </section>
 
-                {/* Section Tanya Jawab / FAQ Seputar TumpangGo */}
+                {/* Section Tanya Jawab / FAQ Seputar Tumpang Go */}
                 <section aria-labelledby="section-faq-title" className="bg-white rounded-3xl border border-slate-100 p-4 sm:p-5 shadow-xs flex flex-col gap-3.5 my-2">
                   <div className="flex items-center gap-2.5">
                     <div className="w-9 h-9 rounded-full bg-amber-100 text-amber-800 flex items-center justify-center shrink-0">
@@ -2234,7 +2266,7 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
                     </div>
                     <div>
                       <h2 id="section-faq-title" className="font-display font-extrabold text-sm sm:text-base text-slate-900 leading-tight">
-                        Tanya Jawab Seputar TumpangGo
+                        Tanya Jawab Seputar Tumpang Go
                       </h2>
                       <p className="text-[11px] sm:text-xs text-slate-500 font-medium">
                         Informasi penting mengenai layanan, pemesanan, dan kemitraan
@@ -2265,27 +2297,40 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
                       return (
                         <div
                           key={`faq-${idx}`}
-                          className="border border-slate-100 rounded-2xl overflow-hidden transition-all"
+                          className="border border-slate-100 rounded-2xl overflow-hidden transition-all bg-white"
                         >
                           <button
                             type="button"
+                            id={`faq-btn-${idx}`}
+                            aria-expanded={isOpen}
+                            aria-controls={`faq-answer-${idx}`}
                             onClick={() => setOpenFaqIndex(isOpen ? null : idx)}
-                            className="w-full text-left p-3.5 bg-slate-50 hover:bg-slate-100/80 transition-colors flex items-center justify-between gap-2 cursor-pointer"
+                            className="w-full text-left p-3.5 bg-slate-50 hover:bg-slate-100/80 transition-colors flex items-center justify-between gap-3 cursor-pointer group"
                           >
-                            <h3 className="font-extrabold text-xs text-slate-800 leading-snug">
+                            <h3 className="font-extrabold text-xs text-slate-800 leading-snug group-hover:text-emerald-900 transition-colors">
                               {faq.q}
                             </h3>
-                            {isOpen ? (
-                              <ChevronUp className="w-4 h-4 text-emerald-700 shrink-0" />
-                            ) : (
-                              <ChevronDown className="w-4 h-4 text-slate-400 shrink-0" />
-                            )}
+                            <ChevronDown 
+                              className={`w-4 h-4 shrink-0 transition-transform duration-300 ease-in-out ${
+                                isOpen ? 'rotate-180 text-emerald-700' : 'text-slate-400'
+                              }`}
+                              aria-hidden="true"
+                            />
                           </button>
-                          {isOpen && (
-                            <div className="p-3.5 bg-white text-[11px] sm:text-xs text-slate-600 leading-relaxed border-t border-slate-100">
-                              {faq.a}
+                          <div 
+                            id={`faq-answer-${idx}`}
+                            role="region"
+                            aria-labelledby={`faq-btn-${idx}`}
+                            className={`grid transition-all duration-300 ease-in-out ${
+                              isOpen ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'
+                            }`}
+                          >
+                            <div className="overflow-hidden">
+                              <div className="p-3.5 bg-white text-[11px] sm:text-xs text-slate-600 leading-relaxed border-t border-slate-100">
+                                {faq.a}
+                              </div>
                             </div>
-                          )}
+                          </div>
                         </div>
                       );
                     })}

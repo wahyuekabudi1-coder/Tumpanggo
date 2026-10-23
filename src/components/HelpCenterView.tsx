@@ -122,8 +122,8 @@ const FAQ_DATABASE: FAQItem[] = [
     id: 'p1',
     category: 'platform',
     question: 'Apakah TumpangGo harus diunduh dari Play Store / App Store?',
-    answer: 'Tidak perlu mengunduh file APK yang berat. TumpangGo menggunakan teknologi Progressive Web App (PWA) modern. Cukup buka di browser (Chrome atau Safari), lalu tekan tombol "Install TumpangGo" atau "Tambah ke Layar Utama" untuk memasangnya langsung seperti aplikasi bawaan.',
-    tags: ['pwa', 'install', 'download', 'apk', 'play store', 'layar utama']
+    answer: 'Tidak perlu mengunduh file APK yang berat. Cukup buka di browser (Chrome atau Safari), lalu tekan tombol "Install Aplikasi" atau "Tambah ke Layar Utama" untuk memasangnya langsung ke ponsel seperti aplikasi bawaan.',
+    tags: ['aplikasi', 'install', 'download', 'apk', 'play store', 'layar utama']
   },
   {
     id: 'p2',
@@ -336,7 +336,7 @@ export const HelpCenterView: React.FC<HelpCenterViewProps> = ({
             <div>
               <div className="flex items-center gap-1.5 text-amber-900 font-extrabold text-xs mb-1">
                 <Smartphone className="w-4 h-4 text-amber-800" />
-                <span>Panduan Instalasi & Penggunaan PWA</span>
+                <span>Panduan Instalasi Aplikasi</span>
               </div>
               <p className="text-[11px] text-slate-600 leading-snug">
                 Tanpa download file APK besar. Buka via browser dan pasang langsung ke layar ponsel Anda.

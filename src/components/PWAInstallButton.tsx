@@ -69,7 +69,7 @@ export const PWAInstallButton: React.FC<PWAInstallButtonProps> = ({
           icon: Store,
           gradient: 'from-emerald-700 via-emerald-600 to-teal-800',
           btnBg: 'bg-white text-emerald-800 hover:bg-emerald-50',
-          badgeText: 'PWA Mitra Toko'
+          badgeText: 'Aplikasi Toko'
         };
       case 'DRIVER':
         return {
@@ -79,7 +79,7 @@ export const PWAInstallButton: React.FC<PWAInstallButtonProps> = ({
           icon: Bike,
           gradient: 'from-slate-900 via-slate-800 to-emerald-950',
           btnBg: 'bg-emerald-600 text-white hover:bg-emerald-500',
-          badgeText: 'PWA Driver'
+          badgeText: 'Aplikasi Driver'
         };
       case 'CUSTOMER':
       default:
@@ -173,7 +173,7 @@ export const PWAInstallButton: React.FC<PWAInstallButtonProps> = ({
             </div>
             <div>
               <h3 className="text-sm font-bold text-slate-900">{cfg.title} di iPhone / iPad</h3>
-              <p className="text-[11px] text-slate-500">Panduan pemasangan PWA via Safari</p>
+              <p className="text-[11px] text-slate-500">Panduan pemasangan aplikasi via Safari</p>
             </div>
           </div>
 
