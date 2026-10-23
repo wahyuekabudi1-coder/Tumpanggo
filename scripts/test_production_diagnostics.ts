@@ -29,7 +29,6 @@ import {
 } from '../src/server/firebaseAdmin';
 import { foodConfig } from '../src/server/config';
 import { foodDb } from '../src/server/db';
-import { shopDb } from '../src/server/shopDb';
 import express from 'express';
 import { app } from '../src/server/app';
 

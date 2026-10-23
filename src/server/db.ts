@@ -297,6 +297,57 @@ export class FoodDatabase {
       this.data.systemConfig.qrisImage = '/qris-merchant.png';
     }
 
+    if (!this.data.drivers || this.data.drivers.length === 0) {
+      this.data.drivers = [
+        {
+          id: 'd1',
+          name: 'Budi Santoso',
+          phone: '081234567893',
+          email: 'driver1@tumpanggo.com',
+          active: true,
+          online: true,
+          latitude: -7.9482,
+          longitude: 112.7612,
+          password: hashPassword('d1123'),
+          vehicle: 'Honda Vario (N 1234 TP)',
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString()
+        } as any,
+        {
+          id: 'd2',
+          name: 'Agus Setiawan',
+          phone: '081234567894',
+          email: 'driver2@tumpanggo.com',
+          active: true,
+          online: false,
+          latitude: -7.9490,
+          longitude: 112.7620,
+          password: hashPassword('d2123'),
+          vehicle: 'Yamaha NMAX (N 5678 TP)',
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString()
+        } as any
+      ];
+    }
+
+    // Clean up any corrupted menu items and ensure baseline menu_1 for m1 exists
+    this.data.menuItems = this.data.menuItems.filter(i => typeof i.merchantId === 'string');
+    if (!this.data.menuItems.some(i => i.id === 'menu_1')) {
+      this.data.menuItems.unshift({
+        id: 'menu_1',
+        merchantId: 'm1',
+        name: 'Bakso Malang Spesial',
+        price: 15000,
+        description: 'Bakso Malang dengan kuah kaldu sapi gurih dan pangsit renyah',
+        categoryId: 'cat_makanan',
+        category: 'Makanan',
+        image: '/logo44.png',
+        available: true,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      });
+    }
+
     this.data.merchants.forEach(m => {
       if (!m.qrisImage || m.qrisImage.includes('unsplash')) {
         m.qrisImage = '/qris-merchant.png';
@@ -408,7 +459,6 @@ export class FoodDatabase {
       masterAccountEmail: string;
       flatDeliveryFee: number;
       commissionPercent: number;
-      shopMarketplacePreserved: boolean;
     };
   }> {
     const creds = getMasterAccountCredentials();
@@ -506,8 +556,7 @@ export class FoodDatabase {
         systemConfigPreserved: true,
         masterAccountEmail: creds.email,
         flatDeliveryFee: this.data.systemConfig?.defaultDeliveryFee || 5000,
-        commissionPercent: this.data.systemConfig?.commissionPercent || 10,
-        shopMarketplacePreserved: true
+        commissionPercent: this.data.systemConfig?.commissionPercent || 10
       }
     };
   }
@@ -526,7 +575,6 @@ export class FoodDatabase {
    * - orders (historical records)
    * - settlements
    * - testimonials
-   * - shop_* (Tumpang Shop)
    */
   public async cleanSlateMerchantCatalog(actorId = 'master-admin'): Promise<{
     success: boolean;
@@ -1000,7 +1048,7 @@ export class FoodDatabase {
     return logItem;
   }
 
-  public addAuditLog(entry: { action?: string; orderId?: string; details: string; performedBy?: string; userId?: string; role?: 'ADMIN' | 'MERCHANT' | 'DRIVER' | 'SYSTEM' | 'CUSTOMER' | 'SHOP_ADMIN' }): AuditLog {
+  public addAuditLog(entry: { action?: string; orderId?: string; details: string; performedBy?: string; userId?: string; role?: 'ADMIN' | 'MERCHANT' | 'DRIVER' | 'SYSTEM' | 'CUSTOMER' }): AuditLog {
     const userId = entry.performedBy || entry.userId || 'SYSTEM';
     const details = entry.details || (entry.action ? `${entry.action}: ${entry.orderId || ''}` : 'Audit log');
     const role = entry.role || 'SYSTEM';

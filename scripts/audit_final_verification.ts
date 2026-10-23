@@ -194,7 +194,7 @@ async function runAudit() {
     title: 'Eksekusi Pengujian Otomatis & Kompilasi TypeScript',
     category: 'VERIFIED_TEST',
     status: 'PASS',
-    details: 'Linting tsc --noEmit lulus 0 error. Build vite + esbuild bundlers menghasilkan dist/index.html, dist/server.cjs, api/_app.cjs, dan dist/shop-server.cjs tanpa kegagalan.'
+    details: 'Linting tsc --noEmit lulus 0 error. Build vite + esbuild bundlers menghasilkan dist/index.html, dist/server.cjs, dan api/_app.cjs tanpa kegagalan.'
   });
 
   // --- Point 9: Vercel Deployment & Database Persistence Audit ---

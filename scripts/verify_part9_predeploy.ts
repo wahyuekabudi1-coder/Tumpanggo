@@ -125,10 +125,9 @@ async function verifyAll() {
   }
 
   // ---------------------------------------------------------
-  // 3. VERIFIKASI SHOP AUTHENTICATION
+  // 3. VERIFIKASI DECOMMISSION MODUL TUMPANG SHOP
   // ---------------------------------------------------------
-  console.log('\n--- 3. VERIFIKASI LOGIN SHOP (ADMIN) ---');
-  let shopAdminToken = '';
+  console.log('\n--- 3. VERIFIKASI DECOMMISSION MODUL TUMPANG SHOP (HTTP 404) ---');
   try {
     const shopLoginRes = await fetch(`${BASE_URL}/api/shop/auth/login`, {
       method: 'POST',
@@ -138,72 +137,33 @@ async function verifyAll() {
         password: 'TumpangShopAdmin#2026'
       })
     });
-    const shopData = await shopLoginRes.json();
-    if (shopLoginRes.status === 200 && shopData.token) {
-      shopAdminToken = shopData.token;
-      record('Shop Admin Login', 'LIVE_TESTED', 'PASSED', 'Login Shop Admin sukses dan menghasilkan token JWT SHOP_ADMIN.');
-    } else {
-      record('Shop Admin Login', 'LIVE_TESTED', 'FAILED', `Login Shop Admin gagal: HTTP ${shopLoginRes.status}`, shopData);
-    }
-  } catch (err: any) {
-    record('Shop Admin Login', 'LIVE_TESTED', 'FAILED', err.message);
-  }
-
-  // Wrong password test for Shop
-  try {
-    const shopBadRes = await fetch(`${BASE_URL}/api/shop/auth/login`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        email: 'shopadmin@tumpanggo.com',
-        password: 'PasswordPalsu999'
-      })
-    });
     record(
-      'Shop Admin Wrong Password Guard',
+      'Shop Auth Route Decommissioned',
       'LIVE_TESTED',
-      shopBadRes.status === 401 ? 'PASSED' : 'FAILED',
-      `Login Shop dengan password salah ditolak secara aman dengan HTTP ${shopBadRes.status}.`
+      shopLoginRes.status === 404 ? 'PASSED' : 'FAILED',
+      `Endpoint autentikasi Shop /api/shop/auth/login merespons HTTP ${shopLoginRes.status} (dinonaktifkan).`
     );
   } catch (err: any) {
-    record('Shop Admin Wrong Password Guard', 'LIVE_TESTED', 'FAILED', err.message);
+    record('Shop Auth Route Decommissioned', 'LIVE_TESTED', 'FAILED', err.message);
   }
 
   // ---------------------------------------------------------
-  // 4. CROSS-SYSTEM ISOLATION & ACCESS CONTROL
+  // 4. VERIFIKASI ISOLASI SISTEM & ROUTE GUARD
   // ---------------------------------------------------------
-  console.log('\n--- 4. VERIFIKASI ISOLASI SISTEM (FOOD VS SHOP) ---');
+  console.log('\n--- 4. VERIFIKASI PENGHAPUSAN RUTE SHOP SECARA MENYELURUH ---');
   if (foodAdminToken) {
-    // Try to access Shop protected endpoint using Food Token
     try {
       const crossShopRes = await fetch(`${BASE_URL}/api/shop/orders`, {
         headers: { 'Authorization': `Bearer ${foodAdminToken}` }
       });
       record(
-        'Cross-System Guard: Food Token -> Shop Orders',
+        'Shop Orders Route Decommissioned',
         'LIVE_TESTED',
-        crossShopRes.status === 403 ? 'PASSED' : 'FAILED',
-        `Token Food Admin ditolak dari endpoint Shop Admin dengan HTTP ${crossShopRes.status} (Forbidden).`
+        crossShopRes.status === 404 ? 'PASSED' : 'FAILED',
+        `Endpoint /api/shop/orders dinonaktifkan sepenuhnya dan merespons HTTP ${crossShopRes.status} (404 Not Found).`
       );
     } catch (err: any) {
-      record('Cross-System Guard: Food Token -> Shop Orders', 'LIVE_TESTED', 'FAILED', err.message);
-    }
-  }
-
-  if (shopAdminToken) {
-    // Try to access Food protected endpoint using Shop Token
-    try {
-      const crossFoodRes = await fetch(`${BASE_URL}/api/settlements`, {
-        headers: { 'Authorization': `Bearer ${shopAdminToken}` }
-      });
-      record(
-        'Cross-System Guard: Shop Token -> Food Settlements',
-        'LIVE_TESTED',
-        crossFoodRes.status === 403 ? 'PASSED' : 'FAILED',
-        `Token Shop Admin ditolak dari endpoint Food Admin dengan HTTP ${crossFoodRes.status} (Forbidden).`
-      );
-    } catch (err: any) {
-      record('Cross-System Guard: Shop Token -> Food Settlements', 'LIVE_TESTED', 'FAILED', err.message);
+      record('Shop Orders Route Decommissioned', 'LIVE_TESTED', 'FAILED', err.message);
     }
   }
 
@@ -217,28 +177,29 @@ async function verifyAll() {
     const foodDbExists = fs.existsSync(path.join(process.cwd(), 'tumpang_food_db.json'));
     const shopDbExists = fs.existsSync(path.join(process.cwd(), 'tumpang_shop_db.json'));
     
-    if (foodDbExists && shopDbExists) {
+    if (foodDbExists && !shopDbExists) {
       const foodData = JSON.parse(fs.readFileSync(path.join(process.cwd(), 'tumpang_food_db.json'), 'utf-8'));
-      const shopData = JSON.parse(fs.readFileSync(path.join(process.cwd(), 'tumpang_shop_db.json'), 'utf-8'));
       
       record(
-        'File Storage Dual Snapshot',
+        'File Storage Food Operational State',
         'LIVE_TESTED',
         'PASSED',
-        `File snapshot lokal tumpang_food_db.json (${foodData.merchants?.length || 0} merchants, ${foodData.orders?.length || 0} orders) & tumpang_shop_db.json (${shopData.products?.length || 0} products, ${shopData.orders?.length || 0} orders) tersimpan utuh dan valid.`
+        `File snapshot lokal tumpang_food_db.json (${foodData.merchants?.length || 0} merchants, ${foodData.orders?.length || 0} orders, ${foodData.drivers?.length || 0} drivers) tersimpan utuh dan file tumpang_shop_db.json berhasil dibersihkan.`
       );
 
       record(
         'Restart Data Retention Simulation',
         'SIMULATED',
         'PASSED',
-        'Simulasi reload memori membaca kembali file snapshot JSON dan melakukan reconciliation sinkronisasi Firestore tanpa kehilangan data.'
+        'Simulasi reload memori membaca kembali file snapshot JSON tumpang_food_db.json tanpa kehilangan data.'
       );
+    } else if (!foodDbExists) {
+      record('File Storage Food Operational State', 'LIVE_TESTED', 'FAILED', 'File basis data tumpang_food_db.json tidak ditemukan.');
     } else {
-      record('File Storage Dual Snapshot', 'LIVE_TESTED', 'FAILED', 'Satu atau kedua file basis data lokal tidak ditemukan.');
+      record('File Storage Food Operational State', 'LIVE_TESTED', 'WARNING', 'File tumpang_shop_db.json masih terdeteksi di workspace.');
     }
   } catch (err: any) {
-    record('File Storage Dual Snapshot', 'LIVE_TESTED', 'FAILED', err.message);
+    record('File Storage Food Operational State', 'LIVE_TESTED', 'FAILED', err.message);
   }
 
   // ---------------------------------------------------------
@@ -249,9 +210,6 @@ async function verifyAll() {
     'FOOD_AUTH_SECRET',
     'FOOD_ADMIN_EMAIL',
     'FOOD_ADMIN_PASSWORD',
-    'SHOP_AUTH_SECRET',
-    'SHOP_ADMIN_EMAIL',
-    'SHOP_ADMIN_PASSWORD',
     'FIREBASE_PROJECT_ID',
     'FIREBASE_SERVICE_ACCOUNT_KEY',
     'FOOD_DATABASE_ID',

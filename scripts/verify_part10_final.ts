@@ -3,8 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  * 
  * Production Pre-Deploy Final Verification Script (PART 10)
- * Evaluates Vercel production readiness, Firestore primary store configuration,
- * idempotency, transaction rollback safety, authentication isolation, and secret protection.
+ * Evaluates Vercel production readiness, Food database operational configuration,
+ * idempotency, Shop decommission verification, authentication isolation, and secret protection.
  */
 
 import fs from 'fs';
@@ -30,7 +30,7 @@ function record(step: string, category: 'LIVE_TESTED' | 'CONFIG_VERIFIED' | 'SIM
 
 async function verifyAll() {
   console.log('======================================================================');
-  console.log('🚀 TUMPANG GO & TUMPANG SHOP — FINAL PRE-DEPLOY AUDIT & VERIFIKASI (PART 10)');
+  console.log('🚀 TUMPANGGO — FINAL PRE-DEPLOY AUDIT & VERIFIKASI (PART 10)');
   console.log('======================================================================\n');
 
   // ---------------------------------------------------------
@@ -45,10 +45,7 @@ async function verifyAll() {
       'FIREBASE_SERVICE_ACCOUNT_KEY',
       'FOOD_AUTH_SECRET',
       'FOOD_ADMIN_EMAIL',
-      'FOOD_ADMIN_PASSWORD',
-      'SHOP_AUTH_SECRET',
-      'SHOP_ADMIN_EMAIL',
-      'SHOP_ADMIN_PASSWORD'
+      'FOOD_ADMIN_PASSWORD'
     ];
 
     const missingInExample = requiredKeys.filter(k => !envExampleContent.includes(k));
@@ -57,7 +54,7 @@ async function verifyAll() {
         '.env.example Completeness',
         'CONFIG_VERIFIED',
         'PASSED',
-        'Seluruh variabel lingkungan wajib (Food & Shop) terdokumentasi dalam .env.example'
+        'Seluruh variabel lingkungan wajib Tumpang Food terdokumentasi dalam .env.example'
       );
     } else {
       record(
@@ -106,8 +103,8 @@ async function verifyAll() {
         'GET /api/health Ecosystem Diagnostics',
         'LIVE_TESTED',
         'PASSED',
-        `Health check aktif HTTP 200. Status: ${healthData.status}. Food DB: ${healthData.foodDatabase?.storageMode}, Shop DB: ${healthData.shopDatabase?.storageMode}`,
-        { foodDb: healthData.foodDatabase?.storageMode, shopDb: healthData.shopDatabase?.storageMode }
+        `Health check aktif HTTP 200. Status: ${healthData.status}. Mode: ${healthData.environment || 'development'}`,
+        { status: healthData.status }
       );
     } else {
       record(
@@ -136,11 +133,10 @@ async function verifyAll() {
   }
 
   // ---------------------------------------------------------
-  // 3. VERIFIKASI AUTENTIKASI & ISOLASI FOOD VS SHOP
+  // 3. VERIFIKASI AUTENTIKASI FOOD & DECOMMISSION SHOP
   // ---------------------------------------------------------
-  console.log('\n--- 3. VERIFIKASI AUTENTIKASI & ISOLASI FOOD VS SHOP ---');
+  console.log('\n--- 3. VERIFIKASI AUTENTIKASI FOOD & DECOMMISSION SHOP ---');
   let foodAdminToken = '';
-  let shopAdminToken = '';
 
   // 3a. Login Food Admin
   try {
@@ -160,209 +156,71 @@ async function verifyAll() {
     record('Food Admin Login', 'LIVE_TESTED', 'FAILED', e.message);
   }
 
-  // 3b. Login Shop Admin
+  // 3b. Verify Shop Auth is Decommissioned
   try {
     const loginShopRes = await fetch(`${BASE_URL}/api/shop/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email: 'shopadmin@tumpanggo.com', password: 'TumpangShopAdmin#2026' })
     });
-    if (loginShopRes.ok) {
-      const data = await loginShopRes.json();
-      shopAdminToken = data.token;
-      record('Shop Admin Login', 'LIVE_TESTED', 'PASSED', 'Login Shop Admin berhasil dengan token JWT terisolasi (scope: shop).');
-    } else {
-      record('Shop Admin Login', 'LIVE_TESTED', 'FAILED', `HTTP ${loginShopRes.status}`);
-    }
+    record(
+      'Shop Auth Route Decommissioned (HTTP 404)',
+      'LIVE_TESTED',
+      loginShopRes.status === 404 ? 'PASSED' : 'FAILED',
+      `Endpoint autentikasi Shop /api/shop/auth/login merespons HTTP ${loginShopRes.status} (dinonaktifkan sebagaimana mestinya).`
+    );
   } catch (e: any) {
-    record('Shop Admin Login', 'LIVE_TESTED', 'FAILED', e.message);
-  }
-
-  // 3c. Cross-Access Guard: Shop Token to Food Protected Route
-  if (shopAdminToken) {
-    try {
-      const crossFoodRes = await fetch(`${BASE_URL}/api/settlements`, {
-        headers: { 'Authorization': `Bearer ${shopAdminToken}` }
-      });
-      if (crossFoodRes.status === 403 || crossFoodRes.status === 401) {
-        record('Cross-Role Guard (Shop Token -> Food)', 'LIVE_TESTED', 'PASSED', `Akses ditolak sebagaimana mestinya (HTTP ${crossFoodRes.status}).`);
-      } else {
-        record('Cross-Role Guard (Shop Token -> Food)', 'LIVE_TESTED', 'FAILED', `Akses bocor dengan HTTP ${crossFoodRes.status}`);
-      }
-    } catch (e: any) {
-      record('Cross-Role Guard (Shop Token -> Food)', 'LIVE_TESTED', 'FAILED', e.message);
-    }
-  }
-
-  // 3d. Cross-Access Guard: Food Token to Shop Admin Route
-  if (foodAdminToken) {
-    try {
-      const crossShopRes = await fetch(`${BASE_URL}/api/shop/orders`, {
-        headers: { 'Authorization': `Bearer ${foodAdminToken}` }
-      });
-      if (crossShopRes.status === 403 || crossShopRes.status === 401) {
-        record('Cross-Role Guard (Food Token -> Shop Admin)', 'LIVE_TESTED', 'PASSED', `Akses ditolak sebagaimana mestinya (HTTP ${crossShopRes.status}).`);
-      } else {
-        record('Cross-Role Guard (Food Token -> Shop Admin)', 'LIVE_TESTED', 'FAILED', `Akses bocor dengan HTTP ${crossShopRes.status}`);
-      }
-    } catch (e: any) {
-      record('Cross-Role Guard (Food Token -> Shop Admin)', 'LIVE_TESTED', 'FAILED', e.message);
-    }
+    record('Shop Auth Route Decommissioned', 'LIVE_TESTED', 'FAILED', e.message);
   }
 
   // ---------------------------------------------------------
-  // 4. VERIFIKASI IDEMPOTENSI & PENCEGAHAN TRANSAKSI GANDA
+  // 4. VERIFIKASI PEMBUATAN PESANAN TUMPANG FOOD & ONGKIR FLAT
   // ---------------------------------------------------------
-  console.log('\n--- 4. VERIFIKASI IDEMPOTENSI & PENCEGAHAN TRANSAKSI GANDA ---');
-  const testRequestId = `test_req_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
-  const orderPayload = {
-    customerName: 'Budi Test Idempotensi',
-    customerPhone: '081299998888',
-    deliveryAddress: 'Jl. Raya Tumpang No. 99, Malang',
-    customerDistrict: 'Tumpang',
-    clientRequestId: testRequestId,
-    shippingMethod: 'INSTANT',
-    items: [
-      {
-        productId: 'sprod_beras_5kg',
-        quantity: 1
-      }
-    ]
-  };
-
+  console.log('\n--- 4. VERIFIKASI PESANAN FOOD & TARIF FLAT RP 5.000 ---');
   try {
-    // First Submission
-    const firstOrderRes = await fetch(`${BASE_URL}/api/shop/orders`, {
+    const orderRes = await fetch(`${BASE_URL}/api/orders`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(orderPayload)
+      body: JSON.stringify({
+        merchantId: 'm1',
+        customerName: 'Budi Test Part 10',
+        customerPhone: '081299998888',
+        deliveryAddress: 'Jl. Raya Tumpang No. 99, Kec. Tumpang',
+        items: [{ menuItemId: 'menu_1', quantity: 2 }]
+      })
     });
 
-    if (firstOrderRes.ok) {
-      const firstOrder = await firstOrderRes.json();
+    if (orderRes.ok) {
+      const orderData = await orderRes.json();
+      const isFlat5000 = orderData.deliveryFee === 5000;
       record(
-        'Order Creation (First Call)',
+        'Food Order Creation & Flat Ongkir Rp 5.000',
         'LIVE_TESTED',
-        'PASSED',
-        `Pesanan berhasil dibuat: ${firstOrder.orderNumber} (ID: ${firstOrder.id})`
+        isFlat5000 ? 'PASSED' : 'WARNING',
+        `Pesanan ${orderData.orderNumber} berhasil dibuat dengan ongkir Rp ${orderData.deliveryFee} (Flat 5000: ${isFlat5000}).`
       );
-
-      // Immediate Second Submission with identical clientRequestId
-      const secondOrderRes = await fetch(`${BASE_URL}/api/shop/orders`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(orderPayload)
-      });
-
-      if (secondOrderRes.ok) {
-        const secondOrder = await secondOrderRes.json();
-        if (secondOrder.id === firstOrder.id && secondOrder.orderNumber === firstOrder.orderNumber) {
-          record(
-            'Idempotency clientRequestId Dedup',
-            'LIVE_TESTED',
-            'PASSED',
-            `Pesanan duplikat terdeteksi dan mengembalikan transaksi asli yang sama (${secondOrder.orderNumber}) tanpa mengurangi stok ganda!`
-          );
-        } else {
-          record(
-            'Idempotency clientRequestId Dedup',
-            'LIVE_TESTED',
-            'FAILED',
-            `Order duplikat dibuat dengan ID berbeda: ${secondOrder.id} vs ${firstOrder.id}`
-          );
-        }
-      } else {
-        record(
-          'Idempotency clientRequestId Dedup',
-          'LIVE_TESTED',
-          'WARNING',
-          `HTTP ${secondOrderRes.status}`
-        );
-      }
     } else {
-      const err = await firstOrderRes.json();
-      record('Order Creation (First Call)', 'LIVE_TESTED', 'WARNING', `Gagal membuat pesanan: ${err.error}`);
+      const err = await orderRes.json();
+      record('Food Order Creation & Flat Ongkir Rp 5.000', 'LIVE_TESTED', 'WARNING', `HTTP ${orderRes.status}: ${err.error}`);
     }
   } catch (e: any) {
-    record('Idempotency Test', 'LIVE_TESTED', 'FAILED', e.message);
+    record('Food Order Creation', 'LIVE_TESTED', 'FAILED', e.message);
   }
 
   // ---------------------------------------------------------
-  // 5. VERIFIKASI RESTORASI STOK SAAT PEMBATALAN PESANAN
+  // 5. VERIFIKASI PENGHAPUSAN RUTE SHOP SECARA KESELURUHAN
   // ---------------------------------------------------------
-  console.log('\n--- 5. VERIFIKASI RESTORASI STOK SAAT PEMBATALAN PESANAN ---');
-  if (shopAdminToken) {
-    try {
-      // Get current stock of beras 5kg
-      const prodRes = await fetch(`${BASE_URL}/api/shop/products/sprod_beras_5kg`);
-      const prodData = await prodRes.json();
-      const initialStock = prodData.stock;
-
-      // Create an order
-      const cancelTestReqId = `cancel_test_${Date.now()}`;
-      const tempOrderRes = await fetch(`${BASE_URL}/api/shop/orders`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          customerName: 'Test Pembatalan Stok',
-          customerPhone: '081288887777',
-          deliveryAddress: 'Jl. Pasar Tumpang',
-          customerDistrict: 'Tumpang',
-          clientRequestId: cancelTestReqId,
-          shippingMethod: 'PICKUP',
-          items: [{ productId: 'sprod_beras_5kg', quantity: 2 }]
-        })
-      });
-
-      if (tempOrderRes.ok) {
-        const tempOrder = await tempOrderRes.json();
-        
-        // Stock should now be initialStock - 2
-        const midProdRes = await fetch(`${BASE_URL}/api/shop/products/sprod_beras_5kg`);
-        const midProdData = await midProdRes.json();
-        const midStock = midProdData.stock;
-
-        // Cancel order via shop admin
-        const cancelRes = await fetch(`${BASE_URL}/api/shop/orders/${tempOrder.id}/status`, {
-          method: 'PATCH',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${shopAdminToken}`
-          },
-          body: JSON.stringify({
-            status: 'CANCELLED',
-            reason: 'Dibatalkan untuk pengujian pemulihan stok otomatis'
-          })
-        });
-
-        if (cancelRes.ok) {
-          // Stock should be restored back to initialStock
-          const finalProdRes = await fetch(`${BASE_URL}/api/shop/products/sprod_beras_5kg`);
-          const finalProdData = await finalProdRes.json();
-          const restoredStock = finalProdData.stock;
-
-          if (restoredStock === initialStock && midStock === initialStock - 2) {
-            record(
-              'Stock Replenishment on Cancellation',
-              'LIVE_TESTED',
-              'PASSED',
-              `Stok terpotong 2 (${initialStock} -> ${midStock}) dan pulih kembali otomatis ke ${restoredStock} saat pesanan dibatalkan!`
-            );
-          } else {
-            record(
-              'Stock Replenishment on Cancellation',
-              'LIVE_TESTED',
-              'WARNING',
-              `Stok sebelum: ${initialStock}, saat order: ${midStock}, setelah batal: ${restoredStock}`
-            );
-          }
-        } else {
-          record('Stock Replenishment on Cancellation', 'LIVE_TESTED', 'FAILED', `Gagal membatalkan order: HTTP ${cancelRes.status}`);
-        }
-      }
-    } catch (e: any) {
-      record('Stock Replenishment on Cancellation', 'LIVE_TESTED', 'FAILED', e.message);
-    }
+  console.log('\n--- 5. VERIFIKASI PENGHAPUSAN RUTE SHOP SECARA KESELURUHAN ---');
+  try {
+    const shopOrderRes = await fetch(`${BASE_URL}/api/shop/orders`);
+    record(
+      'GET /api/shop/orders Decommissioned (404)',
+      'LIVE_TESTED',
+      shopOrderRes.status === 404 ? 'PASSED' : 'FAILED',
+      `Endpoint /api/shop/orders merespons HTTP ${shopOrderRes.status} (404 Not Found).`
+    );
+  } catch (e: any) {
+    record('GET /api/shop/orders Decommissioned', 'LIVE_TESTED', 'FAILED', e.message);
   }
 
   // ---------------------------------------------------------
@@ -374,22 +232,22 @@ async function verifyAll() {
     const vercelConfig = JSON.parse(fs.readFileSync(vercelJsonPath, 'utf-8'));
     const includeFiles = vercelConfig?.functions?.['api/index.ts']?.includeFiles || '';
     const hasFoodDb = includeFiles.includes('tumpang_food_db.json');
-    const hasShopDb = includeFiles.includes('tumpang_shop_db.json');
+    const hasNoShopDb = !includeFiles.includes('tumpang_shop_db.json');
     const hasConfig = includeFiles.includes('firebase-applet-config.json');
 
-    if (hasFoodDb && hasShopDb && hasConfig) {
+    if (hasFoodDb && hasNoShopDb && hasConfig) {
       record(
         'vercel.json Serverless Function Bundle',
         'CONFIG_VERIFIED',
         'PASSED',
-        'vercel.json memuat tumpang_food_db.json, tumpang_shop_db.json, dan firebase-applet-config.json secara lengkap.'
+        'vercel.json memuat tumpang_food_db.json dan firebase-applet-config.json, serta mengecualikan tumpang_shop_db.json secara tepat.'
       );
     } else {
       record(
         'vercel.json Serverless Function Bundle',
         'CONFIG_VERIFIED',
         'WARNING',
-        `IncludeFiles belum lengkap: ${includeFiles}`
+        `IncludeFiles config: ${includeFiles}`
       );
     }
   }
@@ -409,6 +267,10 @@ async function verifyAll() {
   console.log(`⚠️ Peringatan (WARN) : ${warnings}`);
   console.log(`❌ Gagal (FAILED)    : ${failed}`);
   console.log('======================================================================\n');
+
+  if (failed > 0) {
+    process.exit(1);
+  }
 }
 
 verifyAll().catch(err => {

@@ -214,19 +214,19 @@ async function runTests() {
       record('Master Authority', 'Akses Inspeksi Tugas Driver', false, e.message);
     }
 
-    // 2d. Can access Tumpang Shop Admin Orders
+    // 2d. Verify Shop endpoints are inaccessible / decommissioned
     try {
       const res = await fetch(`${BASE_URL}/api/shop/orders`, {
         headers: { 'Authorization': `Bearer ${masterAdminToken}` }
       });
       record(
-        'Master Authority',
-        'Akses Lintas Sistem ke Tumpang Shop',
-        res.status === 200,
-        `HTTP ${res.status} (Otoritas universal ke seluruh modul)`
+        'Modul Shop Decommissioned',
+        'Rute Shop dinonaktifkan (HTTP 404)',
+        res.status === 404,
+        `HTTP ${res.status} (Modul Shop tidak lagi aktif)`
       );
     } catch (e: any) {
-      record('Master Authority', 'Akses Lintas Sistem ke Tumpang Shop', false, e.message);
+      record('Modul Shop Decommissioned', 'Rute Shop dinonaktifkan', false, e.message);
     }
   }
 
@@ -405,12 +405,12 @@ async function runTests() {
       });
       record(
         'Admin Biasa Guard',
-        'Admin Biasa Ditolak dari Modul Shop',
-        res.status === 403,
-        `HTTP ${res.status} (Isolasi Food Admin vs Shop Admin bekerja)`
+        'Rute Shop dinonaktifkan untuk semua pengguna (HTTP 404)',
+        res.status === 404,
+        `HTTP ${res.status} (Modul Shop sepenuhnya tidak dapat diakses)`
       );
     } catch (e: any) {
-      record('Admin Biasa Guard', 'Admin Biasa Ditolak dari Modul Shop', false, e.message);
+      record('Admin Biasa Guard', 'Rute Shop dinonaktifkan', false, e.message);
     }
   }
 

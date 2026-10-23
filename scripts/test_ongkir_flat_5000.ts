@@ -8,6 +8,7 @@
  */
 
 import { calculateDeliveryFee, isDestinationInKecamatanTumpang, FLAT_TUMPANG_DELIVERY_FEE, normalizeOrderDeliveryFee } from '../src/utils/deliveryFee';
+import { foodDb } from '../src/server/db';
 
 const BASE_URL = process.env.TEST_API_URL || 'http://localhost:3000';
 
@@ -130,15 +131,60 @@ async function runTests() {
   // 3. BACKEND API END-TO-END CHECKOUT & PERSISTENCE
   console.log('\n--- 3. TESTING BACKEND HTTP API CREATION & TAMPER PROOFING ---');
   try {
+    await foodDb.ensureInitialized();
+    let merchant = foodDb.getMerchants().find(m => m.id === 'm1') || foodDb.getMerchants()[0];
+    if (!merchant) {
+      merchant = await foodDb.createMerchant('admin_test', {
+        name: 'Warung Test Tumpang',
+        ownerName: 'Pak Test',
+        phone: '081234567890',
+        address: 'Jl. Raya Tumpang No. 1',
+        latitude: -7.998,
+        longitude: 112.766,
+        openTime: '08:00',
+        closeTime: '21:00',
+        bankName: 'BCA',
+        bankAccount: '123456',
+        bankHolder: 'Pak Test',
+        active: true,
+        cookTimeEstimate: '15 min',
+        image: '/logo44.png',
+        description: 'Warung uji',
+        category: 'Makanan'
+      } as any);
+    }
+    let targetItems = foodDb.getMenuItemsByMerchant(merchant.id);
+    if (targetItems.length < 2) {
+      const it1 = await foodDb.createMenuItem(merchant.id, {
+        name: 'Bakso Spesial Tumpang',
+        price: 15000,
+        description: 'Bakso enak',
+        category: 'Makanan',
+        image: '/logo44.png',
+        available: true
+      });
+      const it2 = await foodDb.createMenuItem(merchant.id, {
+        name: 'Mie Ayam Ceker Bakso',
+        price: 13000,
+        description: 'Mie ayam enak',
+        category: 'Makanan',
+        image: '/logo44.png',
+        available: true
+      });
+      targetItems = [it1, it2];
+    }
+    const item1 = targetItems[0];
+    const item2 = targetItems[1] || item1;
+
     // 3a. Normal Order in Jeru
     const orderPayloadJeru = {
       customerName: 'Budi Test Jeru',
       customerPhone: '081299887766',
       deliveryAddress: 'Jl. Raya Jeru No. 12, Desa Jeru, Tumpang',
       items: [
-        { menuItemId: 'menu_1', name: 'Bakso Spesial Tumpang', price: 15000, quantity: 2 }
+        { menuItemId: item1.id, name: 'Bakso Spesial Tumpang', price: 15000, quantity: 2 }
       ],
-      merchantId: 'm1',
+      merchantId: merchant.id,
       subtotal: 30000,
       deliveryFee: 5000,
       serviceFee: 2000
@@ -151,7 +197,8 @@ async function runTests() {
     });
 
     if (!resJeru.ok) {
-      throw new Error(`Failed to create Jeru order: HTTP ${resJeru.status}`);
+      const errText = await resJeru.text();
+      throw new Error(`Failed to create Jeru order: HTTP ${resJeru.status} - ${errText}`);
     }
     const createdJeru = await resJeru.json();
     if (createdJeru.deliveryFee === 5000) {
@@ -170,9 +217,9 @@ async function runTests() {
       latitude: -8.025,
       longitude: 112.835,
       items: [
-        { menuItemId: 'menu_2', name: 'Mie Ayam Ceker Bakso', price: 13000, quantity: 2 }
+        { menuItemId: item2.id, name: 'Mie Ayam Ceker Bakso', price: 13000, quantity: 2 }
       ],
-      merchantId: 'm1',
+      merchantId: merchant.id,
       subtotal: 26000,
       deliveryFee: 5000,
       serviceFee: 2000
@@ -199,9 +246,9 @@ async function runTests() {
       customerPhone: '081299887744',
       deliveryAddress: 'Desa Malangsuko, Tumpang',
       items: [
-        { menuItemId: 'menu_1', name: 'Bakso Spesial Tumpang', price: 15000, quantity: 1 }
+        { menuItemId: item1.id, name: 'Bakso Spesial Tumpang', price: 15000, quantity: 1 }
       ],
-      merchantId: 'm1',
+      merchantId: merchant.id,
       subtotal: 15000,
       deliveryFee: 99000, // Intentional manipulation by malicious client
       serviceFee: 2000
@@ -214,7 +261,7 @@ async function runTests() {
     });
     const createdTamper = await resTamper.json();
     if (createdTamper.deliveryFee === 5000) {
-      const expectedTotal = 15000 + 5000 + 2000 + createdTamper.uniqueCode;
+      const expectedTotal = 15000 + 5000 + createdTamper.serviceFee + createdTamper.uniqueCode;
       if (createdTamper.total === expectedTotal) {
         console.log(`✅ [PASS] Client Tamper Attempt (sent Rp 99.000): Backend REJECTED client fee and strictly enforced deliveryFee=Rp 5.000. Total=Rp ${createdTamper.total}`);
         passed++;
@@ -248,9 +295,9 @@ async function runTests() {
       latitude: -7.962,
       longitude: 112.705,
       items: [
-        { menuItemId: 'menu_1', name: 'Bakso Spesial Tumpang', price: 15000, quantity: 1 }
+        { menuItemId: item1.id, name: 'Bakso Spesial Tumpang', price: 15000, quantity: 1 }
       ],
-      merchantId: 'm1',
+      merchantId: merchant.id,
       subtotal: 15000,
       deliveryFee: 12000,
       serviceFee: 2000

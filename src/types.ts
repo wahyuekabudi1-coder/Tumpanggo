@@ -82,6 +82,7 @@ export interface MenuItem {
   id: string;
   merchantId: string;
   categoryId: string;
+  category?: string;
   name: string;
   description: string;
   price: number;

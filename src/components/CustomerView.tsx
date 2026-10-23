@@ -5,7 +5,6 @@ import {
 import MapPicker from './MapPicker.tsx';
 import Logo from './Logo.tsx';
 import BannerCarousel from './BannerCarousel.tsx';
-import ShopMarketplaceView from './ShopMarketplaceView.tsx';
 import TumpangNiagaComingSoon from './TumpangNiagaComingSoon.tsx';
 import HiddenPortalBar from './HiddenPortalBar.tsx';
 import ErrorBoundary from './ErrorBoundary.tsx';
@@ -72,8 +71,8 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
     }
   }, [initialTab]);
   
-  // Home layout sub-view: 'main' (GoFood/ShopeeFood style landing) | 'food' (existing food view) | 'taxi' (Taksi Lokal view) | 'shop' (Tumpang Shop view) | 'pay' (Tumpang Pay view) | 'bike' (Tumpang Bike coming soon)
-  const [homeSubView, setHomeSubView] = useState<'main' | 'food' | 'taxi' | 'shop' | 'pay' | 'bike'>('main');
+  // Home layout sub-view: 'main' (GoFood/ShopeeFood style landing) | 'food' (existing food view) | 'taxi' (Taksi Lokal view) | 'niaga' (Tumpang Niaga Coming Soon) | 'pay' (Tumpang Pay view) | 'bike' (Tumpang Bike coming soon)
+  const [homeSubView, setHomeSubView] = useState<'main' | 'food' | 'taxi' | 'niaga' | 'pay' | 'bike'>('main');
 
   // Menentukan apakah pengguna sedang berada di dalam alur / layout layanan Tumpang Food
   const isTumpangFoodFlow = 
@@ -88,8 +87,6 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
   const [notifyBikeSubmitted, setNotifyBikeSubmitted] = useState<boolean>(false);
   const [notifyTaxiPhone, setNotifyTaxiPhone] = useState<string>('');
   const [notifyTaxiSubmitted, setNotifyTaxiSubmitted] = useState<boolean>(false);
-  const [notifyShopPhone, setNotifyShopPhone] = useState<string>('');
-  const [notifyShopSubmitted, setNotifyShopSubmitted] = useState<boolean>(false);
 
   // Tumpang Pay States
   const [payBalance, setPayBalance] = useState<number>(() => {
@@ -186,39 +183,6 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
     }
   });
 
-  // Tumpang Shop States
-  const [shopCart, setShopCart] = useState<{ id: string; name: string; price: number; qty: number }[]>([]);
-  const [shopSearch, setShopSearch] = useState<string>('');
-  const [shopCategory, setShopCategory] = useState<string>('all');
-  const [shopBookingStatus, setShopBookingStatus] = useState<'idle' | 'success'>('idle');
-  const [shopCustomerName, setShopCustomerName] = useState<string>('');
-  const [shopCustomerPhone, setShopCustomerPhone] = useState<string>('');
-  const [shopCustomerAddress, setShopCustomerAddress] = useState<string>('');
-
-  const TUMPANG_SHOP_ITEMS: { id: string; name: string; price: number; category: string; description: string; image: string }[] = [];
-
-  const handleAddToShopCart = (item: { id: string; name: string; price: number; category?: string; description?: string; image?: string }) => {
-    setShopCart(prev => {
-      const existing = prev.find(i => i.id === item.id);
-      if (existing) {
-        return prev.map(i => i.id === item.id ? { ...i, qty: i.qty + 1 } : i);
-      }
-      return [...prev, { id: item.id, name: item.name, price: item.price, qty: 1 }];
-    });
-  };
-
-  const handleDecreaseShopCart = (itemId: string) => {
-    setShopCart(prev => {
-      const safePrev = Array.isArray(prev) ? prev : [];
-      const existing = safePrev.find(i => i && i.id === itemId);
-      if (existing && existing.qty > 1) {
-        return safePrev.map(i => i.id === itemId ? { ...i, qty: i.qty - 1 } : i);
-      }
-      return safePrev.filter(i => i && i.id !== itemId);
-    });
-  };
-
-  const shopCartTotal = shopCart.reduce((acc, curr) => acc + (curr.price * curr.qty), 0);
 
   // Pusat Bantuan Direct Action
   const handleOpenHelpCenter = () => {
@@ -1472,7 +1436,7 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
       '--color-rose-800': '#92400E',
       '--color-rose-900': '#78350F',
     } as React.CSSProperties;
-  } else if (homeSubView === 'shop') {
+  } else if (homeSubView === 'niaga') {
     activeThemeStyles = {
       '--color-rose-50': '#EFF6FF',
       '--color-rose-100': '#DBEAFE',
@@ -1514,7 +1478,7 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
           installBtnClass: 'bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-white shadow-md shadow-amber-500/30 ring-2 ring-amber-500/30',
           badgeText: '',
         };
-      case 'shop':
+      case 'niaga':
         return {
           borderClass: 'border-b-4 border-[#0F82FF] shadow-lg shadow-blue-600/30',
           badgeClass: 'bg-blue-50 text-blue-800 border-blue-200',
@@ -1969,8 +1933,8 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
 
                     {/* 3. Tumpang Niaga Menu */}
                     <button
-                      id="btn-main-menu-shop"
-                      onClick={() => setHomeSubView('shop')}
+                      id="btn-main-menu-niaga"
+                      onClick={() => setHomeSubView('niaga')}
                       className="flex flex-col items-center gap-1.5 cursor-pointer group active:scale-95 transition-all"
                     >
                       <div className="relative">
@@ -2612,21 +2576,6 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
                 <p className="text-[10px] text-amber-600 font-bold uppercase mt-0.5 tracking-wider">Layanan Taksi Mobil Nyaman Kecamatan Tumpang</p>
               </div>
 
-              {/* Progress Bar */}
-              <div className="bg-amber-50/50 rounded-2xl p-4 border border-amber-100/50 flex flex-col gap-2">
-                <div className="flex justify-between items-center text-[10px] font-extrabold text-slate-500 uppercase tracking-wider">
-                  <span>Progress Peluncuran:</span>
-                  <span className="text-amber-700">88% Selesai</span>
-                </div>
-                <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
-                  <div className="bg-gradient-to-r from-amber-500 to-yellow-500 h-full rounded-full w-[88%] animate-pulse"></div>
-                </div>
-                <div className="flex justify-between text-[10px] font-medium text-slate-400 mt-0.5">
-                  <span>Tahap Sertifikasi Armada</span>
-                  <span>Est. Peluncuran: 18 Hari Lagi</span>
-                </div>
-              </div>
-
               {/* Highlights */}
               <div className="flex flex-col gap-3">
                 <h5 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Kenapa Memilih Tumpang Taxi?</h5>
@@ -2701,7 +2650,7 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
         )}
 
         {/* Tumpang Niaga - Coming Soon Teaser View */}
-        {homeSubView === 'shop' && (
+        {homeSubView === 'niaga' && (
           <TumpangNiagaComingSoon onBackToMain={() => setHomeSubView('main')} />
         )}
 
@@ -2740,21 +2689,6 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
                 </div>
                 <h4 className="font-display font-black text-base text-slate-800 uppercase tracking-tight">Tumpang Bike</h4>
                 <p className="text-[10px] text-emerald-600 font-bold uppercase mt-0.5 tracking-wider">Layanan Ojek Motor Masa Depan Tumpang</p>
-              </div>
-
-              {/* Countdown Simulator */}
-              <div className="bg-emerald-50/50 rounded-2xl p-4 border border-emerald-100/50 flex flex-col gap-2">
-                <div className="flex justify-between items-center text-[10px] font-extrabold text-slate-500 uppercase tracking-wider">
-                  <span>Progress Peluncuran:</span>
-                  <span className="text-emerald-700">92% Selesai</span>
-                </div>
-                <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
-                  <div className="bg-gradient-to-r from-emerald-500 to-green-500 h-full rounded-full w-[92%] animate-pulse"></div>
-                </div>
-                <div className="flex justify-between text-[10px] font-medium text-slate-400 mt-0.5">
-                  <span>Tahap Pengujian Driver</span>
-                  <span>Est. Peluncuran: 12 Hari Lagi</span>
-                </div>
               </div>
 
               {/* Highlights */}
@@ -3303,7 +3237,7 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
               Kembali
             </button>
 
-            {/* Shop Details Card */}
+            {/* Merchant Store Details Card */}
             <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
               <div className="w-full h-32 bg-slate-100 relative">
                 <img 

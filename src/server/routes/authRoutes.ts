@@ -38,7 +38,7 @@ authRouter.post(['/login', '/auth/login'], async (req: Request, res: Response) =
     // 0. MASTER ACCOUNT (SUPER ADMIN) LOGIN
     // Highest global authority: tumpanggo@gmail.com and suaiimokeras@gmail.com
     // Recognized by backend before checking merchant or driver tables.
-    // Can enter through Customer, Merchant, Driver, Admin, or Shop portals.
+    // Can enter through Customer, Merchant, Driver, or Admin portals.
     const isMasterUser = isMasterAdminEmail(cleanUser);
 
     if (isMasterUser) {
@@ -140,7 +140,7 @@ authRouter.post(['/login', '/auth/login'], async (req: Request, res: Response) =
           activeMerchantId: firstMerchant?.id || '',
           activeDriverId: firstDriver?.id || ''
         },
-        availablePortals: ['ADMIN', 'MERCHANT', 'DRIVER', 'CUSTOMER', 'SHOP_ADMIN']
+        availablePortals: ['ADMIN', 'MERCHANT', 'DRIVER', 'CUSTOMER']
       });
     }
 
@@ -480,7 +480,7 @@ authRouter.get(['/me', '/auth/me'], (req: Request, res: Response) => {
       activeMerchantId: firstMerchant?.id || '',
       activeDriverId: firstDriver?.id || ''
     },
-    availablePortals: isMaster ? ['ADMIN', 'MERCHANT', 'DRIVER', 'CUSTOMER', 'SHOP_ADMIN'] : [user.role]
+    availablePortals: isMaster ? ['ADMIN', 'MERCHANT', 'DRIVER', 'CUSTOMER'] : [user.role]
   });
 });
 

@@ -17,7 +17,7 @@ export interface CreatePaymentIntentParams {
   customerName: string;
   customerPhone: string;
   customerEmail?: string;
-  serviceType: 'FOOD' | 'SHOP';
+  serviceType?: 'FOOD';
   description?: string;
   expiryMinutes?: number;
   callbackUrl?: string;
@@ -52,7 +52,7 @@ export interface PaymentIntentResult {
   id: string;
   paymentIntentId: string;
   orderId: string;
-  serviceType: 'FOOD' | 'SHOP';
+  serviceType: 'FOOD';
   amount: number;
   currency: string;
   checkoutUrl: string;
@@ -79,7 +79,7 @@ export interface ArtoPayWebhookPayload {
     id?: string;
     orderId?: string;
     referenceId?: string;
-    serviceType?: 'FOOD' | 'SHOP';
+    serviceType?: 'FOOD';
     amount?: number | string;
     currency?: string;
     status: 'PAID' | 'SUCCESS' | 'SETTLED' | 'PENDING' | 'FAILED' | 'EXPIRED' | 'CANCELLED';
@@ -92,7 +92,7 @@ export interface ArtoPayWebhookPayload {
   id?: string;
   orderId?: string;
   referenceId?: string;
-  serviceType?: 'FOOD' | 'SHOP';
+  serviceType?: 'FOOD';
   amount?: number | string;
   currency?: string;
   status?: string;
@@ -638,7 +638,7 @@ export class ArtoPayService {
 
 export interface ProcessArtoPayPaymentParams {
   orderId: string;
-  serviceType: 'FOOD' | 'SHOP';
+  serviceType?: 'FOOD';
   customerPhone?: string;
   autoRedirect?: boolean;
   onSuccess?: (result: any) => void;

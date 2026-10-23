@@ -11,7 +11,6 @@ import AdminView from './components/AdminView.tsx';
 import AuthModal from './components/AuthModal.tsx';
 import PortalLogin from './components/PortalLogin.tsx';
 import MerchantRegisterPage from './components/MerchantRegisterPage.tsx';
-import ShopAdminView from './components/ShopAdminView.tsx';
 import ErrorBoundary from './components/ErrorBoundary.tsx';
 import MasterPortalBar from './components/MasterPortalBar.tsx';
 import EvaluationWorkspace from './components/EvaluationWorkspace.tsx';
@@ -23,7 +22,7 @@ import { ShieldAlert, Key, HelpCircle, Store, Navigation, ChevronRight } from 'l
 import { useSEO } from './hooks/useSEO.ts';
 
 export default function App() {
-  const [currentRole, setCurrentRole] = useState<'CUSTOMER' | 'MERCHANT' | 'DRIVER' | 'ADMIN' | 'SHOP_ADMIN'>(() => {
+  const [currentRole, setCurrentRole] = useState<'CUSTOMER' | 'MERCHANT' | 'DRIVER' | 'ADMIN'>(() => {
     if (typeof window !== 'undefined') {
       const pathname = window.location.pathname.toLowerCase();
       if (pathname === '/merchant' || pathname.startsWith('/merchant/')) {
@@ -38,12 +37,12 @@ export default function App() {
 
       const params = new URLSearchParams(window.location.search);
       const roleParam = params.get('role')?.toUpperCase();
-      if (roleParam && ['CUSTOMER', 'MERCHANT', 'DRIVER', 'ADMIN', 'SHOP_ADMIN'].includes(roleParam)) {
+      if (roleParam && ['CUSTOMER', 'MERCHANT', 'DRIVER', 'ADMIN'].includes(roleParam)) {
         return roleParam as any;
       }
       const isMaster = safeStorage.getItem('tumpang_is_master') === 'true' || safeStorage.getItem('tumpang_auth_role') === 'MASTER_ADMIN';
       const savedPortal = safeStorage.getItem('tumpang_current_portal');
-      if (isMaster && savedPortal && ['CUSTOMER', 'MERCHANT', 'DRIVER', 'ADMIN', 'SHOP_ADMIN'].includes(savedPortal)) {
+      if (isMaster && savedPortal && ['CUSTOMER', 'MERCHANT', 'DRIVER', 'ADMIN'].includes(savedPortal)) {
         return savedPortal as any;
       }
     }
@@ -60,9 +59,7 @@ export default function App() {
       ? 'Dashboard Admin – TumpangGo Internal'
       : currentRole === 'DRIVER'
         ? 'Portal Driver – TumpangGo Internal'
-        : currentRole === 'SHOP_ADMIN'
-          ? 'Shop Admin – TumpangGo Internal'
-          : undefined
+        : undefined
   });
 
   // Dynamic PWA Manifest Synchronization based on active role
@@ -127,9 +124,7 @@ export default function App() {
     const idParam = params.get('id') || params.get('merchantId') || params.get('driverId');
     const demoParam = params.get('demo') || params.get('dev');
 
-    if (page === 'shop-admin' || roleParam === 'SHOP_ADMIN' || roleParam === 'SHOP-ADMIN' || roleParam === 'SHOPADMIN') {
-      setCurrentRole('SHOP_ADMIN');
-    } else if (roleParam && ['CUSTOMER', 'MERCHANT', 'DRIVER', 'ADMIN', 'SHOP_ADMIN'].includes(roleParam)) {
+    if (roleParam && ['CUSTOMER', 'MERCHANT', 'DRIVER', 'ADMIN'].includes(roleParam)) {
       setCurrentRole(roleParam as any);
       if (roleParam === 'MERCHANT') {
         if (idParam) setActiveMerchantId(idParam);
@@ -351,7 +346,7 @@ export default function App() {
     }
   }, [isMasterAdmin, currentRole, activeDriverId, verifiedEmail, drivers]);
 
-  const handleRoleSelection = (role: 'CUSTOMER' | 'MERCHANT' | 'DRIVER' | 'ADMIN' | 'SHOP_ADMIN', id?: string, initialTab?: 'login' | 'register', email?: string) => {
+  const handleRoleSelection = (role: 'CUSTOMER' | 'MERCHANT' | 'DRIVER' | 'ADMIN', id?: string, initialTab?: 'login' | 'register', email?: string) => {
     setCurrentRole(role);
     safeStorage.setItem('tumpang_current_portal', role);
     if (email) {
@@ -839,14 +834,6 @@ export default function App() {
               onCancel={() => setCurrentRole('CUSTOMER')} 
             />
           )
-        )}
-
-        {currentRole === 'SHOP_ADMIN' && (
-          <ErrorBoundary fallbackTitle="Kendala Memuat Admin Toko">
-            <ShopAdminView 
-              onBackToCustomer={() => setCurrentRole('CUSTOMER')} 
-            />
-          </ErrorBoundary>
         )}
       </div>
 

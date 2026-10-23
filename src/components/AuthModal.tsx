@@ -4,7 +4,7 @@ import { apiFetch as fetch } from '../utils/apiClient.ts';
 import { ShieldCheck, Store, Navigation, User, X, Key, Info } from 'lucide-react';
 
 interface AuthModalProps {
-  onSelectRole: (role: 'CUSTOMER' | 'MERCHANT' | 'DRIVER' | 'ADMIN' | 'SHOP_ADMIN', id?: string) => void;
+  onSelectRole: (role: 'CUSTOMER' | 'MERCHANT' | 'DRIVER' | 'ADMIN', id?: string) => void;
   onClose: () => void;
   currentRole: string;
 }
@@ -104,27 +104,6 @@ export default function AuthModal({ onSelectRole, onClose, currentRole }: AuthMo
             <div className="flex flex-col min-w-0 flex-1">
               <span className="font-bold text-slate-800 text-xs">Administrator</span>
               <span className="text-[10px] text-slate-400 mt-0.5">Verifikasi QRIS, atur kurir, atur pencairan dana</span>
-            </div>
-          </button>
-
-          {/* 3. SHOP ADMIN (TUMPANG NIAGA) */}
-          <button
-            onClick={() => {
-              onSelectRole('SHOP_ADMIN');
-              onClose();
-            }}
-            className={`p-3.5 rounded-xl border text-left flex items-center gap-3.5 transition-all cursor-pointer ${
-              currentRole === 'SHOP_ADMIN'
-                ? 'bg-blue-50 border-blue-300 shadow-md shadow-blue-50/15'
-                : 'bg-white border-slate-200 hover:bg-slate-50'
-            }`}
-          >
-            <div className={`p-2.5 rounded-xl ${currentRole === 'SHOP_ADMIN' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600'}`}>
-              <Store className="w-5 h-5" />
-            </div>
-            <div className="flex flex-col min-w-0 flex-1">
-              <span className="font-bold text-slate-800 text-xs">Admin Tumpang Niaga</span>
-              <span className="text-[10px] text-slate-400 mt-0.5">Kelola stok produk, pesanan, verifikasi & kargo</span>
             </div>
           </button>
 

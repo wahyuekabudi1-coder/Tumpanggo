@@ -158,7 +158,7 @@ export default function AdminView({ onLogout, systemConfig, onUpdateConfig, onSe
   };
 
   const handleExecuteCleanSlate = async () => {
-    if (!window.confirm('PERINGATAN FINAL MASTER ADMIN:\n\nApakah Anda yakin ingin menghapus SELURUH data dummy/testing di database produksi Firestore (tumpanggo-70479)?\n\nData yang dibersihkan:\n• Merchant/toko contoh & menu makanan terkait\n• Pendaftaran merchant dummy\n• Pesanan/order dummy & data testing terkait\n• Transaksi/settlement dummy testing\n\nSistem akan secara otomatis membuat backup cloud terlebih dahulu di Firestore sebelum penghapusan.\n\nKategori menu, Akun Master Admin, Driver, dan Tumpang Shop TETAP DIPERTAHANKAN.')) {
+    if (!window.confirm('PERINGATAN FINAL MASTER ADMIN:\n\nApakah Anda yakin ingin menghapus SELURUH data dummy/testing di database produksi Firestore (tumpanggo-70479)?\n\nData yang dibersihkan:\n• Merchant/toko contoh & menu makanan terkait\n• Pendaftaran merchant dummy\n• Pesanan/order dummy & data testing terkait\n• Transaksi/settlement dummy testing\n\nSistem akan secara otomatis membuat backup cloud terlebih dahulu di Firestore sebelum penghapusan.\n\nKategori menu, Akun Master Admin, dan Driver TETAP DIPERTAHANKAN.')) {
       return;
     }
     setExecutingCleanSlate(true);
@@ -2084,7 +2084,7 @@ export default function AdminView({ onLogout, systemConfig, onUpdateConfig, onSe
                 </div>
 
                 <div className="p-2.5 bg-emerald-50 text-emerald-800 rounded-lg text-[11px] leading-relaxed">
-                  🛡️ <strong>Data Terlindungi &amp; Dipertahankan:</strong> Kategori Menu (<strong>{cleanSlatePlan?.toPreserve?.categoriesCount ?? 0} kategori tetap utuh</strong>), Akun Master Admin (<code className="font-mono text-[10px]">tumpanggo@gmail.com</code>), Mitra Driver &amp; Pendaftaran Driver, Testimoni Pengguna, dan Marketplace Tumpang Shop <strong>TIDAK AKAN DIHAPUS</strong>.
+                  🛡️ <strong>Data Terlindungi &amp; Dipertahankan:</strong> Kategori Menu (<strong>{cleanSlatePlan?.toPreserve?.categoriesCount ?? 0} kategori tetap utuh</strong>), Akun Master Admin (<code className="font-mono text-[10px]">tumpanggo@gmail.com</code>), Mitra Driver &amp; Pendaftaran Driver, dan Testimoni Pengguna <strong>TIDAK AKAN DIHAPUS</strong>.
                 </div>
               </div>
 
@@ -2121,7 +2121,7 @@ export default function AdminView({ onLogout, systemConfig, onUpdateConfig, onSe
                   <div className="text-[11px] text-emerald-800 space-y-0.5">
                     <div>• ID Backup Cloud: <code className="font-mono bg-white px-1.5 py-0.5 rounded border border-emerald-300 font-bold">{cleanSlateResult.cloudBackupId || 'Tersimpan'}</code></div>
                     <div>• Dokumen Dihapus: {cleanSlateResult.purged?.merchants || 0} merchant, {cleanSlateResult.purged?.menuItems || 0} item menu, {cleanSlateResult.purged?.merchantRegistrations || 0} pendaftaran mitra, {cleanSlateResult.purged?.orders || 0} pesanan dummy, {cleanSlateResult.purged?.settlements || 0} settlement.</div>
-                    <div>• Data Dipertahankan: {cleanSlateResult.preserved?.categories ?? cleanSlatePlan?.toPreserve?.categoriesCount ?? 0} kategori menu, akun master admin, driver, dan Tumpang Shop.</div>
+                    <div>• Data Dipertahankan: {cleanSlateResult.preserved?.categories ?? cleanSlatePlan?.toPreserve?.categoriesCount ?? 0} kategori menu, akun master admin, dan driver.</div>
                   </div>
                 </div>
               )}

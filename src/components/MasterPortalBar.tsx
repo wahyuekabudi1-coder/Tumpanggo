@@ -16,12 +16,12 @@ import {
 import { apiFetch as fetch } from '../utils/apiClient';
 
 interface MasterPortalBarProps {
-  currentRole: 'CUSTOMER' | 'MERCHANT' | 'DRIVER' | 'ADMIN' | 'SHOP_ADMIN';
+  currentRole: 'CUSTOMER' | 'MERCHANT' | 'DRIVER' | 'ADMIN';
   activeMerchantId?: string;
   activeDriverId?: string;
   merchants: any[];
   drivers: any[];
-  onSelectRole: (role: 'CUSTOMER' | 'MERCHANT' | 'DRIVER' | 'ADMIN' | 'SHOP_ADMIN', entityId?: string) => void;
+  onSelectRole: (role: 'CUSTOMER' | 'MERCHANT' | 'DRIVER' | 'ADMIN', entityId?: string) => void;
   onSelectMerchant: (merchantId: string) => void;
   onSelectDriver: (driverId: string) => void;
   onLogout: () => void;
@@ -165,7 +165,6 @@ export const MasterPortalBar: React.FC<MasterPortalBarProps> = ({
                 {currentRole === 'ADMIN' && 'Admin Tumpang Food'}
                 {currentRole === 'MERCHANT' && 'Portal Merchant Toko'}
                 {currentRole === 'DRIVER' && 'Portal Driver Kurir'}
-                {currentRole === 'SHOP_ADMIN' && 'Shop Admin'}
                 {currentRole === 'CUSTOMER' && 'Mode Pratinjau Pelanggan'}
               </span>
             </div>
@@ -246,19 +245,6 @@ export const MasterPortalBar: React.FC<MasterPortalBarProps> = ({
               >
                 <Bike className="w-3.5 h-3.5" />
                 <span>Driver</span>
-              </button>
-
-              {/* 4. Shop Admin */}
-              <button
-                onClick={() => onSelectRole('SHOP_ADMIN')}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex-shrink-0 ${
-                  currentRole === 'SHOP_ADMIN'
-                    ? 'bg-amber-500 text-slate-950 shadow-md shadow-amber-500/20'
-                    : 'bg-slate-800/80 hover:bg-slate-800 text-slate-300 hover:text-white border border-slate-700/60'
-                }`}
-              >
-                <ShoppingBag className="w-3.5 h-3.5" />
-                <span>Tumpang Shop</span>
               </button>
 
               {/* 5. Customer View */}

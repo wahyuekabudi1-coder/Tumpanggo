@@ -2,7 +2,7 @@
  * @license
  * SPDX-License-Identifier: Apache-2.0
  * 
- * Tumpang Food & Shop Unified Safe API Client
+ * Tumpang Safe API Client
  * Wraps browser native fetch safely WITHOUT modifying window.fetch.
  * Automatically injects authentication tokens and headers for protected endpoints.
  */
@@ -22,7 +22,7 @@ export function getApiBaseUrl(): string {
 }
 
 export async function apiFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
-  const token = safeStorage.getItem('tumpang_auth_token') || safeStorage.getItem('tumpang_shop_token');
+  const token = safeStorage.getItem('tumpang_auth_token');
   const email = safeStorage.getItem('tumpang_auth_email');
 
   let urlString = '';

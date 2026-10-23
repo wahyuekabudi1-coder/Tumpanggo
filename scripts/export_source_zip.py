@@ -3,28 +3,36 @@ import zipfile
 
 def export_zip():
     root_dir = os.path.abspath(os.getcwd())
-    output_zip = os.path.join(root_dir, 'public', 'tumpanggo-ereceipt-source.zip')
+    output_zip = os.path.join(root_dir, 'public', 'tumpanggo-source.zip')
     
     exclude_dirs = {
         'node_modules',
         'dist',
         '.git',
         '.cache',
-        '.aistudio'
+        '.aistudio',
+        '.turbo'
     }
     
     exclude_extensions = {
         '.log',
-        '.tmp'
+        '.tmp',
+        '.bundle',
+        '.patch',
+        '.tgz',
+        '.zip'
     }
     
     exclude_files = {
         '.env',
         '.env.local',
+        '.master_recovery_token',
+        '.DS_Store',
+        'tumpanggo-source.zip',
         'tumpanggo-ereceipt-source.zip'
     }
 
-    print(f"📦 Packaging TumpangGo source archive to: {output_zip}")
+    print(f"📦 Packaging TumpangGo clean source archive to: {output_zip}")
     
     file_count = 0
     total_bytes = 0
@@ -39,9 +47,7 @@ def export_zip():
                     continue
                 if any(f.endswith(ext) for ext in exclude_extensions):
                     continue
-                if 'backup.json' in f:
-                    continue
-                if f.endswith('.zip') and dirpath == os.path.join(root_dir, 'public'):
+                if 'backup.json' in f or 'shop_db' in f:
                     continue
                     
                 full_path = os.path.join(dirpath, f)
@@ -53,6 +59,7 @@ def export_zip():
                 
     zip_size_mb = os.path.getsize(output_zip) / (1024 * 1024)
     print(f"✅ Source ZIP created successfully: {file_count} files, {total_bytes / (1024 * 1024):.2f} MB raw, {zip_size_mb:.2f} MB compressed.")
+    print(f"📁 Downloadable path: /tumpanggo-source.zip")
 
 if __name__ == '__main__':
     export_zip()

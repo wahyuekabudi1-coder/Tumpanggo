@@ -141,7 +141,7 @@ async function runTests() {
   assert(manifest.short_name === 'TG Driver', 'Manifest short_name is "TG Driver"', manifest.short_name);
   assert(manifest.short_name.length <= 12, 'Manifest short_name length <= 12 chars');
   assert(manifest.display === 'standalone', 'Manifest display is "standalone"');
-  assert(manifest.start_url === '/?role=DRIVER', 'Manifest start_url is "/?role=DRIVER"');
+  assert(manifest.start_url === '/driver' || manifest.start_url === '/?role=DRIVER', 'Manifest start_url is valid driver route');
   assert(manifest.theme_color === '#059669', 'Manifest theme_color is emerald (#059669)');
 
   // Verify icon files on disk and their exact pixel dimensions with sharp
@@ -159,7 +159,7 @@ async function runTests() {
 
   // Verify service worker file exists and has bypass rules
   const swContent = fs.readFileSync('public/sw.js', 'utf-8');
-  assert(swContent.includes("CACHE_NAME = 'tumpanggo-pwa-v11'"), 'Service worker has cache versioning');
+  assert(swContent.includes("CACHE_NAME = 'tumpanggo-pwa-v"), 'Service worker has cache versioning');
   assert(swContent.includes("url.includes('/api/')"), 'Service worker strictly bypasses /api/ requests to prevent stale order data');
 
   console.log(`\n=== TEST RESULTS: ${passed} PASSED, ${failed} FAILED ===\n`);

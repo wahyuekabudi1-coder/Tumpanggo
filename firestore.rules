@@ -57,30 +57,6 @@ service cloud.firestore {
     match /testimonials/{testimonialId} {
       allow read, write: if false;
     }
-
-    // 3. Isolated Tumpang Shop Collections (Denied from direct untrusted browser access)
-    match /shop_config/{configId} {
-      allow read, write: if false;
-    }
-
-    match /shop_categories/{categoryId} {
-      allow read, write: if false;
-    }
-
-    match /shop_products/{productId} {
-      allow read, write: if false;
-    }
-
-    match /shop_orders/{orderId} {
-      allow read, write: if false;
-    }
-
-    match /shop_audit_logs/{logId} {
-      allow read, write: if false;
-    }
-
-    match /shop_shipments/{shipmentId} {
-      allow read, write: if false;
-    }
   }
 }
+

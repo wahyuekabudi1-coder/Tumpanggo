@@ -235,7 +235,7 @@ async function runModalAuthTestSuite() {
   sdk.openPayment({
     secret: 'pi_sec_prod_999888',
     paymentId: 'pi_prod_tx_555444',
-    orderId: 'ord_shop_prod_2002',
+    orderId: 'ord_food_prod_2002',
     customerToken: 'ct_tok_prod_333222',
     publicKey: 'pk_live_merchant_prod_777',
     sandbox: false
