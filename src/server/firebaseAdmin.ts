@@ -93,3 +93,68 @@ export interface ParsedServiceAccount {
   client_id?: string;
   [key: string]: any;
 }
+
+export interface ParseServiceAccountResult {
+  account: ParsedServiceAccount | null;
+  reason: DiagnosticReason;
+  error?: string;
+  remediation?: string;
+  projectId?: string;
+  clientEmailMasked?: string;
+}
+
+/**
+ * Safely sanitizes error messages so private keys, tokens, or sensitive values are never logged or exposed.
+ */
+function sanitizeErrorMessage(msg: string): string {
+  if (!msg || typeof msg !== 'string') return 'Unknown error';
+  return msg
+    .replace(/-----BEGIN[^-]+-----[\s\S]+?-----END[^-]+-----/g, '[PROTECTED_PRIVATE_KEY]')
+    .replace(/(private_key|token|secret|password)["']?\s*[:=]\s*["']?[^"',\s}]+/gi, '$1: [REDACTED]')
+    .replace(/(\/Users\/|\/home\/|\/var\/task\/)[^\s:]+/g, '[system-path]');
+}
+
+/**
+ * Safely masks an email address (e.g. fir***@tumpanggo-70479.iam.gserviceaccount.com)
+ */
+export function maskClientEmail(email: string): string {
+  if (!email || !email.includes('@')) return 'configured_account';
+  const parts = email.split('@');
+  const user = parts[0];
+  const domain = parts[1];
+  const visibleLen = Math.min(3, user.length);
+  return `${user.substring(0, visibleLen)}***@${domain}`;
+}
+
+/**
+ * Reads expected target project ID from config or environment.
+ */
+export function getExpectedProjectId(): string {
+  let expected = (process.env.FIREBASE_PROJECT_ID || process.env.GCP_PROJECT || '').trim();
+  if (!expected) {
+    try {
+      const configPath = path.join(process.cwd(), 'firebase-applet-config.json');
+      if (fs.existsSync(configPath)) {
+        const raw = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+        if (raw.projectId) expected = raw.projectId.trim();
+      }
+    } catch {}
+  }
+  return expected || 'tumpanggo-70479';
+}
+
+/**
+ * Safely parses and normalizes Service Account credentials from environment variables.
+ * Handles:
+ * - Direct JSON string
+ * - Surrounding single or double quotes (common in Vercel UI copy-paste)
+ * - Base64 encoded JSON string
+ * - Escaped newline characters in private_key (\\n -> \n)
+ * - File reading fallback for GOOGLE_APPLICATION_CREDENTIALS
+ * Validates project_id match against expected target project.
+ * Never logs or exposes private_key.
+ */
+export function parseServiceAccountKey(rawInput: string, expectedProjectId?: string): ParseServiceAccountResult {
+  if (!rawInput || typeof rawInput !== 'string' || rawInput.trim().length === 0) {
+    return {
+      account: null,
