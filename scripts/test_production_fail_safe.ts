@@ -21,6 +21,41 @@ async function testProductionFailSafe() {
   console.log('🧪 PENGUJIAN FAIL-SAFE PRODUKSI & KONTRAK PESANAN BARU');
   console.log('======================================================================\n');
 
+  await foodDb.ensureInitialized();
+  let testMerchant = foodDb.getMerchants()[0];
+  if (!testMerchant) {
+    testMerchant = await foodDb.createMerchant('admin', {
+      name: 'Warung Tumpang Barokah',
+      ownerName: 'Ibu Siti',
+      phone: '081234567891',
+      address: 'Jl. Raya Tumpang No. 10',
+      latitude: -7.9942,
+      longitude: 112.7667,
+      openTime: '08:00',
+      closeTime: '21:00',
+      bankName: 'BCA',
+      bankAccount: '123456789',
+      bankHolder: 'Ibu Siti',
+      active: true,
+      cookTimeEstimate: '15-30 min',
+      image: '/logo44.png',
+      description: 'Spesial Soto & Rawon Khas Tumpang',
+      category: 'Kuliner Nusantara'
+    });
+  }
+  let menuItems = foodDb.getMenuItemsByMerchant(testMerchant.id);
+  let testMenuItem = menuItems[0];
+  if (!testMenuItem) {
+    testMenuItem = await foodDb.createMenuItem(testMerchant.id, {
+      categoryId: 'cat_default',
+      name: 'Soto Daging Tumpang',
+      description: 'Soto hangat gurih dengan rempah asli',
+      price: 15000,
+      available: true,
+      image: '/logo44.png'
+    });
+  }
+
   // Temporarily simulate strict production environment
   const originalIsProduction = foodConfig.isProduction;
   const originalNodeEnv = process.env.NODE_ENV;
@@ -58,14 +93,14 @@ async function testProductionFailSafe() {
 
     try {
       await foodDb.createOrder({
-        merchantId: 'm1',
+        merchantId: testMerchant.id,
         customerName: 'Fail-Safe Write Tester',
         customerPhone: dynamicPhone1,
         deliveryAddress: 'Jl. Raya Tumpang No. 10, Tumpang',
         latitude: -7.9812,
         longitude: 112.6315,
         preOrderDate: '2026-10-25', // Client attempts to send preOrderDate
-        items: [{ menuItemId: 'menu_1', quantity: 1 }]
+        items: [{ menuItemId: testMenuItem.id, quantity: 1 }]
       });
       console.error('❌ [FAIL] Skenario 1: createOrder seharusnya ditolak jika cloud write gagal!');
       process.exit(1);
@@ -110,14 +145,14 @@ async function testProductionFailSafe() {
 
     try {
       await foodDb.createOrder({
-        merchantId: 'm1',
+        merchantId: testMerchant.id,
         customerName: 'Fail-Safe IAM Tester',
         customerPhone: dynamicPhone2,
         deliveryAddress: 'Jl. Raya Tumpang No. 20, Tumpang',
         latitude: -7.9812,
         longitude: 112.6315,
         preOrderDate: '2026-10-25',
-        items: [{ menuItemId: 'menu_1', quantity: 1 }]
+        items: [{ menuItemId: testMenuItem.id, quantity: 1 }]
       });
       console.error('❌ [FAIL] Skenario 2: createOrder seharusnya ditolak pada mode produksi jika koneksi cloud gagal!');
       process.exit(1);
@@ -157,14 +192,14 @@ async function testProductionFailSafe() {
 
     const dynamicPhone3 = '0812' + Math.floor(10000000 + Math.random() * 90000000);
     const testOrderWithPreOrderInput = await foodDb.createOrder({
-      merchantId: 'm1',
+      merchantId: testMerchant.id,
       customerName: 'Tester PreOrder Ignored',
       customerPhone: dynamicPhone3,
       deliveryAddress: 'Jl. Raya Tumpang No. 30, Tumpang',
       latitude: -7.9812,
       longitude: 112.6315,
       preOrderDate: '2026-11-01', // Client sends legacy preOrderDate
-      items: [{ menuItemId: 'menu_1', quantity: 1 }]
+      items: [{ menuItemId: testMenuItem.id, quantity: 1 }]
     });
 
     const hasPreOrderDate = Object.prototype.hasOwnProperty.call(testOrderWithPreOrderInput, 'preOrderDate') &&

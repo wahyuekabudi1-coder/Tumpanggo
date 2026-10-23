@@ -21,17 +21,33 @@ import express from 'express';
 import { createServer as createViteServer } from 'vite';
 import { app } from './app';
 import { foodDb } from './db';
-import { foodConfig, reloadEnv } from './config';
+import { foodConfig, reloadEnv, validateProductionEnvironment } from './config';
 
 export { app };
 
 export async function startServer() {
+  // Strict production validation: Halt startup immediately on invalid configuration
+  if (foodConfig.isProduction) {
+    const check = validateProductionEnvironment();
+    if (!check.isValid) {
+      const errMsg = `[TumpangFood Server] Cannot start in production with invalid configuration:\n- ${check.errors.join('\n- ')}`;
+      console.error(errMsg);
+      throw new Error(errMsg);
+    }
+  }
+
   const PORT = foodConfig.port;
 
-  // Initialize and synchronize isolated Tumpang Food database asynchronously
-  foodDb.init().catch(err => {
+  // Initialize and synchronize isolated Tumpang Food database
+  try {
+    await foodDb.init();
+  } catch (err: any) {
+    if (foodConfig.isProduction) {
+      console.error('[TumpangFood Server] FATAL: Production database failed to initialize:', err.message);
+      throw err;
+    }
     console.error('[TumpangFood Server] Failed to synchronize Firestore on boot:', err);
-  });
+  }
 
   // Vite development middleware vs production static distribution
   const distPath = path.join(process.cwd(), 'dist');

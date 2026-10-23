@@ -73,9 +73,9 @@ async function main() {
     retrievedOrder &&
     retrievedOrder.id === testOrder.id &&
     retrievedOrder.subtotal === menuItem.price &&
-    retrievedOrder.deliveryFee === 5000 &&
-    retrievedOrder.serviceFee === 2000 &&
-    retrievedOrder.total === (menuItem.price + 5000 + 2000 + testOrder.uniqueCode)
+    retrievedOrder.deliveryFee === testOrder.deliveryFee &&
+    retrievedOrder.serviceFee === testOrder.serviceFee &&
+    retrievedOrder.total === (menuItem.price + testOrder.deliveryFee + testOrder.serviceFee + testOrder.uniqueCode)
   ) {
     console.log(`[PASS] Pesanan #${retrievedOrder.id} tersimpan dengan Subtotal: ${retrievedOrder.subtotal}, Ongkir: ${retrievedOrder.deliveryFee}, Layanan: ${retrievedOrder.serviceFee}, Total: ${retrievedOrder.total}`);
     passedTests++;

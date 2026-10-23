@@ -13,7 +13,7 @@ import {
   OrderStatus, PaymentStatus, SettlementStatus, AssignmentMode, PartnerRegistration,
   Testimonial, AppRole, OrderReceipt
 } from '../types';
-import { foodConfig, getMasterAccountCredentials } from './config';
+import { foodConfig, getMasterAccountCredentials, validateProductionEnvironment } from './config';
 import { hashPassword, verifyPassword } from './auth';
 import { OrderService } from './services/orderService';
 import { isDestinationInKecamatanTumpang, FLAT_TUMPANG_DELIVERY_FEE, normalizeOrderDeliveryFee } from '../utils/deliveryFee';
@@ -805,6 +805,40 @@ export class FoodDatabase {
   }
 
   /**
+   * Universal Production Gatekeeper Check:
+   * Ensures production environment configuration and live Cloud Firestore connectivity are verified.
+   * In production mode, halts with a descriptive error if configuration is invalid or Firestore is disconnected.
+   * Strictly prevents fallback to local file storage / in-memory snapshot in production.
+   */
+  public async ensureReadyForOperations(forceRefresh = false): Promise<void> {
+    if (foodConfig.isProduction) {
+      // 1. Strict Configuration Validation
+      const envCheck = validateProductionEnvironment();
+      if (!envCheck.isValid) {
+        throw new Error(`[Produksi] Konfigurasi produksi tidak valid:\n- ${envCheck.errors.join('\n- ')}`);
+      }
+
+      // 2. Initialize and verify live Cloud Firestore connection
+      await this.ensureInitialized(forceRefresh);
+
+      // 3. Re-verify live Cloud Firestore is active
+      if (!this.isInitialized || !isUsingServiceAccount() || !getAdminDb()) {
+        const diag = getFirestoreDiagnosticStatus();
+        throw new Error(`[Produksi] Cloud Firestore belum aktif atau belum terhubung dengan Firebase Admin SDK (${diag.reason}: ${diag.detail}).`);
+      }
+
+      // 4. Test live connectivity probe to ensure real Firestore Cloud accessibility
+      const probe = await testFirestoreConnection();
+      if (!probe.connected) {
+        throw new Error(`[Produksi] Koneksi Cloud Firestore tidak aktif (${probe.diagnosticReason}: ${probe.error || probe.diagnosticDetail}).`);
+      }
+    } else {
+      // Development mode: initialize gracefully
+      await this.ensureInitialized().catch(() => {});
+    }
+  }
+
+  /**
    * Diagnostic assessment of runtime storage status: Cloud Firestore vs Local Resilient Snapshot.
    */
   public async getStorageStatus(): Promise<{
@@ -853,6 +887,18 @@ export class FoodDatabase {
    * Synchronize state with Firebase Firestore as Primary Storage.
    */
   public async init() {
+    // Mode produksi: Wajib terhubung ke Cloud Firestore. Dilarang diam-diam fallback ke penyimpanan lokal.
+    if (foodConfig.isProduction) {
+      if (!isUsingServiceAccount() || !getAdminDb()) {
+        const diag = getFirestoreDiagnosticStatus();
+        throw new Error(`[TumpangFood DB] FATAL: Mode produksi mewajibkan Cloud Firestore aktif dengan Firebase Admin SDK. (${diag.reason}: ${diag.detail})`);
+      }
+      const probe = await testFirestoreConnection();
+      if (!probe.connected) {
+        throw new Error(`[TumpangFood DB] FATAL: Mode produksi gagal terhubung ke Cloud Firestore (${probe.diagnosticReason}: ${probe.error || probe.diagnosticDetail}). Operasi dihentikan untuk mencegah modifikasi lokal tanpa sinkronisasi cloud.`);
+      }
+    }
+
     // 1. Check if Firebase Admin SDK has valid explicit credentials
     if (!isUsingServiceAccount() || !getAdminDb()) {
       const diag = getFirestoreDiagnosticStatus();
@@ -1377,6 +1423,7 @@ export class FoodDatabase {
   }
 
   public async activateMerchant(email: string, passwordPlain: string): Promise<{ success: boolean; merchant?: Merchant; error?: string }> {
+    await this.ensureProductionCloudReady('Aktivasi Toko Merchant');
     const cleanEmail = email.trim().toLowerCase();
     const merchant = this.data.merchants.find(m => m.email?.trim().toLowerCase() === cleanEmail);
     if (!merchant) {
@@ -1839,16 +1886,19 @@ export class FoodDatabase {
     return this.data.orders.filter(o => o.driverId === driverId).map(o => normalizeOrderDeliveryFee(o));
   }
 
+  private driverTaskMutexes = new Map<string, Promise<any>>();
+
   public getAvailableOrdersForDrivers(): Order[] {
     this.reloadFromDiskIfNeeded();
     return this.data.orders.filter(o =>
       !o.driverId &&
-      (o.status === OrderStatus.READY_FOR_PICKUP || o.status === OrderStatus.COOKING || o.status === OrderStatus.PAYMENT_VERIFIED) &&
+      (o.status === OrderStatus.COOKING || o.status === OrderStatus.READY_FOR_PICKUP) &&
       (o.paymentStatus === PaymentStatus.PAID || [OrderStatus.READY_FOR_PICKUP, OrderStatus.COOKING, OrderStatus.ORDER_PICKED_UP, OrderStatus.DELIVERED, OrderStatus.COMPLETED].includes(o.status))
     ).map(o => normalizeOrderDeliveryFee(o));
   }
 
   public async acceptDriverTask(driverId: string, orderId: string): Promise<Order> {
+    await this.ensureProductionCloudReady('Penerimaan Tugas Kurir');
     this.reloadFromDiskIfNeeded();
     const cleanOrderId = String(orderId || '').trim();
     const cleanDriverId = String(driverId || '').trim();
@@ -1857,43 +1907,83 @@ export class FoodDatabase {
     if (!driver) {
       throw new Error('Identitas kurir tidak ditemukan di sistem.');
     }
+    if (!driver.active) {
+      throw new Error('Akun kurir Anda belum disetujui atau dinonaktifkan oleh administrator.');
+    }
     if (!driver.online) {
       throw new Error('Status Anda sedang Offline. Aktifkan status Online terlebih dahulu untuk menerima tugas.');
     }
-    if (!driver.active) {
-      throw new Error('Akun kurir Anda dinonaktifkan oleh administrator.');
+
+    // Per-order concurrency mutex on the local instance
+    const currentMutex = this.driverTaskMutexes.get(cleanOrderId) || Promise.resolve();
+    let releaseMutex!: () => void;
+    const nextMutex = new Promise<void>((resolve) => { releaseMutex = resolve; });
+    this.driverTaskMutexes.set(cleanOrderId, currentMutex.then(() => nextMutex, () => nextMutex));
+
+    try {
+      await currentMutex;
+
+      // Operational state guard: ONLY orders currently COOKING or READY_FOR_PICKUP can be accepted by driver
+      const validStatuses: OrderStatus[] = [
+        OrderStatus.COOKING,
+        OrderStatus.READY_FOR_PICKUP
+      ];
+
+      // Cross-Instance Distributed ACID Atomic Barrier via Cloud Firestore
+      const adminDb = getAdminDb();
+      if (adminDb && isFirestoreAdminConfigured()) {
+        const orderRef = adminDb.collection('orders').doc(cleanOrderId);
+        await runAdminTransaction(async (transaction) => {
+          const snap = await transaction.get(orderRef);
+          if (!snap.exists) {
+            throw new Error('Pesanan tidak ditemukan di database cloud.');
+          }
+          const remoteOrder = snap.data() as Order;
+          // AUTHORITATIVE CROSS-INSTANCE CONCURRENCY BARRIER
+          if (remoteOrder.driverId && remoteOrder.driverId !== cleanDriverId) {
+            throw new Error(`Pesanan ini telah diambil oleh kurir lain (${remoteOrder.driverName || 'Kurir Lain'}).`);
+          }
+          if (!validStatuses.includes(remoteOrder.status)) {
+            throw new Error(`Pesanan dengan status ${remoteOrder.status} tidak dapat diterima. Kurir hanya dapat menerima pesanan yang sedang dimasak atau siap diambil.`);
+          }
+          transaction.update(orderRef, {
+            driverId: driver.id,
+            driverName: driver.name,
+            updatedAt: new Date().toISOString()
+          });
+        });
+      }
+
+      this.reloadFromDiskIfNeeded();
+      const orderIndex = this.data.orders.findIndex(o => o.id === cleanOrderId);
+      if (orderIndex === -1) {
+        throw new Error('Pesanan tidak ditemukan.');
+      }
+
+      const currentOrder = this.data.orders[orderIndex];
+
+      // ATOMIC PRE-EMPTION GUARD: Prevent race condition between two drivers
+      if (currentOrder.driverId && currentOrder.driverId !== cleanDriverId) {
+        throw new Error(`Pesanan ini telah diambil oleh kurir lain (${currentOrder.driverName || 'Kurir Lain'}).`);
+      }
+
+      if (!validStatuses.includes(currentOrder.status)) {
+        throw new Error(`Pesanan dengan status ${currentOrder.status} tidak dapat diterima. Kurir hanya dapat menerima pesanan yang sedang dimasak atau siap diambil.`);
+      }
+
+      const updated = await this.updateOrder(cleanDriverId, cleanOrderId, {
+        driverId: driver.id,
+        driverName: driver.name
+      }, 'DRIVER');
+
+      this.log(cleanDriverId, `Kurir ${driver.name} (#${driver.id}) menerima tugas pengantaran #${cleanOrderId}`, 'DRIVER');
+      return updated;
+    } finally {
+      releaseMutex();
+      if (this.driverTaskMutexes.get(cleanOrderId) === nextMutex) {
+        this.driverTaskMutexes.delete(cleanOrderId);
+      }
     }
-
-    const orderIndex = this.data.orders.findIndex(o => o.id === cleanOrderId);
-    if (orderIndex === -1) {
-      throw new Error('Pesanan tidak ditemukan.');
-    }
-
-    const currentOrder = this.data.orders[orderIndex];
-
-    // ATOMIC PRE-EMPTION GUARD: Prevent race condition between two drivers
-    if (currentOrder.driverId && currentOrder.driverId !== cleanDriverId) {
-      throw new Error(`Pesanan ini telah diambil oleh kurir lain (${currentOrder.driverName || 'Kurir Lain'}).`);
-    }
-
-    // Must be in acceptable operational state
-    const validStatuses: OrderStatus[] = [
-      OrderStatus.READY_FOR_PICKUP,
-      OrderStatus.COOKING,
-      OrderStatus.PAYMENT_VERIFIED
-    ];
-
-    if (!validStatuses.includes(currentOrder.status)) {
-      throw new Error(`Pesanan dengan status ${currentOrder.status} tidak dapat diterima.`);
-    }
-
-    const updated = await this.updateOrder(cleanDriverId, cleanOrderId, {
-      driverId: driver.id,
-      driverName: driver.name
-    }, 'DRIVER');
-
-    this.log(cleanDriverId, `Kurir ${driver.name} (#${driver.id}) menerima tugas pengantaran #${cleanOrderId}`, 'DRIVER');
-    return updated;
   }
 
   public getOrdersByCustomerPhone(phone: string): Order[] {
@@ -2377,6 +2467,7 @@ export class FoodDatabase {
     userId: string,
     settlementData: { merchantId: string; orderIds?: string[] } & Partial<Settlement>
   ): Promise<Settlement> {
+    await this.ensureProductionCloudReady('Pembuatan Settlement');
     return this.runWithSettlementLock(async () => {
       const targetOrderIds = settlementData.orderIds || [];
       if (!Array.isArray(targetOrderIds) || targetOrderIds.length === 0) {

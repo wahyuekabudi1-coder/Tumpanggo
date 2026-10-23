@@ -44,10 +44,13 @@ if (fs.existsSync(localEnvPath)) {
 // Production detection for credential safety
 const isProductionRuntime = process.env.NODE_ENV === 'production' && !process.env.VERCEL_DEV;
 
+// Dynamic ephemeral development secret generated per process runtime if none provided
+const ephemeralDevSecret = crypto.randomBytes(32).toString('hex');
+
 // Determine runtime JWT Secret
 let runtimeJwtSecret = (process.env.FOOD_AUTH_SECRET || '').trim();
 if (!runtimeJwtSecret || runtimeJwtSecret.length < 32) {
-  runtimeJwtSecret = isProductionRuntime ? '' : 'dev_secret_fallback_do_not_use_in_prod_min_32_characters_long';
+  runtimeJwtSecret = isProductionRuntime ? '' : ephemeralDevSecret;
 }
 
 // Serverless / Vercel filesystem adaptation
@@ -180,7 +183,16 @@ if (process.env.NODE_ENV === 'production') {
 }
 
 export const foodConfig = {
-  isProduction: process.env.NODE_ENV === 'production',
+  get isProduction() {
+    return process.env.NODE_ENV === 'production';
+  },
+  set isProduction(val: boolean) {
+    if (val) {
+      process.env.NODE_ENV = 'production';
+    } else {
+      process.env.NODE_ENV = 'development';
+    }
+  },
   // Server port
   port: resolveServerPort(),
   host: '0.0.0.0',
@@ -220,7 +232,7 @@ export const foodConfig = {
   legacyDbFile: path.join(process.cwd(), 'tumpang_db.json'),
   
   // Security & Authentication
-  jwtSecret: runtimeJwtSecret || 'dev_secret_fallback_do_not_use_in_prod',
+  jwtSecret: runtimeJwtSecret,
   get adminEmail(): string {
     return (process.env.FOOD_ADMIN_EMAIL || runtimeAdminEmail || 'tumpanggo@gmail.com').trim().toLowerCase();
   },

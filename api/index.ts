@@ -20,13 +20,13 @@ const _currentFile = typeof import.meta !== 'undefined' && import.meta?.url
 const _require = createRequire(_currentFile);
 
 let appInstance: any = null;
+let appModule: any = null;
 
 /**
- * Resolves the Express application instance exclusively from the pre-bundled _app.cjs.
- * Never attempts to load raw unbundled TypeScript files from src/.
+ * Resolves the backend module exported by the pre-bundled _app.cjs.
  */
-export function getApp(): any {
-  if (appInstance) return appInstance;
+export function getAppModule(): any {
+  if (appModule) return appModule;
 
   // Candidate paths for pre-bundled _app.cjs on Vercel serverless runtime
   const candidateCjsPaths = [
@@ -42,10 +42,10 @@ export function getApp(): any {
     try {
       if (cPath.startsWith('.') || fs.existsSync(cPath)) {
         const mod = _require(cPath);
-        const resolved = mod.app || mod.default || mod;
-        if (resolved && typeof resolved === 'function') {
-          appInstance = resolved;
-          return appInstance;
+        if (mod) {
+          appModule = mod;
+          appInstance = mod.app || mod.default || mod;
+          return appModule;
         }
       }
     } catch (e: any) {
@@ -56,16 +56,27 @@ export function getApp(): any {
   // Relative require fallback
   try {
     const mod = _require('./_app.cjs');
-    const resolved = mod.app || mod.default || mod;
-    if (resolved && typeof resolved === 'function') {
-      appInstance = resolved;
-      return appInstance;
+    if (mod) {
+      appModule = mod;
+      appInstance = mod.app || mod.default || mod;
+      return appModule;
     }
   } catch (err: any) {
     console.error('[Vercel Serverless Function Fatal] Direct require("./_app.cjs") failed:', err?.message || err);
   }
 
   throw new Error('Gagal memuat bundle backend Express TumpangGo (_app.cjs) pada lingkungan serverless.');
+}
+
+/**
+ * Resolves the Express application instance exclusively from the pre-bundled _app.cjs.
+ * Never attempts to load raw unbundled TypeScript files from src/.
+ */
+export function getApp(): any {
+  if (appInstance) return appInstance;
+  const mod = getAppModule();
+  appInstance = mod.app || mod.default || mod;
+  return appInstance;
 }
 
 /**

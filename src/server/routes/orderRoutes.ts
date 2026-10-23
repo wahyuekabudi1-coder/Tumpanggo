@@ -23,7 +23,10 @@ export const orderRouter = Router();
  * Generates an HMAC-SHA256 order proof authorization token for verified customer access
  */
 export function generateOrderProofToken(orderId: string): string {
-  const secret = foodConfig.jwtSecret || 'tumpanggo_secure_proof_token_secret_min32';
+  const secret = foodConfig.jwtSecret;
+  if (!secret || secret.length < 32) {
+    throw new Error('Gagal membuat token bukti pesanan: secret otentikasi belum dikonfigurasi dengan aman.');
+  }
   return crypto.createHmac('sha256', secret).update(`proof:${orderId}`).digest('hex');
 }
 
@@ -32,8 +35,9 @@ export function generateOrderProofToken(orderId: string): string {
  */
 export function verifyOrderProofToken(orderId: string, token?: string): boolean {
   if (!token || typeof token !== 'string') return false;
-  const expected = generateOrderProofToken(orderId);
+  if (!foodConfig.jwtSecret || foodConfig.jwtSecret.length < 32) return false;
   try {
+    const expected = generateOrderProofToken(orderId);
     const a = Buffer.from(token);
     const b = Buffer.from(expected);
     if (a.length !== b.length) return false;
@@ -290,9 +294,8 @@ orderRouter.get('/:id', async (req: Request, res: Response) => {
     const verifiedDriverId = user.entityId || user.userId;
     const isAssigned = o.driverId === verifiedDriverId;
     const isAvailableBroadcast = !o.driverId && [
-      OrderStatus.READY_FOR_PICKUP,
       OrderStatus.COOKING,
-      OrderStatus.PAYMENT_VERIFIED
+      OrderStatus.READY_FOR_PICKUP
     ].includes(o.status);
 
     if (isAssigned || isAvailableBroadcast) {
@@ -563,8 +566,13 @@ orderRouter.post('/', async (req: Request, res: Response) => {
     // Stage 2: Database Persistence
     const created = await foodDb.createOrder(req.body);
 
+    const proofToken = generateOrderProofToken(created.id);
     console.log(`[Order Placed Successfully] [${reqId}] ID: ${created.id}, Total: Rp ${created.total.toLocaleString('id-ID')}, Merchant: ${created.merchantId}, UniqueCode: ${created.uniqueCode}`);
-    return res.status(201).json(created);
+    return res.status(201).json({
+      ...created,
+      proofToken,
+      orderToken: proofToken
+    });
 
   } catch (e: any) {
     const errorMsg = e.message || 'Gagal membuat pesanan.';
@@ -773,7 +781,7 @@ const handleOrderUpdate = async (req: Request, res: Response) => {
     const isAssigned = currentOrder.driverId === user.entityId || currentOrder.driverId === user.userId;
     const canAcceptTask =
       !currentOrder.driverId &&
-      [OrderStatus.READY_FOR_PICKUP, OrderStatus.COOKING, OrderStatus.PAYMENT_VERIFIED].includes(currentOrder.status);
+      [OrderStatus.COOKING, OrderStatus.READY_FOR_PICKUP].includes(currentOrder.status);
 
     if (!isAssigned && !canAcceptTask) {
       if (currentOrder.driverId && currentOrder.driverId !== (user.entityId || user.userId)) {
@@ -782,7 +790,7 @@ const handleOrderUpdate = async (req: Request, res: Response) => {
         });
       }
       return res.status(403).json({
-        error: 'Akses ditolak: Pesanan ini bukan tugas pengantaran Anda.'
+        error: 'Akses ditolak: Pesanan ini bukan tugas pengantaran Anda atau belum memasuki tahap memasak.'
       });
     }
 
@@ -792,9 +800,14 @@ const handleOrderUpdate = async (req: Request, res: Response) => {
       if (!driver) {
         return res.status(404).json({ error: 'Data identitas kurir tidak ditemukan di sistem.' });
       }
-      if (!driver.online || !driver.active) {
+      if (!driver.active) {
+        return res.status(403).json({
+          error: 'Akun kurir Anda belum disetujui atau dinonaktifkan oleh Administrator.'
+        });
+      }
+      if (!driver.online) {
         return res.status(400).json({
-          error: 'Status Anda sedang Offline atau belum diaktifkan oleh Administrator. Aktifkan status Online terlebih dahulu untuk menerima tugas.'
+          error: 'Status Anda sedang Offline. Aktifkan status Online terlebih dahulu untuk menerima tugas.'
         });
       }
       updates.driverId = driver.id;
@@ -911,24 +924,11 @@ orderRouter.post('/:id/accept-task', requireRole(['DRIVER', 'ADMIN', 'MASTER_ADM
   }
 });
 
-// Customer payment proof upload - Enforces 10-minute expiry & serverless image optimization
+// Customer payment proof upload - Enforces ownership token, file validation & privacy sanitization
 orderRouter.post('/:id/upload-payment', async (req: Request, res: Response) => {
-  const { paymentProof } = req.body;
+  const { paymentProof, orderToken, proofToken } = req.body || {};
   if (!paymentProof || typeof paymentProof !== 'string' || paymentProof.trim().length < 10) {
     return res.status(400).json({ error: 'Bukti pembayaran wajib diunggah dalam format gambar atau foto yang sah.' });
-  }
-
-  const cleanProof = paymentProof.trim();
-  const isDataUri = cleanProof.startsWith('data:image/');
-  const isHttpUrl = cleanProof.startsWith('http://') || cleanProof.startsWith('https://');
-
-  if (!isDataUri && !isHttpUrl) {
-    return res.status(400).json({ error: 'Format file tidak didukung. Mohon unggah bukti berformat gambar (JPG, PNG, atau WebP).' });
-  }
-
-  // Size guard: max ~8MB base64
-  if (isDataUri && cleanProof.length > 11 * 1024 * 1024) {
-    return res.status(400).json({ error: 'Ukuran file gambar bukti transfer melebihi batas maksimal 8MB. Silakan pilih foto dengan resolusi lebih kecil.' });
   }
 
   const order = await foodDb.findOrder(req.params.id);
@@ -936,7 +936,55 @@ orderRouter.post('/:id/upload-payment', async (req: Request, res: Response) => {
     return res.status(404).json({ error: 'Pesanan tidak ditemukan.' });
   }
 
-  // Validate payment expiration window
+  // 1. Ownership & Authorization Verification:
+  // - Admin or Master Admin
+  // - Authenticated customer owning the order
+  // - Valid cryptographic HMAC order proof token (MANDATORY for unauthenticated/guest customers)
+  const user = req.user;
+  const tokenCandidate = (req.headers['x-order-token'] as string) || 
+                         (req.headers['authorization']?.replace(/^Bearer\s+/i, '')) || 
+                         orderToken || 
+                         proofToken || 
+                         (req.query.token as string);
+
+  const isValidToken = Boolean(tokenCandidate && verifyOrderProofToken(order.id, tokenCandidate));
+  const isAdmin = user && (user.role === 'ADMIN' || user.role === 'MASTER_ADMIN');
+  const isCustomerOwner = user && user.role === 'CUSTOMER' && (
+    user.userId === (order as any).customerId ||
+    (user.email && user.email === order.customerPhone)
+  );
+
+  const isAuthorized = isAdmin || isCustomerOwner || isValidToken;
+
+  if (!isAuthorized) {
+    return res.status(403).json({
+      error: 'Akses ditolak: Anda tidak memiliki wewenang atau token kepemilikan HMAC yang sah untuk mengunggah bukti pembayaran pesanan ini.'
+    });
+  }
+
+  // 2. State & Expiration Guards:
+  // Cannot upload proof if already verified as PAID or progressed into kitchen/delivery
+  const alreadyPaidStatuses: OrderStatus[] = [
+    OrderStatus.PAYMENT_VERIFIED,
+    OrderStatus.COOKING,
+    OrderStatus.READY_FOR_PICKUP,
+    OrderStatus.ORDER_PICKED_UP,
+    OrderStatus.DELIVERED,
+    OrderStatus.COMPLETED
+  ];
+
+  if (alreadyPaidStatuses.includes(order.status) || order.paymentStatus === PaymentStatus.PAID) {
+    return res.status(400).json({
+      error: 'Pembayaran untuk pesanan ini sudah diverifikasi lunas (PAID). Tidak dapat mengunggah bukti pembayaran ulang.'
+    });
+  }
+
+  if (order.status === OrderStatus.CANCELLED) {
+    return res.status(400).json({
+      error: 'Pesanan ini telah dibatalkan dan tidak dapat menerima bukti pembayaran.'
+    });
+  }
+
   const now = Date.now();
   const expiryTime = order.paymentExpiresAt ? new Date(order.paymentExpiresAt).getTime() : 0;
 
@@ -956,37 +1004,73 @@ orderRouter.post('/:id/upload-payment', async (req: Request, res: Response) => {
     });
   }
 
-  if (order.status === OrderStatus.CANCELLED) {
+  // 3. Strict Server-Side File Type & Size Validation
+  const cleanProof = paymentProof.trim();
+  const isDataUri = cleanProof.startsWith('data:image/');
+
+  if (!isDataUri) {
     return res.status(400).json({
-      error: 'Pesanan ini telah dibatalkan dan tidak dapat menerima bukti pembayaran.'
+      error: 'Bukti pembayaran wajib berupa file gambar yang diunggah langsung (Data URI base64). URL eksternal HTTP/HTTPS tidak diizinkan demi alasan keamanan.'
+    });
+  }
+
+  // Size limit: Max ~5MB raw image binary (~7MB base64 string)
+  if (cleanProof.length > 7 * 1024 * 1024) {
+    return res.status(400).json({
+      error: 'Ukuran file gambar bukti transfer melebihi batas maksimal 5MB. Silakan pilih foto dengan resolusi lebih kecil.'
     });
   }
 
   let finalProof = cleanProof;
   const proofUrl = `/api/orders/${order.id}/payment-proof`;
 
-  // Server-side image optimization with sharp (safe for Vercel Serverless & Firestore 1MB limits)
   if (isDataUri) {
+    const mimeMatch = cleanProof.match(/^data:(image\/[a-zA-Z0-9.+_-]+);base64,(.+)$/);
+    if (!mimeMatch) {
+      return res.status(400).json({ error: 'Format data gambar base64 tidak valid.' });
+    }
+
+    const declaredMime = mimeMatch[1].toLowerCase();
+    const allowedMimes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
+    if (!allowedMimes.includes(declaredMime)) {
+      return res.status(400).json({ error: `Format file "${declaredMime}" tidak didukung. Mohon unggah gambar berformat JPG, PNG, atau WebP.` });
+    }
+
     try {
-      const match = cleanProof.match(/^data:image\/([a-zA-Z0-9.+_-]+);base64,(.+)$/);
-      if (match) {
-        const rawBuffer = Buffer.from(match[2], 'base64');
-        const optimizedBuffer = await sharp(rawBuffer)
-          .rotate() // Auto-rotate according to EXIF
-          .resize({ width: 1200, height: 1200, fit: 'inside', withoutEnlargement: true })
-          .webp({ quality: 80 })
-          .toBuffer();
-        finalProof = `data:image/webp;base64,${optimizedBuffer.toString('base64')}`;
+      const rawBuffer = Buffer.from(mimeMatch[2], 'base64');
+      if (rawBuffer.length > 5 * 1024 * 1024) {
+        return res.status(400).json({ error: 'Ukuran file gambar melebihi batas maksimal 5MB.' });
       }
+
+      // Check file magic numbers for raster image types
+      const isJpeg = rawBuffer.length >= 3 && rawBuffer[0] === 0xFF && rawBuffer[1] === 0xD8 && rawBuffer[2] === 0xFF;
+      const isPng = rawBuffer.length >= 4 && rawBuffer[0] === 0x89 && rawBuffer[1] === 0x50 && rawBuffer[2] === 0x4E && rawBuffer[3] === 0x47;
+      const isWebp = rawBuffer.length >= 12 && rawBuffer.toString('ascii', 0, 4) === 'RIFF' && rawBuffer.toString('ascii', 8, 12) === 'WEBP';
+
+      if (!isJpeg && !isPng && !isWebp) {
+        return res.status(400).json({ error: 'Header binary file tidak cocok dengan format gambar JPG, PNG, atau WebP yang valid.' });
+      }
+
+      // Strict Sharp decoding and dimension verification
+      const metadata = await sharp(rawBuffer).metadata();
+      if (!metadata.format || !['jpeg', 'png', 'webp'].includes(metadata.format)) {
+        return res.status(400).json({ error: 'Data gambar tidak dapat didekode atau korup. Silakan pilih foto screenshot yang valid.' });
+      }
+
+      const optimizedBuffer = await sharp(rawBuffer)
+        .rotate()
+        .resize({ width: 1200, height: 1200, fit: 'inside', withoutEnlargement: true })
+        .webp({ quality: 80 })
+        .toBuffer();
+
+      finalProof = `data:image/webp;base64,${optimizedBuffer.toString('base64')}`;
     } catch (sharpErr: any) {
-      console.warn('[OrderRoutes] Sharp optimization warning, falling back to original client image:', sharpErr?.message || sharpErr);
-      // If sharp failed because the input was not a valid image
-      if (sharpErr?.message?.includes('unsupported') || sharpErr?.message?.includes('Input buffer')) {
-        return res.status(400).json({ error: 'File gambar yang dipilih tidak valid atau rusak. Silakan pilih foto screenshot yang sah.' });
-      }
+      console.warn('[OrderRoutes] Image validation warning:', sharpErr?.message || sharpErr);
+      return res.status(400).json({ error: 'File gambar yang dipilih tidak valid atau rusak. Silakan pilih foto screenshot yang sah.' });
     }
   }
 
+  // 4. Update order state to WAITING_PAYMENT_VERIFICATION (Never mark as PAID here; verification requires authorized Admin action)
   try {
     const updated = await foodDb.updateOrder(
       'CUSTOMER',
@@ -1001,9 +1085,22 @@ orderRouter.post('/:id/upload-payment', async (req: Request, res: Response) => {
       },
       'CUSTOMER'
     );
+
+    // 5. Return sanitized public tracking DTO to protect customer privacy
+    const publicTracking = serializePublicOrderTracking(updated);
+    const newProofToken = generateOrderProofToken(updated.id);
+
     res.json({
-      ...updated,
-      proofToken: generateOrderProofToken(updated.id)
+      success: true,
+      message: 'Bukti pembayaran berhasil diunggah. Menunggu verifikasi admin.',
+      order: publicTracking,
+      id: updated.id,
+      orderNumber: updated.orderNumber || updated.id,
+      status: updated.status,
+      paymentStatus: updated.paymentStatus,
+      paymentProofUploadedAt: updated.paymentProofUploadedAt,
+      proofToken: newProofToken,
+      orderToken: newProofToken
     });
   } catch (e: any) {
     res.status(400).json({ error: e.message || 'Gagal menyimpan bukti pembayaran.' });

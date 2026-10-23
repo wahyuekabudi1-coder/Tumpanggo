@@ -1158,6 +1158,9 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
       
       if (res.ok && order && order.id) {
         const normalized = normalizeOrderDeliveryFee(order);
+        if ((order as any).proofToken || (order as any).orderToken) {
+          safeStorage.setItem(`tumpang_order_token_${normalized.id}`, (order as any).proofToken || (order as any).orderToken);
+        }
         setActiveOrder(normalized);
         setTrackingOrderId(normalized.id);
         setCheckoutErrorMsg(null);
@@ -1202,14 +1205,23 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
     setProofUploadSuccess(null);
 
     try {
+      const orderToken = (activeOrder as any).proofToken || (activeOrder as any).orderToken || safeStorage.getItem(`tumpang_order_token_${activeOrder.id}`) || '';
       const res = await fetch(`/api/orders/${activeOrder.id}/upload-payment`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ paymentProof: paymentProofFile })
+        headers: { 
+          'Content-Type': 'application/json',
+          'x-order-token': orderToken
+        },
+        body: JSON.stringify({ 
+          paymentProof: paymentProofFile,
+          orderToken,
+          customerPhone: activeOrder.customerPhone
+        })
       });
-      const updatedOrder = await res.json();
+      const responseData = await res.json();
       if (res.ok) {
-        const normalized = normalizeOrderDeliveryFee(updatedOrder);
+        const orderPayload = responseData.order || responseData;
+        const normalized = normalizeOrderDeliveryFee(orderPayload);
         setActiveOrder(normalized);
         setProofUploadSuccess('Bukti pembayaran berhasil diunggah! Menunggu verifikasi admin.');
         setProofUploadError(null);
@@ -1229,7 +1241,7 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
           fileInputRef.current.value = '';
         }
       } else {
-        setProofUploadError(updatedOrder.error || 'Gagal mengunggah bukti pembayaran.');
+        setProofUploadError(responseData?.error || 'Gagal mengunggah bukti pembayaran.');
       }
     } catch (err: any) {
       console.error('Error uploading payment:', err);

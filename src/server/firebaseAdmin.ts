@@ -365,6 +365,30 @@ export function initFirebaseAdmin(serviceAccountOverride?: string): { success: b
 initFirebaseAdmin();
 
 export function getAdminDb(): Firestore | null {
+  if (testMockState && testMockState.isConfigured !== undefined) {
+    if (!testMockState.isConfigured) return null;
+    return adminDb || ({
+      collection: () => ({
+        doc: () => ({
+          get: async () => ({ exists: false, data: () => null }),
+          set: async () => {},
+          update: async () => {},
+          delete: async () => {}
+        }),
+        get: async () => ({ empty: true, docs: [] }),
+        where: function() { return this; },
+        orderBy: function() { return this; },
+        limit: function() { return this; },
+        count: () => ({ get: async () => ({ data: () => ({ count: 0 }) }) })
+      }),
+      batch: () => ({ set: () => {}, delete: () => {}, commit: async () => {} }),
+      runTransaction: async (fn: any) => fn({
+        get: async () => ({ exists: true, data: () => ({ status: 'COOKING' }) }),
+        update: () => {},
+        set: () => {}
+      })
+    } as any);
+  }
   return adminDb;
 }
 
@@ -399,6 +423,9 @@ export function isFirestoreAdminConfigured(): boolean {
 }
 
 export function isUsingServiceAccount(): boolean {
+  if (testMockState && testMockState.isConfigured !== undefined) {
+    return testMockState.isConfigured;
+  }
   return isConfiguredWithServiceAccount;
 }
 
@@ -609,10 +636,11 @@ export async function safeAdminSetDoc(collectionName: string, docId: string, dat
   if (testMockState && testMockState.writeSuccess !== undefined) {
     return testMockState.writeSuccess;
   }
-  if (!adminDb || !isConfiguredWithServiceAccount) return false;
+  const db = getAdminDb();
+  if (!db || !isUsingServiceAccount()) return false;
   try {
     const cleaned = removeUndefinedFields(data);
-    await adminDb.collection(collectionName).doc(docId).set(cleaned, { merge: true });
+    await db.collection(collectionName).doc(docId).set(cleaned, { merge: true });
     return true;
   } catch (err: any) {
     console.warn(`[TumpangFood Admin] safeAdminSetDoc failed for ${collectionName}/${docId}:`, sanitizeErrorMessage(err.message));
@@ -627,9 +655,10 @@ export async function safeAdminDeleteDoc(collectionName: string, docId: string):
   if (testMockState && testMockState.deleteSuccess !== undefined) {
     return testMockState.deleteSuccess;
   }
-  if (!adminDb || !isConfiguredWithServiceAccount) return false;
+  const db = getAdminDb();
+  if (!db || !isUsingServiceAccount()) return false;
   try {
-    await adminDb.collection(collectionName).doc(docId).delete();
+    await db.collection(collectionName).doc(docId).delete();
     return true;
   } catch (err: any) {
     console.warn(`[TumpangFood Admin] safeAdminDeleteDoc failed for ${collectionName}/${docId}:`, sanitizeErrorMessage(err.message));
@@ -641,9 +670,10 @@ export async function safeAdminDeleteDoc(collectionName: string, docId: string):
  * Safe administrative getDoc read.
  */
 export async function safeAdminGetDoc(collectionName: string, docId: string): Promise<any | null> {
-  if (!adminDb || !isConfiguredWithServiceAccount) return null;
+  const db = getAdminDb();
+  if (!db || !isUsingServiceAccount()) return null;
   try {
-    const snap = await adminDb.collection(collectionName).doc(docId).get();
+    const snap = await db.collection(collectionName).doc(docId).get();
     if (snap.exists) {
       const data = snap.data() || {};
       return { id: snap.id, ...data };
@@ -662,9 +692,10 @@ export async function safeAdminGetDocs(
   collectionName: string,
   queryBuilder?: (ref: FirebaseFirestore.CollectionReference) => FirebaseFirestore.Query
 ): Promise<any[]> {
-  if (!adminDb || !isConfiguredWithServiceAccount) return [];
+  const db = getAdminDb();
+  if (!db || !isUsingServiceAccount()) return [];
   try {
-    const baseRef = adminDb.collection(collectionName);
+    const baseRef = db.collection(collectionName);
     const query = queryBuilder ? queryBuilder(baseRef) : baseRef;
     const snap = await query.get();
     return snap.docs.map(doc => ({ id: doc.id, ...(doc.data() || {}) }));
@@ -683,9 +714,10 @@ export async function safeAdminCountDocs(
   collectionName: string,
   queryBuilder?: (ref: FirebaseFirestore.CollectionReference) => FirebaseFirestore.Query
 ): Promise<number | null> {
-  if (!adminDb || !isConfiguredWithServiceAccount) return null;
+  const db = getAdminDb();
+  if (!db || !isUsingServiceAccount()) return null;
   try {
-    const baseRef = adminDb.collection(collectionName);
+    const baseRef = db.collection(collectionName);
     const query = queryBuilder ? queryBuilder(baseRef) : baseRef;
     const snap = await query.count().get();
     return snap.data().count;
@@ -701,10 +733,11 @@ export async function safeAdminCountDocs(
 export async function runAdminTransaction<T>(
   updateFunction: (transaction: Transaction) => Promise<T>
 ): Promise<T> {
-  if (!adminDb || !isConfiguredWithServiceAccount) {
+  const db = getAdminDb();
+  if (!db || !isUsingServiceAccount()) {
     throw new Error('Firebase Admin Firestore instance is not initialized with valid service account credentials.');
   }
-  return await adminDb.runTransaction(updateFunction);
+  return await db.runTransaction(updateFunction);
 }
 
 /**

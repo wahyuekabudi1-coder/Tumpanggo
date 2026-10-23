@@ -8,7 +8,7 @@
 
 import express from 'express';
 import { foodDb } from './db';
-import { foodConfig } from './config';
+import { foodConfig, validateProductionEnvironment } from './config';
 import { isFirestoreAdminConfigured, isUsingServiceAccount, testFirestoreConnection, getFirestoreDiagnosticStatus, getAdminDb, safeAdminCountDocs } from './firebaseAdmin';
 import { authenticateToken } from './auth';
 import { authRouter } from './routes/authRoutes';
@@ -19,6 +19,8 @@ import { adminRouter } from './routes/adminRoutes';
 import { pushRouter } from './routes/pushRoutes';
 
 export const app = express();
+export { foodDb, foodConfig, validateProductionEnvironment };
+export { __setFirestoreMockForTesting } from './firebaseAdmin';
 
 // Safe CORS & Preflight Handling for Production & Development
 function isAllowedOrigin(origin?: string): boolean {
@@ -172,9 +174,65 @@ app.use((err: any, req: any, _res: any, next: any) => {
   next(err);
 });
 
-// Initialize database asynchronously in the background on startup (no per-request blocking)
+// Initialize database on startup (warm-up trigger)
 foodDb.ensureInitialized().catch((err: any) => {
-  console.warn('[TumpangFood Database Startup Sync Warning]', err?.message || err);
+  console.warn('[TumpangFood Database Startup Warm-up]', err?.message || err);
+});
+
+// Universal Production Validation & Cloud Firestore Readiness Gatekeeper Middleware
+// Enforces that in production mode, all required configurations (FOOD_AUTH_SECRET, FIREBASE_SERVICE_ACCOUNT_KEY, etc.)
+// are valid, and Cloud Firestore MUST be connected before any operation reading or mutating data is accepted.
+// Prevents silent fallback to local/in-memory storage in production across BOTH standalone Express and Vercel serverless.
+app.use(async (req, res, next) => {
+  // Allow OPTIONS preflight immediately
+  if (req.method === 'OPTIONS') {
+    return next();
+  }
+
+  // Health and diagnostic check endpoints bypass the blocking gatekeeper so health/connectivity status can be probed
+  const isHealthEndpoint = req.path === '/api/health' || req.path.startsWith('/api/health/');
+  if (isHealthEndpoint) {
+    return next();
+  }
+
+  // Only gate API routes
+  if (!req.path.startsWith('/api')) {
+    return next();
+  }
+
+  // In production mode, enforce strict configuration and live Cloud Firestore connectivity
+  if (foodConfig.isProduction) {
+    // 1. Strict Configuration Validation
+    const envCheck = validateProductionEnvironment();
+    if (!envCheck.isValid) {
+      console.error('[TumpangFood Production Gate] Operation rejected due to invalid production configuration:\n- ' + envCheck.errors.join('\n- '));
+      return res.status(503).json({
+        error: `[Produksi] Konfigurasi server produksi belum valid atau secret wajib belum disetel:\n- ${envCheck.errors.join('\n- ')}`,
+        code: 'PRODUCTION_CONFIG_INVALID',
+        details: envCheck.errors,
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    // 2. Strict Cloud Firestore Connectivity Verification
+    try {
+      await foodDb.ensureReadyForOperations();
+    } catch (dbErr: any) {
+      console.error('[TumpangFood Production Gate] Operation rejected: Cloud Firestore is not connected:', dbErr?.message || dbErr);
+      return res.status(503).json({
+        error: `[Produksi] Cloud Firestore wajib aktif dan terhubung sebelum operasi data diizinkan (${dbErr?.message || 'Database cloud tidak terhubung'}). Dilarang menggunakan penyimpanan lokal sebagai pengganti database produksi.`,
+        code: 'DATABASE_UNAVAILABLE',
+        timestamp: new Date().toISOString()
+      });
+    }
+  } else {
+    // Development mode: ensure database initialized gracefully without blocking if offline
+    try {
+      await foodDb.ensureInitialized();
+    } catch {}
+  }
+
+  next();
 });
 
 // Attach user authentication from tokens or headers

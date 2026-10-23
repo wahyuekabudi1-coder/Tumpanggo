@@ -7,6 +7,13 @@ def export_zip():
     os.makedirs(export_dir, exist_ok=True)
     output_zip = os.path.join(export_dir, 'tumpanggo-clean-source.zip')
     
+    # Remove previous zip if it exists to prevent nested or dirty packaging
+    if os.path.exists(output_zip):
+        try:
+            os.remove(output_zip)
+        except Exception:
+            pass
+
     exclude_dirs = {
         'node_modules',
         'dist',
@@ -14,7 +21,10 @@ def export_zip():
         '.cache',
         '.aistudio',
         '.turbo',
-        'backups'
+        '.vercel',
+        'backups',
+        'dist-archive',
+        'coverage'
     }
     
     exclude_extensions = {
@@ -29,9 +39,18 @@ def export_zip():
     exclude_files = {
         '.env',
         '.env.local',
+        '.env.production',
+        '.env.development',
         '.master_recovery_token',
         '.DS_Store',
+        'bun.lock',
+        'bun.lockb',
+        'yarn.lock',
+        'pnpm-lock.yaml',
+        'tumpang_food_db.json',
+        'tumpang_db.json',
         'tumpanggo-source.zip',
+        'tumpanggo-clean-source.zip',
         'tumpanggo-ereceipt-source.zip'
     }
 
@@ -39,11 +58,12 @@ def export_zip():
     
     file_count = 0
     total_bytes = 0
+    packaged_entries = []
     
     with zipfile.ZipFile(output_zip, 'w', zipfile.ZIP_DEFLATED) as zf:
         for dirpath, dirnames, filenames in os.walk(root_dir):
-            # Prune excluded directories
-            dirnames[:] = [d for d in dirnames if d not in exclude_dirs and not d.startswith('.git')]
+            # Prune excluded directories in-place
+            dirnames[:] = [d for d in dirnames if d not in exclude_dirs and not d.startswith('.git') and not d.startswith('.')]
             
             for f in filenames:
                 if f in exclude_files:
@@ -59,10 +79,43 @@ def export_zip():
                 zf.write(full_path, rel_path)
                 file_count += 1
                 total_bytes += os.path.getsize(full_path)
+                packaged_entries.append(rel_path)
                 
     zip_size_mb = os.path.getsize(output_zip) / (1024 * 1024)
     print(f"✅ Source ZIP created successfully: {file_count} files, {total_bytes / (1024 * 1024):.2f} MB raw, {zip_size_mb:.2f} MB compressed.")
     print(f"📁 Source archive location: {output_zip}")
+
+    # --- POST-EXPORT ZIP INTEGRITY & HYGIENE AUDIT ---
+    print("\n🔍 Auditing exported ZIP contents...")
+    with zipfile.ZipFile(output_zip, 'r') as zf:
+        names = zf.namelist()
+        
+        # Check for ArtoPay
+        artopay_findings = [n for n in names if 'arto' in n.lower()]
+        assert len(artopay_findings) == 0, f"VIOLATION: Found ArtoPay files in ZIP: {artopay_findings}"
+        print("  ✅ [PASS] No ArtoPay files or references in ZIP archive.")
+
+        # Check for backups directory
+        backup_findings = [n for n in names if n.startswith('backups/') or 'backup' in n.lower()]
+        assert len(backup_findings) == 0, f"VIOLATION: Found backup files in ZIP: {backup_findings}"
+        print("  ✅ [PASS] No operational backup JSON files in ZIP archive.")
+
+        # Check for nested zips or dist-archive
+        nested_findings = [n for n in names if n.startswith('dist-archive/') or n.endswith('.zip')]
+        assert len(nested_findings) == 0, f"VIOLATION: Found nested archives in ZIP: {nested_findings}"
+        print("  ✅ [PASS] No nested ZIP archives or dist-archive directory in ZIP.")
+
+        # Check for secrets or local db dumps
+        secret_findings = [n for n in names if n in {'.env', '.env.local', 'tumpang_food_db.json', 'bun.lock'}]
+        assert len(secret_findings) == 0, f"VIOLATION: Found secrets or database dumps in ZIP: {secret_findings}"
+        print("  ✅ [PASS] No secrets, .env files, or database dumps in ZIP.")
+
+        # Check for public directory hygiene
+        public_sensitive = [n for n in names if n.startswith('public/') and any(n.endswith(ext) for ext in ['.zip', '.json', '.sql', '.tar', '.gz']) and not ('manifest' in n or 'robots' in n or 'sitemap' in n)]
+        assert len(public_sensitive) == 0, f"VIOLATION: Found unexpected files in public/: {public_sensitive}"
+        print("  ✅ [PASS] Public directory is completely free of source archives, dumps, or sensitive files.")
+
+    print("🎉 All ZIP audit assertions passed successfully!\n")
 
 if __name__ == '__main__':
     export_zip()

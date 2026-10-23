@@ -72,8 +72,18 @@ driverRouter.get('/:driverId/orders', requireDriverSelf('driverId'), (req: Reque
   res.json(foodDb.getOrdersByDriver(req.params.driverId));
 });
 
-// Broadcast / Available unassigned orders ready for delivery
-driverRouter.get('/:driverId/available-orders', requireDriverSelf('driverId'), (_req: Request, res: Response) => {
+// Broadcast / Available unassigned orders ready for delivery (only active & online drivers)
+driverRouter.get('/:driverId/available-orders', requireDriverSelf('driverId'), (req: Request, res: Response) => {
+  const driver = foodDb.getDriverById(req.params.driverId);
+  if (!driver) {
+    return res.status(404).json({ error: 'Data kurir tidak ditemukan.' });
+  }
+  if (!driver.active) {
+    return res.status(403).json({ error: 'Akun kurir belum disetujui atau dinonaktifkan oleh administrator.' });
+  }
+  if (!driver.online) {
+    return res.status(400).json({ error: 'Status kurir sedang offline. Aktifkan status online untuk melihat daftar tugas yang tersedia.' });
+  }
   res.json(foodDb.getAvailableOrdersForDrivers());
 });
 

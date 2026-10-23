@@ -77,21 +77,22 @@ export function verifyPassword(password: string, storedHash?: string): { valid: 
 
 /**
  * Create HMAC-SHA256 signed JWT token.
- * Fails securely in production if FOOD_AUTH_SECRET is not configured or uses a fallback.
+ * Fails securely if FOOD_AUTH_SECRET is not configured or uses a fallback in production.
  */
 export function createAuthToken(user: AuthUser, expiresInHours = 72): string {
   const secret = foodConfig.jwtSecret || (process.env.FOOD_AUTH_SECRET || '').trim();
-  let effectiveSecret = secret;
 
   if (foodConfig.isProduction) {
     if (!secret || secret.length < 32 || secret.includes('fallback') || secret.includes('dev_secret')) {
       throw new Error('Gagal menerbitkan token: FOOD_AUTH_SECRET belum dikonfigurasi untuk lingkungan produksi (wajib minimal 32 karakter dan bukan fallback).');
     }
   } else {
-    if (!effectiveSecret || effectiveSecret.length < 32) {
-      effectiveSecret = 'dev_secret_fallback_do_not_use_in_prod_min_32_characters_long';
+    if (!secret || secret.length < 32) {
+      throw new Error('Gagal menerbitkan token: Secret otentikasi belum dikonfigurasi.');
     }
   }
+
+  const effectiveSecret = secret;
 
   const header = Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).toString('base64url');
   const payload = Buffer.from(
@@ -127,7 +128,7 @@ export function verifyAuthToken(token: string): AuthUser | null {
     const foodSecret = foodConfig.jwtSecret || (process.env.FOOD_AUTH_SECRET || '').trim();
     const isFoodSecretValid = Boolean(
       foodSecret && 
-      foodSecret.length >= 16 && 
+      foodSecret.length >= 32 && 
       (!foodConfig.isProduction || (!foodSecret.includes('fallback') && !foodSecret.includes('dev_secret')))
     );
 
