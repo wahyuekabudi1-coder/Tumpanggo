@@ -1,11 +1,15 @@
 /**
  * @license
  * SPDX-License-Identifier: Apache-2.0
- * 
- * TumpangGo Single Source of Truth for Delivery Fee & Geographic Boundaries
- * Mandatory Business Rule:
- * All delivery destinations within Kecamatan Tumpang are strictly charged a flat fee of Rp 5.000 per order,
- * regardless of distance, village/kelurahan, merchant location, map calculations, or internal zones.
+ *
+ * TumpangGo Single Source of Truth for Delivery Fee & Geographic Boundaries.
+ *
+ * Business rules:
+ * - Kecamatan Tumpang: flat Rp5.000 per order.
+ * - Kecamatan Pakis: flat Rp7.500 per order.
+ * - All other districts are unsupported.
+ * - Maximum merchant-to-destination distance: 10 km.
+ * - Unknown/ambiguous district must not silently default to Tumpang.
  */
 
 export const FLAT_TUMPANG_DELIVERY_FEE = 5000;
@@ -13,79 +17,28 @@ export const FLAT_PAKIS_DELIVERY_FEE = 7500;
 export const MAX_DELIVERY_DISTANCE_KM = 10;
 
 /**
- * The 15 official villages (desa / kelurahan) in Kecamatan Tumpang, Kabupaten Malang, Jawa Timur.
- * Includes all common naming, spacing, hyphenation, and prefix variations.
+ * Common village-name variants in Kecamatan Tumpang.
+ * These are supporting address hints, not a substitute for a verified district.
  */
 export const TUMPANG_VILLAGES = [
-  // 1. Tumpang
-  'tumpang',
-  'desa tumpang',
-  'kelurahan tumpang',
-  // 2. Jeru
-  'jeru',
-  'desa jeru',
-  // 3. Malangsuko
-  'malangsuko',
-  'malang suko',
-  'malang-suko',
-  'desa malangsuko',
-  'desa malang suko',
-  // 4. Pulungdowo
-  'pulungdowo',
-  'pulung dowo',
-  'pulung-dowo',
-  'desa pulungdowo',
-  'desa pulung dowo',
-  // 5. Bokor
-  'bokor',
-  'desa bokor',
-  // 6. Slamet
-  'slamet',
-  'desa slamet',
-  // 7. Wringinsongo
-  'wringinsongo',
-  'wringin songo',
-  'wringin-songo',
-  'desa wringinsongo',
-  'desa wringin songo',
-  // 8. Benjor
-  'benjor',
-  'desa benjor',
-  // 9. Duwet
-  'duwet',
-  'desa duwet',
-  // 10. Duwet Krajan
-  'duwet krajan',
-  'duwetkrajan',
-  'duwet-krajan',
-  'desa duwet krajan',
-  'desa duwetkrajan',
-  // 11. Kidal
-  'kidal',
-  'desa kidal',
-  // 12. Kambingan
-  'kambingan',
-  'desa kambingan',
-  // 13. Ngingit
-  'ngingit',
-  'desa ngingit',
-  // 14. Tulusbesar
-  'tulusbesar',
-  'tulus besar',
-  'tulus-besar',
-  'desa tulusbesar',
-  'desa tulus besar',
-  // 15. Pandanajeng
-  'pandanajeng',
-  'pandan ajeng',
-  'pandan-ajeng',
-  'desa pandanajeng',
-  'desa pandan ajeng'
+  'tumpang', 'desa tumpang', 'kelurahan tumpang',
+  'jeru', 'desa jeru',
+  'malangsuko', 'malang suko', 'malang-suko', 'desa malangsuko', 'desa malang suko',
+  'pulungdowo', 'pulung dowo', 'pulung-dowo', 'desa pulungdowo', 'desa pulung dowo',
+  'bokor', 'desa bokor',
+  'slamet', 'desa slamet',
+  'wringinsongo', 'wringin songo', 'wringin-songo', 'desa wringinsongo', 'desa wringin songo',
+  'benjor', 'desa benjor',
+  'duwet', 'desa duwet',
+  'duwet krajan', 'duwetkrajan', 'duwet-krajan', 'desa duwet krajan', 'desa duwetkrajan',
+  'kidal', 'desa kidal',
+  'kambingan', 'desa kambingan',
+  'ngingit', 'desa ngingit',
+  'tulusbesar', 'tulus besar', 'tulus-besar', 'desa tulusbesar', 'desa tulus besar',
+  'pandanajeng', 'pandan ajeng', 'pandan-ajeng', 'desa pandanajeng', 'desa pandan ajeng'
 ] as const;
 
-/**
- * Key local hamlets, landmarks, and public places located within Kecamatan Tumpang.
- */
+/** Local landmarks that can be used as supporting Tumpang address hints. */
 export const TUMPANG_LANDMARKS = [
   'candi kidal',
   'candi jago',
@@ -93,4 +46,51 @@ export const TUMPANG_LANDMARKS = [
   'alun alun tumpang',
   'taman tumpang',
   'pasar tumpang',
-  'terminal tumpang',
+  'terminal tumpang'
+] as const;
+
+export interface CalculateDeliveryFeeInput {
+  address?: string;
+  details?: string;
+  landmark?: string;
+  district?: string;
+  destinationDistrict?: string;
+  latitude?: number;
+  longitude?: number;
+  merchantLatitude?: number;
+  merchantLongitude?: number;
+  systemConfig?: unknown;
+}
+
+export interface DeliveryFeeCalculation {
+  deliveryFee: number;
+  isSupported: boolean;
+  isInPakis: boolean;
+  isInTumpang: boolean;
+  distanceKm: number | null;
+  reason?: string;
+}
+
+type SupportedDistrict = 'TUMPANG' | 'PAKIS';
+
+function normalizeText(value: unknown): string {
+  return String(value ?? '')
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[.,]/g, ' ')
+    .replace(/[-_/]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function containsPhrase(text: string, phrase: string): boolean {
+  const escaped = phrase.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+/g, '\\s+');
+  return new RegExp(`(^|\\b)${escaped}(\\b|$)`, 'i').test(text);
+}
+
+/**
+ * Determine the destination district only from explicit district fields.
+ * Do not infer the district from a generic address substring: village names can
+ * overlap with other places and a false positive could permit an unsupported order.
+ */
