@@ -530,7 +530,7 @@ orderRouter.post('/', async (req: Request, res: Response) => {
   const reqId = (req as any).id || (req.headers['x-request-id'] as string) || 'req_' + Math.random().toString(36).substring(2, 9);
 
   try {
-    const { merchantId, customerName, customerPhone, deliveryAddress, items } = req.body || {};
+    const { merchantId, customerName, customerPhone, deliveryAddress, destinationDistrict, items } = req.body || {};
 
     // Stage 1: Validation
     if (!merchantId || typeof merchantId !== 'string' || merchantId.trim().length === 0) {
@@ -548,6 +548,26 @@ orderRouter.post('/', async (req: Request, res: Response) => {
       return res.status(400).json({
         error: 'Nama pemesan, nomor WhatsApp, dan alamat pengantaran wajib diisi lengkap.',
         code: 'MISSING_CUSTOMER_DETAILS',
+        stage: 'ORDER_VALIDATION',
+        requestId: reqId
+      });
+    }
+
+    if (!destinationDistrict || typeof destinationDistrict !== 'string' || !destinationDistrict.trim()) {
+      console.warn(`[Order Validation Error] [${reqId}] Destination district missing`);
+      return res.status(400).json({
+        error: 'Kecamatan tujuan pengantaran wajib dipilih (Kecamatan Tumpang atau Kecamatan Pakis).',
+        code: 'MISSING_DESTINATION_DISTRICT',
+        stage: 'ORDER_VALIDATION',
+        requestId: reqId
+      });
+    }
+
+    const cleanDistrict = destinationDistrict.trim().toLowerCase();
+    if (!cleanDistrict.includes('tumpang') && !cleanDistrict.includes('pakis')) {
+      return res.status(400).json({
+        error: 'Alamat pengantaran berada di luar wilayah jangkauan. Saat ini tumpangGo hanya melayani pengantaran di area Kecamatan Tumpang (Rp 5.000) dan Kecamatan Pakis (Rp 7.500).',
+        code: 'UNSUPPORTED_DESTINATION_DISTRICT',
         stage: 'ORDER_VALIDATION',
         requestId: reqId
       });

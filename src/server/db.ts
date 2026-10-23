@@ -2994,12 +2994,79 @@ export class FoodDatabase {
 
   public async createPartnerRegistration(regData: Omit<PartnerRegistration, 'id' | 'status' | 'createdAt'>): Promise<PartnerRegistration> {
     await this.ensureProductionCloudReady('Pendaftaran Pengajuan Mitra');
+
+    // 1. Mandatory Fields Validation
+    if (!regData.name || !regData.name.trim()) {
+      throw new Error('Nama lengkap pemilik sesuai KTP wajib diisi.');
+    }
+    if (regData.type === 'MERCHANT' && (!regData.storeName || !regData.storeName.trim())) {
+      throw new Error('Nama toko / usaha kuliner wajib diisi.');
+    }
+    if (!regData.phone || !regData.phone.trim()) {
+      throw new Error('Nomor telepon / WhatsApp aktif wajib diisi.');
+    }
+    if (!regData.email || !regData.email.trim() || !regData.email.includes('@')) {
+      throw new Error('Alamat email wajib diisi dengan format yang benar.');
+    }
+    if (regData.type === 'MERCHANT' && (!regData.storeAddress || !regData.storeAddress.trim())) {
+      throw new Error('Alamat lengkap toko / usaha wajib diisi.');
+    }
+    if (!regData.password || regData.password.trim().length < 6) {
+      throw new Error('Kata sandi wajib diisi dan minimal 6 karakter.');
+    }
+    if (regData.type === 'MERCHANT' && !regData.businessPhoto) {
+      throw new Error('Foto tempat usaha / gerai wajib diunggah.');
+    }
+    if (!regData.idPhoto) {
+      throw new Error('Foto KTP pemilik usaha wajib diunggah.');
+    }
+
+    // 2. Authoritative Phone & Email Duplicate Verification
+    const cleanPhoneDigits = regData.phone.replace(/\D/g, '');
+    const normPhone = cleanPhoneDigits.startsWith('62') 
+      ? '0' + cleanPhoneDigits.slice(2) 
+      : (cleanPhoneDigits.startsWith('0') ? cleanPhoneDigits : '0' + cleanPhoneDigits);
+    const cleanEmail = regData.email.trim().toLowerCase();
+
+    // Check duplicate in existing merchants
+    const existingMerchantDuplicate = this.data.merchants.find(m => {
+      const mEmail = (m.email || '').trim().toLowerCase();
+      const mDigits = (m.phone || '').replace(/\D/g, '');
+      const mNorm = mDigits.startsWith('62') ? '0' + mDigits.slice(2) : (mDigits.startsWith('0') ? mDigits : '0' + mDigits);
+      return (
+        (cleanEmail && mEmail === cleanEmail) ||
+        (cleanPhoneDigits.length >= 8 && mNorm === normPhone)
+      );
+    });
+
+    if (existingMerchantDuplicate) {
+      throw new Error('Nomor telepon / WhatsApp atau email ini sudah terdaftar sebagai mitra aktif. Silakan masuk melalui portal login.');
+    }
+
+    // Check duplicate in pending or approved partner registrations
+    const pendingDuplicate = this.data.partnerRegistrations.find(r => {
+      if (r.status !== 'PENDING' && r.status !== 'APPROVED') return false;
+      const rEmail = (r.email || '').trim().toLowerCase();
+      const rDigits = (r.phone || '').replace(/\D/g, '');
+      const rNorm = rDigits.startsWith('62') ? '0' + rDigits.slice(2) : (rDigits.startsWith('0') ? rDigits : '0' + rDigits);
+      return (
+        (cleanEmail && rEmail === cleanEmail) ||
+        (cleanPhoneDigits.length >= 8 && rNorm === normPhone)
+      );
+    });
+
+    if (pendingDuplicate) {
+      throw new Error('Pendaftaran dengan nomor WhatsApp atau email ini sudah diajukan dan sedang menunggu verifikasi Administrator.');
+    }
+
     const cleanPassword = regData.password 
       ? (regData.password.startsWith('pbkdf2$') ? regData.password : hashPassword(regData.password))
       : undefined;
 
     const newReg: PartnerRegistration = {
       ...regData,
+      phone: normPhone,
+      email: cleanEmail,
       password: cleanPassword,
       id: 'reg_' + Math.random().toString(36).substring(2, 9),
       status: 'PENDING',
@@ -3011,7 +3078,7 @@ export class FoodDatabase {
     if (isFirestoreAdminConfigured()) {
       const persisted = await safeFirestoreSetDoc('partnerRegistrations', newReg.id, newReg);
       if (!persisted && foodConfig.isProduction) {
-        throw new Error('[Produksi] Gagal menyimpan pendaftaran mitra ke cloud Firestore. Transaksi dibatalkan.');
+        throw new Error('[Produksi] Gagal menyimpan pendaftaran mitra ke cloud Firestore. Transaksi dibatalkan demi integritas data.');
       }
     } else {
       safeFirestoreSetDoc('partnerRegistrations', newReg.id, newReg);
@@ -3123,7 +3190,7 @@ export class FoodDatabase {
         const persisted = await safeAdminSetDocDetailed('partnerRegistrations', reg.id, reg);
         if (!persisted.success && foodConfig.isProduction) {
           const detail = persisted.error || getLastFirestoreWriteError() || 'Gagal memperbarui status registrasi mitra ke Cloud Firestore.';
-          throw new Error(`[Produksi] ${detail}`);
+          throw new Error(`Gagal menyimpan status pendaftaran ke Cloud Firestore: ${detail}. Transaksi dibatalkan demi menjaga integritas data.`);
         }
       } else {
         safeFirestoreSetDoc('partnerRegistrations', reg.id, reg);
@@ -3137,10 +3204,17 @@ export class FoodDatabase {
       // ATOMIC ROLLBACK: Revert registration status to previous state (PENDING)
       reg.status = prevStatus;
 
-      // Rollback created merchant if it was newly created in this transaction
+      // Rollback created merchant and any child categories if it was newly created in this transaction
       if (createdMerchantId) {
         this.data.merchants = this.data.merchants.filter(m => m.id !== createdMerchantId);
         safeAdminDeleteDoc('merchants', createdMerchantId).catch(() => {});
+
+        // Complete orphan cleanup: Remove categories created for this merchant
+        const orphanCats = this.data.categories.filter(c => c.merchantId === createdMerchantId);
+        this.data.categories = this.data.categories.filter(c => c.merchantId !== createdMerchantId);
+        for (const cat of orphanCats) {
+          safeAdminDeleteDoc('categories', cat.id).catch(() => {});
+        }
         delete reg.storeId;
       } else if (prevExistingMerchantClone) {
         // Revert modified existing merchant back to previous state

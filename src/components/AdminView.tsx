@@ -808,7 +808,7 @@ export default function AdminView({ onLogout, systemConfig, onUpdateConfig, onSe
       image: merchant.image || '',
       openTime: merchant.openTime || '08:00',
       closeTime: merchant.closeTime || '21:00',
-      cookTimeEstimate: merchant.cookTimeEstimate || '15-30 min',
+      cookTimeEstimate: merchant.cookTimeEstimate || '15 menit',
       bankName: merchant.bankName || 'Bank BRI',
       bankAccount: merchant.bankAccount || '',
       bankHolder: merchant.bankHolder || merchant.ownerName || '',
