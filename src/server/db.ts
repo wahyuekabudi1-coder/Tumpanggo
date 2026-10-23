@@ -35,6 +35,7 @@ import {
   testFirestoreConnection,
   getFirestoreDiagnosticStatus
 } from './firebaseAdmin';
+import { classifyRecord, KNOWN_SEED_MERCHANT_IDS } from './services/cleanupService';
 
 const FOOD_DB_FILE = foodConfig.localDbFile;
 const LEGACY_DB_FILE = foodConfig.legacyDbFile;
@@ -304,8 +305,21 @@ export class FoodDatabase {
 
     if (!this.data.drivers) this.data.drivers = [];
     if (!this.data.menuItems) this.data.menuItems = [];
-    // Clean up any invalid menu items without valid merchant association
-    this.data.menuItems = this.data.menuItems.filter(i => typeof i.merchantId === 'string' && i.merchantId !== 'm1');
+
+    // Ensure confirmed dummy/seed records are never loaded or presented
+    const dummyMerchantIds = new Set(
+      this.data.merchants
+        .filter(m => classifyRecord('merchants', m).classification === 'DUMMY_CONFIRMED')
+        .map(m => m.id)
+    );
+
+    this.data.merchants = this.data.merchants.filter(m => classifyRecord('merchants', m, dummyMerchantIds).classification !== 'DUMMY_CONFIRMED');
+    this.data.menuItems = this.data.menuItems.filter(i => classifyRecord('menuItems', i, dummyMerchantIds).classification !== 'DUMMY_CONFIRMED');
+    this.data.drivers = this.data.drivers.filter(d => classifyRecord('drivers', d, dummyMerchantIds).classification !== 'DUMMY_CONFIRMED');
+    this.data.orders = this.data.orders.filter(o => classifyRecord('orders', o, dummyMerchantIds).classification !== 'DUMMY_CONFIRMED');
+    this.data.settlements = this.data.settlements.filter(s => classifyRecord('settlements', s, dummyMerchantIds).classification !== 'DUMMY_CONFIRMED');
+    this.data.partnerRegistrations = this.data.partnerRegistrations.filter(r => classifyRecord('partnerRegistrations', r, dummyMerchantIds).classification !== 'DUMMY_CONFIRMED');
+    this.data.testimonials = this.data.testimonials.filter(t => classifyRecord('testimonials', t, dummyMerchantIds).classification !== 'DUMMY_CONFIRMED');
 
     this.data.merchants.forEach(m => {
       if (!m.qrisImage || m.qrisImage.includes('unsplash')) {
@@ -726,6 +740,266 @@ export class FoodDatabase {
     };
   }
 
+  /**
+   * Safely cleans ONLY confirmed dummy/testing records across ALL collections.
+   * Real merchants, real drivers, real orders, and testimonials are 100% PRESERVED.
+   * Universal categories, system configuration, and Master Admin credentials are NEVER touched.
+   * Creates verifiable persistent Cloud and Local backups prior to any deletion.
+   */
+  public async executeSafeDummyCleanup(actorId = 'master-admin'): Promise<{
+    success: boolean;
+    timestamp: string;
+    targetProjectId: string;
+    targetDatabaseId: string;
+    cloudBackupCreated: boolean;
+    cloudBackupId?: string;
+    localBackupPath: string;
+    purged: {
+      merchants: number;
+      categories: number;
+      menuItems: number;
+      drivers: number;
+      orders: number;
+      settlements: number;
+      partnerRegistrations: number;
+      testimonials: number;
+      total: number;
+    };
+    preserved: {
+      merchants: number;
+      categories: number;
+      menuItems: number;
+      drivers: number;
+      orders: number;
+      settlements: number;
+      partnerRegistrations: number;
+      testimonials: number;
+      total: number;
+    };
+  }> {
+    await this.ensureProductionCloudReady('Pembersihan Aman Data Dummy & Testing');
+
+    const localBackupPath = `${FOOD_DB_FILE}.dummy_cleanup_backup_${Date.now()}.json`;
+    try {
+      if (fs.existsSync(FOOD_DB_FILE)) {
+        fs.copyFileSync(FOOD_DB_FILE, localBackupPath);
+      }
+    } catch (e: any) {
+      console.warn('[TumpangFood DummyCleanup] Local backup warning:', e.message);
+    }
+
+    let cloudBackupCreated = false;
+    const cloudBackupId = `dummy_cleanup_backup_${Date.now()}`;
+    const adminDb = getAdminDb();
+
+    let purgedMerchants = 0;
+    let purgedCategories = 0;
+    let purgedMenuItems = 0;
+    let purgedDrivers = 0;
+    let purgedOrders = 0;
+    let purgedSettlements = 0;
+    let purgedRegistrations = 0;
+    let purgedTestimonials = 0;
+
+    // 1. Cloud Firestore scan and targeted dummy deletion if active
+    if (isFirestoreAdminConfigured() && adminDb) {
+      try {
+        const [
+          merchantsSnap, categoriesSnap, menuItemsSnap, driversSnap,
+          ordersSnap, settlementsSnap, regsSnap, testimonialsSnap
+        ] = await Promise.all([
+          adminDb.collection('merchants').get(),
+          adminDb.collection('categories').get(),
+          adminDb.collection('menuItems').get(),
+          adminDb.collection('drivers').get(),
+          adminDb.collection('orders').get(),
+          adminDb.collection('settlements').get(),
+          adminDb.collection('partnerRegistrations').get(),
+          adminDb.collection('testimonials').get()
+        ]);
+
+        cloudBackupCreated = await createFirestoreBackup(
+          cloudBackupId,
+          {
+            actorId,
+            type: 'PRE_SAFE_DUMMY_CLEANUP',
+            timestamp: new Date().toISOString()
+          },
+          {
+            merchants: merchantsSnap.docs.map(d => ({ id: d.id, ...(d.data() || {}) })),
+            categories: categoriesSnap.docs.map(d => ({ id: d.id, ...(d.data() || {}) })),
+            menuItems: menuItemsSnap.docs.map(d => ({ id: d.id, ...(d.data() || {}) })),
+            drivers: driversSnap.docs.map(d => ({ id: d.id, ...(d.data() || {}) })),
+            orders: ordersSnap.docs.map(d => ({ id: d.id, ...(d.data() || {}) })),
+            settlements: settlementsSnap.docs.map(d => ({ id: d.id, ...(d.data() || {}) })),
+            partnerRegistrations: regsSnap.docs.map(d => ({ id: d.id, ...(d.data() || {}) })),
+            testimonials: testimonialsSnap.docs.map(d => ({ id: d.id, ...(d.data() || {}) }))
+          }
+        );
+
+        if (!cloudBackupCreated) {
+          throw new Error('Gagal membuat cloud backup Firestore sebelum pembersihan data dummy. Operasi dibatalkan demi keamanan data.');
+        }
+
+        // Identify dummy merchants in Cloud Firestore
+        const cloudDummyMerchantIds = new Set<string>();
+        for (const doc of merchantsSnap.docs) {
+          const res = classifyRecord('merchants', { id: doc.id, ...doc.data() });
+          if (res.classification === 'DUMMY_CONFIRMED') {
+            cloudDummyMerchantIds.add(doc.id);
+          }
+        }
+
+        // Delete only DUMMY_CONFIRMED records from Cloud
+        const deletePromises: Promise<any>[] = [];
+
+        for (const doc of merchantsSnap.docs) {
+          const res = classifyRecord('merchants', { id: doc.id, ...doc.data() }, cloudDummyMerchantIds);
+          if (res.classification === 'DUMMY_CONFIRMED') {
+            deletePromises.push(safeAdminDeleteDoc('merchants', doc.id));
+            purgedMerchants++;
+          }
+        }
+        for (const doc of categoriesSnap.docs) {
+          const res = classifyRecord('categories', { id: doc.id, ...doc.data() }, cloudDummyMerchantIds);
+          if (res.classification === 'DUMMY_CONFIRMED') {
+            deletePromises.push(safeAdminDeleteDoc('categories', doc.id));
+            purgedCategories++;
+          }
+        }
+        for (const doc of menuItemsSnap.docs) {
+          const res = classifyRecord('menuItems', { id: doc.id, ...doc.data() }, cloudDummyMerchantIds);
+          if (res.classification === 'DUMMY_CONFIRMED') {
+            deletePromises.push(safeAdminDeleteDoc('menuItems', doc.id));
+            purgedMenuItems++;
+          }
+        }
+        for (const doc of driversSnap.docs) {
+          const res = classifyRecord('drivers', { id: doc.id, ...doc.data() }, cloudDummyMerchantIds);
+          if (res.classification === 'DUMMY_CONFIRMED') {
+            deletePromises.push(safeAdminDeleteDoc('drivers', doc.id));
+            purgedDrivers++;
+          }
+        }
+        for (const doc of ordersSnap.docs) {
+          const res = classifyRecord('orders', { id: doc.id, ...doc.data() }, cloudDummyMerchantIds);
+          if (res.classification === 'DUMMY_CONFIRMED') {
+            deletePromises.push(safeAdminDeleteDoc('orders', doc.id));
+            purgedOrders++;
+          }
+        }
+        for (const doc of settlementsSnap.docs) {
+          const res = classifyRecord('settlements', { id: doc.id, ...doc.data() }, cloudDummyMerchantIds);
+          if (res.classification === 'DUMMY_CONFIRMED') {
+            deletePromises.push(safeAdminDeleteDoc('settlements', doc.id));
+            purgedSettlements++;
+          }
+        }
+        for (const doc of regsSnap.docs) {
+          const res = classifyRecord('partnerRegistrations', { id: doc.id, ...doc.data() }, cloudDummyMerchantIds);
+          if (res.classification === 'DUMMY_CONFIRMED') {
+            deletePromises.push(safeAdminDeleteDoc('partnerRegistrations', doc.id));
+            purgedRegistrations++;
+          }
+        }
+        for (const doc of testimonialsSnap.docs) {
+          const res = classifyRecord('testimonials', { id: doc.id, ...doc.data() }, cloudDummyMerchantIds);
+          if (res.classification === 'DUMMY_CONFIRMED') {
+            deletePromises.push(safeAdminDeleteDoc('testimonials', doc.id));
+            purgedTestimonials++;
+          }
+        }
+
+        await Promise.all(deletePromises);
+        console.log(`[TumpangFood DummyCleanup] Cloud purge complete: ${deletePromises.length} dummy docs deleted.`);
+      } catch (fsErr: any) {
+        console.error('[TumpangFood DummyCleanup] Firestore cleanup error:', fsErr.message);
+        throw new Error(`[Gagal Pembersihan Data Dummy] ${fsErr.message}`);
+      }
+    }
+
+    // 2. Local in-memory & file cleanup
+    const localDummyMerchantIds = new Set<string>();
+    for (const m of this.data.merchants) {
+      if (classifyRecord('merchants', m).classification === 'DUMMY_CONFIRMED') {
+        localDummyMerchantIds.add(m.id);
+      }
+    }
+
+    const prevM = this.data.merchants.length;
+    const prevC = this.data.categories.length;
+    const prevI = this.data.menuItems.length;
+    const prevD = this.data.drivers.length;
+    const prevO = this.data.orders.length;
+    const prevS = this.data.settlements.length;
+    const prevR = this.data.partnerRegistrations.length;
+    const prevT = this.data.testimonials.length;
+
+    this.data.merchants = this.data.merchants.filter(m => classifyRecord('merchants', m, localDummyMerchantIds).classification !== 'DUMMY_CONFIRMED');
+    this.data.categories = this.data.categories.filter(c => classifyRecord('categories', c, localDummyMerchantIds).classification !== 'DUMMY_CONFIRMED');
+    this.data.menuItems = this.data.menuItems.filter(i => classifyRecord('menuItems', i, localDummyMerchantIds).classification !== 'DUMMY_CONFIRMED');
+    this.data.drivers = this.data.drivers.filter(d => classifyRecord('drivers', d, localDummyMerchantIds).classification !== 'DUMMY_CONFIRMED');
+    this.data.orders = this.data.orders.filter(o => classifyRecord('orders', o, localDummyMerchantIds).classification !== 'DUMMY_CONFIRMED');
+    this.data.settlements = this.data.settlements.filter(s => classifyRecord('settlements', s, localDummyMerchantIds).classification !== 'DUMMY_CONFIRMED');
+    this.data.partnerRegistrations = this.data.partnerRegistrations.filter(r => classifyRecord('partnerRegistrations', r, localDummyMerchantIds).classification !== 'DUMMY_CONFIRMED');
+    this.data.testimonials = this.data.testimonials.filter(t => classifyRecord('testimonials', t, localDummyMerchantIds).classification !== 'DUMMY_CONFIRMED');
+
+    if (!isFirestoreAdminConfigured() || !adminDb) {
+      purgedMerchants = prevM - this.data.merchants.length;
+      purgedCategories = prevC - this.data.categories.length;
+      purgedMenuItems = prevI - this.data.menuItems.length;
+      purgedDrivers = prevD - this.data.drivers.length;
+      purgedOrders = prevO - this.data.orders.length;
+      purgedSettlements = prevS - this.data.settlements.length;
+      purgedRegistrations = prevR - this.data.partnerRegistrations.length;
+      purgedTestimonials = prevT - this.data.testimonials.length;
+    }
+
+    this.save();
+    this.createBackup();
+
+    const totalPurged = purgedMerchants + purgedCategories + purgedMenuItems + purgedDrivers + purgedOrders + purgedSettlements + purgedRegistrations + purgedTestimonials;
+    const totalPreserved = this.data.merchants.length + this.data.categories.length + this.data.menuItems.length + this.data.drivers.length + this.data.orders.length + this.data.settlements.length + this.data.partnerRegistrations.length + this.data.testimonials.length;
+
+    this.log(
+      actorId,
+      `Safe dummy cleanup executed: Purged ${totalPurged} dummy records (${purgedMerchants} merchants, ${purgedDrivers} drivers, ${purgedOrders} orders, ${purgedSettlements} settlements). Preserved ${totalPreserved} real records.`,
+      'MASTER_ADMIN'
+    );
+
+    return {
+      success: true,
+      timestamp: new Date().toISOString(),
+      targetProjectId: foodConfig.projectId || 'tumpanggo-70479',
+      targetDatabaseId: foodConfig.databaseId || '(default)',
+      cloudBackupCreated,
+      cloudBackupId: cloudBackupCreated ? cloudBackupId : undefined,
+      localBackupPath,
+      purged: {
+        merchants: purgedMerchants,
+        categories: purgedCategories,
+        menuItems: purgedMenuItems,
+        drivers: purgedDrivers,
+        orders: purgedOrders,
+        settlements: purgedSettlements,
+        partnerRegistrations: purgedRegistrations,
+        testimonials: purgedTestimonials,
+        total: totalPurged
+      },
+      preserved: {
+        merchants: this.data.merchants.length,
+        categories: this.data.categories.length,
+        menuItems: this.data.menuItems.length,
+        drivers: this.data.drivers.length,
+        orders: this.data.orders.length,
+        settlements: this.data.settlements.length,
+        partnerRegistrations: this.data.partnerRegistrations.length,
+        testimonials: this.data.testimonials.length,
+        total: totalPreserved
+      }
+    };
+  }
+
   public save() {
     try {
       const dir = path.dirname(FOOD_DB_FILE);
@@ -958,32 +1232,26 @@ export class FoodDatabase {
         console.warn('[TumpangFood DB] Failed to sync menuItems with Firestore:', e.message);
       }
 
-      // Drivers (Preserved & Authoritative)
+      // Drivers (Firestore as Primary Store - Authoritative)
       try {
         const remoteDrivers = await safeAdminGetDocs('drivers');
-        if (remoteDrivers.length > 0) {
-          this.data.drivers = remoteDrivers as Driver[];
-        }
+        this.data.drivers = (remoteDrivers as Driver[]) || [];
       } catch (e: any) {
         console.warn('[TumpangFood DB] Failed to sync drivers with Firestore:', e.message);
       }
 
-      // Orders (Preserved & Authoritative)
+      // Orders (Firestore as Primary Store - Authoritative)
       try {
         const remoteOrders = await safeAdminGetDocs('orders');
-        if (remoteOrders.length > 0) {
-          this.data.orders = (remoteOrders as Order[]).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-        }
+        this.data.orders = ((remoteOrders as Order[]) || []).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
       } catch (e: any) {
         console.warn('[TumpangFood DB] Failed to sync orders with Firestore:', e.message);
       }
 
-      // Settlements (Preserved & Authoritative)
+      // Settlements (Firestore as Primary Store - Authoritative)
       try {
         const remoteSets = await safeAdminGetDocs('settlements');
-        if (remoteSets.length > 0) {
-          this.data.settlements = remoteSets as Settlement[];
-        }
+        this.data.settlements = (remoteSets as Settlement[]) || [];
       } catch (e: any) {
         console.warn('[TumpangFood DB] Failed to sync settlements with Firestore:', e.message);
       }
@@ -991,19 +1259,15 @@ export class FoodDatabase {
       // Partner Registrations (Authoritative from Firestore)
       try {
         const remoteRegs = await safeAdminGetDocs('partnerRegistrations');
-        if (remoteRegs.length > 0) {
-          this.data.partnerRegistrations = remoteRegs as PartnerRegistration[];
-        }
+        this.data.partnerRegistrations = (remoteRegs as PartnerRegistration[]) || [];
       } catch (e: any) {
         console.warn('[TumpangFood DB] Failed to sync partnerRegistrations with Firestore:', e.message);
       }
 
-      // Testimonials (Cerita Pengguna)
+      // Testimonials (Cerita Pengguna - Authoritative from Firestore)
       try {
         const remoteTestis = await safeAdminGetDocs('testimonials');
-        if (remoteTestis.length > 0) {
-          this.data.testimonials = remoteTestis as Testimonial[];
-        }
+        this.data.testimonials = (remoteTestis as Testimonial[]) || [];
       } catch (e: any) {
         console.warn('[TumpangFood DB] Failed to sync testimonials with Firestore:', e.message);
       }

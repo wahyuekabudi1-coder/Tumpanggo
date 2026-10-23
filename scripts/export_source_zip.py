@@ -70,7 +70,7 @@ def export_zip():
                     continue
                 if any(f.endswith(ext) for ext in exclude_extensions):
                     continue
-                if 'backup.json' in f or 'shop_db' in f:
+                if 'backup' in f.lower() or 'shop_db' in f or f.startswith('tumpang_food_db.json'):
                     continue
                     
                 full_path = os.path.join(dirpath, f)
@@ -84,6 +84,20 @@ def export_zip():
     zip_size_mb = os.path.getsize(output_zip) / (1024 * 1024)
     print(f"✅ Source ZIP created successfully: {file_count} files, {total_bytes / (1024 * 1024):.2f} MB raw, {zip_size_mb:.2f} MB compressed.")
     print(f"📁 Source archive location: {output_zip}")
+
+    # Also copy to current artifact directory for AI Studio Build
+    artifact_dirs = [
+        os.path.join(root_dir, '.aistudio', 'artifacts', 'brain', 'beb95fb3-b008-4dbd-bec7-0dd9de135170'),
+        os.path.join(root_dir, '.aistudio', 'artifacts', 'brain', '2ee7047e-bf14-42a0-96e3-38772562a041')
+    ]
+    for art_dir in artifact_dirs:
+        try:
+            os.makedirs(art_dir, exist_ok=True)
+            import shutil
+            shutil.copy2(output_zip, os.path.join(art_dir, 'tumpanggo-clean-source.zip'))
+            print(f"📁 Synced to artifact directory: {art_dir}/tumpanggo-clean-source.zip")
+        except Exception as copy_err:
+            pass
 
     # --- POST-EXPORT ZIP INTEGRITY & HYGIENE AUDIT ---
     print("\n🔍 Auditing exported ZIP contents...")

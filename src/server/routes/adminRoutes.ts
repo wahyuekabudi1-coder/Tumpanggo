@@ -170,6 +170,18 @@ adminRouter.post('/clean-slate-merchants', requireRole(['MASTER_ADMIN']), async 
   }
 });
 
+// Execute Targeted Safe Dummy Cleanup (Master Admin Only)
+// Safely purges only confirmed dummy/demo records, preserving real merchants, drivers, orders, and reviews.
+adminRouter.post(['/clean-dummy-data', '/admin/clean-dummy-data'], requireRole(['MASTER_ADMIN']), async (req: Request, res: Response) => {
+  try {
+    const actorId = req.user?.userId || req.user?.email || 'master-admin';
+    const result = await foodDb.executeSafeDummyCleanup(actorId);
+    res.json(result);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Gagal mengeksekusi pembersihan data dummy' });
+  }
+});
+
 // Restore Clean Slate from Backup (Master Admin Only)
 adminRouter.post('/clean-slate-restore', requireRole(['MASTER_ADMIN']), async (req: Request, res: Response) => {
   try {

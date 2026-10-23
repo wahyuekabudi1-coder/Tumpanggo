@@ -1,0 +1,27 @@
+{
+  "backupId": "pre_cleanup_1792769640912",
+  "cloudVerified": true,
+  "metadata": {
+    "source": "Tumpang Food Safe Dummy Cleanup Utility",
+    "activeProjectId": "tumpanggo-70479",
+    "expectedProjectId": "tumpanggo-70479",
+    "databaseId": "(default)",
+    "documentCount": 1,
+    "createdAt": "2026-10-23T15:34:00.912Z"
+  },
+  "collections": {
+    "merchants": [
+      {
+        "id": "m1",
+        "isDemo": true
+      }
+    ],
+    "categories": [],
+    "menuItems": [],
+    "drivers": [],
+    "orders": [],
+    "settlements": [],
+    "testimonials": [],
+    "partnerRegistrations": []
+  }
+}

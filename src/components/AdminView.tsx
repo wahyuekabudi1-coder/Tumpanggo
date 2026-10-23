@@ -241,6 +241,29 @@ export default function AdminView({ onLogout, systemConfig, onUpdateConfig, onSe
     }
   };
 
+  const handleExecuteSafeDummyCleanup = async () => {
+    if (!window.confirm('KONFIRMASI PEMBERSIHAN DATA DUMMY & TESTING:\n\nSistem akan memindai database dan HANYA menghapus record yang terbukti merupakan data demo/seed (merchant contoh, menu testing, driver demo, order dummy, dan settlement uji coba).\n\n• Seluruh data riil pelanggan, merchant asli, dan driver terdaftar TETAP DIPERTAHANKAN.\n• Kategori sistem universal dan akun Admin TETAP UTUH.\n• Backup otomatis akan dibuat terlebih dahulu sebelum penghapusan.\n\nLanjutkan pembersihan aman?')) {
+      return;
+    }
+    setExecutingCleanSlate(true);
+    setCleanSlateResult(null);
+    try {
+      const res = await fetch('/api/clean-dummy-data', { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'Gagal mengeksekusi pembersihan data dummy');
+      }
+      setCleanSlateResult(data);
+      fetchAdminData();
+      fetchCleanSlatePlan();
+      alert(`Pembersihan aman selesai! Berhasil membersihkan ${data.purged?.total || 0} data dummy. ${data.preserved?.total || 0} data riil dipertahankan.`);
+    } catch (err: any) {
+      alert(`Gagal mengeksekusi: ${err.message}`);
+    } finally {
+      setExecutingCleanSlate(false);
+    }
+  };
+
   const handleRestoreCleanSlate = async () => {
     if (!restoreBackupId.trim()) {
       alert('Masukkan ID backup yang valid.');
@@ -1185,6 +1208,12 @@ export default function AdminView({ onLogout, systemConfig, onUpdateConfig, onSe
                 </span>
               </div>
               <p className="text-[11px] text-slate-500 truncate">Pusat Kendali Operasional</p>
+              <div className="flex items-center gap-1.5 mt-0.5">
+                <span className={`w-2 h-2 rounded-full ${cleanSlatePlan?.liveCloudConnected ? 'bg-emerald-500' : 'bg-amber-400'}`}></span>
+                <span className="text-[10px] font-semibold text-slate-600 truncate">
+                  DB: {cleanSlatePlan?.liveCloudConnected ? 'Cloud Firestore (Aktif)' : 'Lokal (Development)'}
+                </span>
+              </div>
             </div>
           </div>
         </div>
@@ -1269,6 +1298,10 @@ export default function AdminView({ onLogout, systemConfig, onUpdateConfig, onSe
                   <span className="bg-emerald-100 text-emerald-800 text-[9px] font-bold px-1.5 py-0.2 rounded-full border border-emerald-200">
                     TumpangGo
                   </span>
+                </div>
+                <div className="flex items-center gap-1 text-[9px] text-slate-500 font-medium">
+                  <span className={`w-1.5 h-1.5 rounded-full ${cleanSlatePlan?.liveCloudConnected ? 'bg-emerald-500' : 'bg-amber-400'}`}></span>
+                  <span>{cleanSlatePlan?.liveCloudConnected ? 'Cloud DB' : 'Lokal DB'}</span>
                 </div>
               </div>
             </div>
@@ -3839,12 +3872,23 @@ export default function AdminView({ onLogout, systemConfig, onUpdateConfig, onSe
 
                 <button
                   type="button"
+                  onClick={handleExecuteSafeDummyCleanup}
+                  disabled={executingCleanSlate}
+                  className="flex-1 py-2.5 px-4 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-bold text-xs rounded-xl transition-all shadow-xs cursor-pointer flex items-center justify-center gap-1.5"
+                >
+                  <ShieldCheck className="w-4 h-4" />
+                  {executingCleanSlate ? 'Memproses...' : 'Pembersihan Aman Data Dummy (Rekomendasi)'}
+                </button>
+
+                <button
+                  type="button"
                   onClick={handleExecuteCleanSlate}
                   disabled={executingCleanSlate || (cleanSlatePlan?.toPurge?.merchantsCount === 0 && merchants.length === 0 && orders.length === 0)}
-                  className="flex-1 py-2.5 px-4 bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white font-bold text-xs rounded-xl transition-all shadow-xs cursor-pointer flex items-center justify-center gap-1.5"
+                  className="py-2.5 px-3 bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white font-bold text-xs rounded-xl transition-all shadow-xs cursor-pointer flex items-center justify-center gap-1.5"
+                  title="Bersihkan katalog merchant contoh"
                 >
                   <Trash2 className="w-4 h-4" />
-                  {executingCleanSlate ? 'Mengeksekusi Clean Slate...' : 'Bersihkan Seluruh Data Dummy & Testing (Eksekusi)'}
+                  <span>Reset Total Katalog</span>
                 </button>
               </div>
 
