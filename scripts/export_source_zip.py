@@ -130,6 +130,26 @@ def export_zip():
         assert len(public_sensitive) == 0, f"VIOLATION: Found unexpected files in public/: {public_sensitive}"
         print("  ✅ [PASS] Public directory is completely free of source archives, dumps, or sensitive files.")
 
+        # Check vercel.json in ZIP contains cleanUrls and merchant rewrite
+        assert 'vercel.json' in names, "VIOLATION: vercel.json missing from ZIP"
+        vercel_in_zip = zf.read('vercel.json').decode('utf-8')
+        assert '"cleanUrls": true' in vercel_in_zip, "VIOLATION: vercel.json in ZIP must have cleanUrls: true"
+        assert '"trailingSlash": false' in vercel_in_zip, "VIOLATION: vercel.json in ZIP must have trailingSlash: false"
+        assert '/merchant.html' in vercel_in_zip, "VIOLATION: vercel.json in ZIP must have /merchant.html rewrite"
+        print("  ✅ [PASS] vercel.json in ZIP contains cleanUrls: true, trailingSlash: false, and /merchant.html rewrite.")
+
+        # Check usePWAInstall.ts in ZIP contains isInstallationInProgress lock
+        assert 'src/hooks/usePWAInstall.ts' in names, "VIOLATION: usePWAInstall.ts missing from ZIP"
+        hook_in_zip = zf.read('src/hooks/usePWAInstall.ts').decode('utf-8')
+        assert 'isInstallationInProgress' in hook_in_zip, "VIOLATION: usePWAInstall.ts in ZIP must have isInstallationInProgress lock"
+        print("  ✅ [PASS] src/hooks/usePWAInstall.ts in ZIP contains isInstallationInProgress installation prompt lock.")
+
+        # Check manifest-merchant.json in ZIP
+        assert 'public/manifest-merchant.json' in names, "VIOLATION: manifest-merchant.json missing from ZIP"
+        manifest_in_zip = zf.read('public/manifest-merchant.json').decode('utf-8')
+        assert '"start_url": "/merchant"' in manifest_in_zip, "VIOLATION: manifest-merchant.json in ZIP must specify /merchant start_url"
+        print("  ✅ [PASS] public/manifest-merchant.json in ZIP specifies /merchant start_url.")
+
     print("🎉 All ZIP audit assertions passed successfully!\n")
 
 if __name__ == '__main__':

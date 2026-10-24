@@ -48,8 +48,19 @@ export function checkIsIOS(): boolean {
   return /iphone|ipad|ipod/.test(ua) && !(window as any).MSStream;
 }
 
+// Prevent dynamic manifest swaps while the browser is actively presenting or processing an install prompt
+let isInstallationInProgress: boolean = false;
+
+export function isInstallPromptActive(): boolean {
+  return isInstallationInProgress;
+}
+
 export function syncPWAManifest(role: PWARole) {
   if (typeof document === 'undefined') return;
+  // Strictly prevent manifest mutation while browser is actively processing installation prompt
+  if (isInstallationInProgress) {
+    return;
+  }
   const manifestMap: Record<PWARole, string> = {
     CUSTOMER: '/manifest.json',
     MERCHANT: '/manifest-merchant.json',
@@ -169,6 +180,7 @@ export function usePWAInstall(role?: PWARole) {
     }
 
     try {
+      isInstallationInProgress = true;
       await promptToUse.prompt();
       const choice = await promptToUse.userChoice;
 
@@ -194,6 +206,11 @@ export function usePWAInstall(role?: PWARole) {
       setDeferredPrompt(null);
       notifyListeners();
       return { outcome: 'unavailable', accepted: false };
+    } finally {
+      // Delay releasing the lock to let browser complete OS shortcut/WebAPK creation
+      setTimeout(() => {
+        isInstallationInProgress = false;
+      }, 1500);
     }
   };
 

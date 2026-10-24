@@ -211,47 +211,54 @@ assert(fs.existsSync(vercelPath), 'vercel.json exists');
 
 if (fs.existsSync(vercelPath)) {
   const vercelConfig = JSON.parse(fs.readFileSync(vercelPath, 'utf-8'));
-  assert(vercelConfig.cleanUrls !== true, 'cleanUrls is NOT enabled (cleanUrls: true breaks index.html rewrites on Vercel)');
+  assert(vercelConfig.cleanUrls === true, 'cleanUrls is enabled for seamless extensionless sub-route serving without 404');
+  assert(vercelConfig.trailingSlash === false, 'trailingSlash is set to false to prevent directory trailing slash 308/404 mismatch');
   
   const rewrites: any[] = vercelConfig.rewrites || [];
-  const hasMerchantRewrite = rewrites.some(r => r.source === '/merchant' && r.destination === '/index.html');
+  const hasMerchantRewrite = rewrites.some(r => r.source === '/merchant' && (r.destination === '/merchant.html' || r.destination === '/index.html'));
   const hasMerchantWildcard = rewrites.some(r => r.source === '/merchant/(.*)' && r.destination === '/index.html');
-  const hasDriverRewrite = rewrites.some(r => r.source === '/driver' && r.destination === '/index.html');
+  const hasDriverRewrite = rewrites.some(r => r.source === '/driver' && (r.destination === '/driver.html' || r.destination === '/index.html'));
   const hasDriverWildcard = rewrites.some(r => r.source === '/driver/(.*)' && r.destination === '/index.html');
-  const hasAdminRewrite = rewrites.some(r => r.source === '/admin' && r.destination === '/index.html');
+  const hasAdminRewrite = rewrites.some(r => r.source === '/admin' && (r.destination === '/admin.html' || r.destination === '/index.html'));
   const hasAdminWildcard = rewrites.some(r => r.source === '/admin/(.*)' && r.destination === '/index.html');
   const hasSpaCatchall = rewrites.some(r => r.destination === '/index.html' && r.source.includes('api/'));
 
-  assert(hasMerchantRewrite, 'vercel.json contains exact rewrite for /merchant');
+  assert(hasMerchantRewrite, 'vercel.json contains rewrite for /merchant');
   assert(hasMerchantWildcard, 'vercel.json contains wildcard rewrite for /merchant/(.*)');
-  assert(hasDriverRewrite, 'vercel.json contains exact rewrite for /driver');
+  assert(hasDriverRewrite, 'vercel.json contains rewrite for /driver');
   assert(hasDriverWildcard, 'vercel.json contains wildcard rewrite for /driver/(.*)');
-  assert(hasAdminRewrite, 'vercel.json contains exact rewrite for /admin');
+  assert(hasAdminRewrite, 'vercel.json contains rewrite for /admin');
   assert(hasAdminWildcard, 'vercel.json contains wildcard rewrite for /admin/(.*)');
   assert(hasSpaCatchall, 'vercel.json contains SPA catch-all excluding /api/');
 }
 
-// Check physical fallbacks in dist
-const distMerchant = path.resolve(process.cwd(), 'dist/merchant/index.html');
-const distDriver = path.resolve(process.cwd(), 'dist/driver/index.html');
-const distAdmin = path.resolve(process.cwd(), 'dist/admin/index.html');
+// Check physical fallbacks in dist (both folder/index.html and flat .html for cleanUrls)
+const distMerchantDir = path.resolve(process.cwd(), 'dist/merchant/index.html');
+const distMerchantFlat = path.resolve(process.cwd(), 'dist/merchant.html');
+const distDriverDir = path.resolve(process.cwd(), 'dist/driver/index.html');
+const distDriverFlat = path.resolve(process.cwd(), 'dist/driver.html');
+const distAdminDir = path.resolve(process.cwd(), 'dist/admin/index.html');
+const distAdminFlat = path.resolve(process.cwd(), 'dist/admin.html');
 
-assert(fs.existsSync(distMerchant), 'Physical static entry dist/merchant/index.html exists');
-if (fs.existsSync(distMerchant)) {
-  const content = fs.readFileSync(distMerchant, 'utf-8');
-  assert(content.includes('/manifest-merchant.json'), 'dist/merchant/index.html pre-bakes /manifest-merchant.json');
+assert(fs.existsSync(distMerchantDir), 'Physical static entry dist/merchant/index.html exists');
+assert(fs.existsSync(distMerchantFlat), 'Physical static flat entry dist/merchant.html exists');
+if (fs.existsSync(distMerchantFlat)) {
+  const content = fs.readFileSync(distMerchantFlat, 'utf-8');
+  assert(content.includes('/manifest-merchant.json'), 'dist/merchant.html pre-bakes /manifest-merchant.json');
 }
 
-assert(fs.existsSync(distDriver), 'Physical static entry dist/driver/index.html exists');
-if (fs.existsSync(distDriver)) {
-  const content = fs.readFileSync(distDriver, 'utf-8');
-  assert(content.includes('/manifest-driver.json'), 'dist/driver/index.html pre-bakes /manifest-driver.json');
+assert(fs.existsSync(distDriverDir), 'Physical static entry dist/driver/index.html exists');
+assert(fs.existsSync(distDriverFlat), 'Physical static flat entry dist/driver.html exists');
+if (fs.existsSync(distDriverFlat)) {
+  const content = fs.readFileSync(distDriverFlat, 'utf-8');
+  assert(content.includes('/manifest-driver.json'), 'dist/driver.html pre-bakes /manifest-driver.json');
 }
 
-assert(fs.existsSync(distAdmin), 'Physical static entry dist/admin/index.html exists');
-if (fs.existsSync(distAdmin)) {
-  const content = fs.readFileSync(distAdmin, 'utf-8');
-  assert(content.includes('/manifest-admin.json'), 'dist/admin/index.html pre-bakes /manifest-admin.json');
+assert(fs.existsSync(distAdminDir), 'Physical static entry dist/admin/index.html exists');
+assert(fs.existsSync(distAdminFlat), 'Physical static flat entry dist/admin.html exists');
+if (fs.existsSync(distAdminFlat)) {
+  const content = fs.readFileSync(distAdminFlat, 'utf-8');
+  assert(content.includes('/manifest-admin.json'), 'dist/admin.html pre-bakes /manifest-admin.json');
 }
 
 console.log('\n================================================================================');

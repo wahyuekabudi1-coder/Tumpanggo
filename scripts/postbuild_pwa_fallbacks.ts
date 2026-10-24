@@ -57,9 +57,15 @@ export function generatePwaFallbacks() {
       `<title>${portal.title}</title>`
     );
 
+    // Write folder-based fallback (dist/merchant/index.html)
     const outPath = path.join(portalDir, 'index.html');
     fs.writeFileSync(outPath, portalHtml, 'utf-8');
-    console.log(`[Postbuild PWA] Generated physical fallback: dist/${portal.dir}/index.html -> ${portal.manifest}`);
+
+    // Write flat-based fallback (dist/merchant.html) so Vercel cleanUrls serves /merchant directly with 200 OK
+    const flatPath = path.join(distDir, `${portal.dir}.html`);
+    fs.writeFileSync(flatPath, portalHtml, 'utf-8');
+
+    console.log(`[Postbuild PWA] Generated physical fallback: dist/${portal.dir}/index.html & dist/${portal.dir}.html -> ${portal.manifest}`);
   }
 }
 

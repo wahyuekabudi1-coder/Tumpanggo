@@ -1,5 +1,7 @@
 {
   "version": 2,
+  "cleanUrls": true,
+  "trailingSlash": false,
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
   "functions": {
@@ -76,7 +78,7 @@
     },
     {
       "source": "/merchant",
-      "destination": "/index.html"
+      "destination": "/merchant.html"
     },
     {
       "source": "/merchant/(.*)",
@@ -84,7 +86,7 @@
     },
     {
       "source": "/driver",
-      "destination": "/index.html"
+      "destination": "/driver.html"
     },
     {
       "source": "/driver/(.*)",
@@ -92,7 +94,7 @@
     },
     {
       "source": "/admin",
-      "destination": "/index.html"
+      "destination": "/admin.html"
     },
     {
       "source": "/admin/(.*)",
