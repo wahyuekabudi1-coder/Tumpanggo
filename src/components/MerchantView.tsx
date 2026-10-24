@@ -284,6 +284,14 @@ export default function MerchantView({ merchantId: rawMerchantId, onLogout, onSe
   const [profileSaveSuccess, setProfileSaveSuccess] = useState(false);
   const [merchantAccessError, setMerchantAccessError] = useState<string | null>(null);
 
+  // Verified backend approval status: strictly requires backend merchant record with active === true
+  const isApprovedByAdmin = Boolean(
+    merchant && 
+    merchant.id && 
+    merchant.active === true && 
+    !merchantAccessError
+  );
+
   // Ref to track component mount status for polling
   const isMountedRef = useRef(true);
 
@@ -947,8 +955,10 @@ export default function MerchantView({ merchantId: rawMerchantId, onLogout, onSe
             )}
           </div>
 
-          {/* Secondary Desktop PWA Install Button */}
-          <PWAInstallButton role="MERCHANT" />
+          {/* Secondary Desktop PWA Install Button (Only visible after admin approval) */}
+          {isApprovedByAdmin && (
+            <PWAInstallButton role="MERCHANT" />
+          )}
 
           {/* Navigation Menu (6 Tab Aktual) */}
           <nav className="space-y-1">
@@ -1163,7 +1173,9 @@ export default function MerchantView({ merchantId: rawMerchantId, onLogout, onSe
               <button type="button" onClick={clearPushStatusMsg} className="text-slate-400 hover:text-white ml-2 text-xs">✕</button>
             </div>
           )}
-          <PWAInstallButton role="MERCHANT" />
+          {isApprovedByAdmin && (
+            <PWAInstallButton role="MERCHANT" />
+          )}
         </div>
 
         {/* Desktop Top Bar (di atas area kanan) */}
@@ -2199,7 +2211,13 @@ export default function MerchantView({ merchantId: rawMerchantId, onLogout, onSe
               </div>
 
               <div className="space-y-3">
-                <PWAInstallButton role="MERCHANT" />
+                {isApprovedByAdmin ? (
+                  <PWAInstallButton role="MERCHANT" />
+                ) : (
+                  <div className="p-3.5 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-800 leading-relaxed font-medium">
+                    Fitur instalasi aplikasi merchant akan aktif setelah akun toko Anda disetujui secara resmi oleh Administrator TumpangGo.
+                  </div>
+                )}
 
                 {isPushSupported && (
                   <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-2.5">

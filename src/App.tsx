@@ -104,19 +104,14 @@ export default function App() {
   };
 
   const checkIsMerchantPortal = () => {
-    if (typeof window === 'undefined') return false;
-    const params = new URLSearchParams(window.location.search);
-    const page = params.get('page');
-    return page === 'merchant-portal' || page === 'portal-merchant';
+    return false;
   };
 
   const [isRegisterPage, setIsRegisterPage] = useState<boolean>(() => {
     return checkIsRegisterPage();
   });
 
-  const [isMerchantPortal, setIsMerchantPortal] = useState<boolean>(() => {
-    return checkIsMerchantPortal();
-  });
+  const [isMerchantPortal, setIsMerchantPortal] = useState<boolean>(false);
 
   const [isEvaluationWorkspace, setIsEvaluationWorkspace] = useState<boolean>(() => {
     const params = new URLSearchParams(window.location.search);
@@ -134,8 +129,13 @@ export default function App() {
       setIsEvaluationWorkspace(true);
     }
     if (page === 'merchant-portal' || page === 'portal-merchant') {
-      setIsMerchantPortal(true);
+      setIsMerchantPortal(false);
       setIsRegisterPage(false);
+      setCurrentRole('MERCHANT');
+      setMerchantPortalTab('login');
+      if (typeof window !== 'undefined' && window.location.search.includes('page=merchant-portal')) {
+        window.history.replaceState(null, '', '/?role=merchant');
+      }
     } else if (page === 'merchant-register' || page === 'partner-register' || page === 'register-merchant') {
       setIsRegisterPage(true);
       setIsMerchantPortal(false);
@@ -441,10 +441,12 @@ export default function App() {
   };
 
   const handleOpenMerchantPortal = () => {
-    setIsMerchantPortal(true);
+    setIsMerchantPortal(false);
     setIsRegisterPage(false);
+    setCurrentRole('MERCHANT');
+    setMerchantPortalTab('login');
     if (typeof window !== 'undefined') {
-      window.history.pushState(null, '', '/?page=merchant-portal');
+      window.history.pushState(null, '', '/?role=merchant');
       window.scrollTo({ top: 0, behavior: 'smooth' });
     }
   };
@@ -458,39 +460,11 @@ export default function App() {
     }
   };
 
-  // Dedicated Merchant Portal Landing Page
+  // If merchant portal triggered, directly navigate to merchant login
   if (isMerchantPortal) {
-    return (
-      <MerchantPortalLanding 
-        onBackToHome={() => {
-          setIsMerchantPortal(false);
-          setIsRegisterPage(false);
-          setCurrentRole('CUSTOMER');
-          if (typeof window !== 'undefined') {
-            window.history.pushState(null, '', '/');
-            window.scrollTo({ top: 0, behavior: 'smooth' });
-          }
-        }}
-        onGoToLogin={() => {
-          setIsMerchantPortal(false);
-          setIsRegisterPage(false);
-          setCurrentRole('MERCHANT');
-          setMerchantPortalTab('login');
-          if (typeof window !== 'undefined') {
-            window.history.pushState(null, '', '/?role=merchant');
-            window.scrollTo({ top: 0, behavior: 'smooth' });
-          }
-        }}
-        onGoToRegister={() => {
-          setIsMerchantPortal(false);
-          setIsRegisterPage(true);
-          if (typeof window !== 'undefined') {
-            window.history.pushState(null, '', '/?page=merchant-register');
-            window.scrollTo({ top: 0, behavior: 'smooth' });
-          }
-        }}
-      />
-    );
+    setIsMerchantPortal(false);
+    setCurrentRole('MERCHANT');
+    setMerchantPortalTab('login');
   }
 
   // Dedicated registration page link

@@ -499,14 +499,9 @@ export default function PortalLogin({ role, targetMerchantId, targetDriverId, in
             <div className="absolute -bottom-16 -right-16 w-48 h-48 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none" />
 
             <div>
-              {/* MANDATORY: Official TumpangGo logo from public/ */}
-              <div className="inline-flex items-center bg-white px-3.5 py-1.5 rounded-2xl shadow-md border border-white/20">
-                <img 
-                  src="/logo44.png" 
-                  alt="TumpangGo" 
-                  className="h-8 lg:h-9 w-auto object-contain"
-                  referrerPolicy="no-referrer"
-                />
+              {/* Official TumpangGo Logo seamlessly integrated */}
+              <div className="flex items-center">
+                <Logo size={50} className="shrink-0" />
               </div>
 
               {/* Headline */}
@@ -558,20 +553,13 @@ export default function PortalLogin({ role, targetMerchantId, targetDriverId, in
           {/* Right Column: Portal Mitra Form */}
           <div className="flex-1 p-5 sm:p-7 lg:p-8 flex flex-col justify-between overflow-y-auto max-h-[94vh]">
             <div>
-              {/* Mobile Header / Top Bar */}
-              <div className="flex items-center justify-between mb-4">
-                <div className="md:hidden inline-flex items-center bg-white px-2.5 py-1 rounded-xl shadow-xs border border-slate-200">
-                  <img 
-                    src="/logo44.png" 
-                    alt="TumpangGo" 
-                    className="h-7 w-auto object-contain"
-                    referrerPolicy="no-referrer"
-                  />
-                </div>
-                <div className="hidden md:block">
-                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-800 text-[10px] font-bold border border-emerald-200">
+              {/* Header / Top Bar with Natural Logo */}
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2">
+                  <Logo size={44} className="shrink-0" />
+                  <span className="hidden sm:inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-800 text-[10px] font-bold border border-emerald-200">
                     <Store className="w-3 h-3 text-emerald-600" />
-                    <span>Portal Mitra Toko</span>
+                    <span>Portal Mitra</span>
                   </span>
                 </div>
 
@@ -779,7 +767,7 @@ export default function PortalLogin({ role, targetMerchantId, targetDriverId, in
               </form>
             </div>
 
-            <div className="mt-4 pt-3 border-t border-slate-100 flex flex-col items-center gap-2 text-center">
+            <div className="mt-4 pt-3 border-t border-slate-100 flex flex-col items-center gap-1.5 text-center">
               <p className="text-[11px] text-slate-500">
                 Mengalami kendala masuk portal?{' '}
                 <a
@@ -791,8 +779,6 @@ export default function PortalLogin({ role, targetMerchantId, targetDriverId, in
                   Hubungi Bantuan Mitra
                 </a>
               </p>
-
-              <PWAInstallButton role="MERCHANT" />
             </div>
           </div>
 
@@ -1259,8 +1245,8 @@ export default function PortalLogin({ role, targetMerchantId, targetDriverId, in
             </form>
           )}
 
-          {/* Role-Specific PWA Installation Option */}
-          {role !== 'ADMIN' && (
+          {/* Role-Specific PWA Installation Option (Drivers only pre-login) */}
+          {role === 'DRIVER' && (
             <div className="pt-2 border-t border-slate-100">
               <PWAInstallButton role={role} />
             </div>

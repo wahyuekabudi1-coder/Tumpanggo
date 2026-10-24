@@ -65,10 +65,11 @@ export default function CustomerView({
   const handleNavigateToMerchantPortal = () => {
     if (onOpenMerchantPortal) {
       onOpenMerchantPortal();
+    } else if (onSelectRole) {
+      onSelectRole('MERCHANT');
     } else {
-      setActiveTab('partner-register');
       if (typeof window !== 'undefined') {
-        window.history.pushState(null, '', '/?page=merchant-portal');
+        window.history.pushState(null, '', '/?role=merchant');
         window.scrollTo({ top: 0, behavior: 'smooth' });
       }
     }
