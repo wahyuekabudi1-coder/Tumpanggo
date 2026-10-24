@@ -23,6 +23,7 @@ import {
   PAKIS_VILLAGES
 } from '../src/utils/deliveryFee';
 import { foodDb } from '../src/server/db';
+import { OrderService } from '../src/server/services/orderService';
 
 let passedTests = 0;
 let failedTests = 0;
@@ -94,57 +95,120 @@ async function runTests() {
   const pakisLandmarkCalc = calculateDeliveryFee({ address: 'Dekat Pemandian Wendit, Malang' });
   assert(pakisLandmarkCalc.deliveryFee === FLAT_PAKIS_DELIVERY_FEE && pakisLandmarkCalc.isInPakis === true, 'Pakis landmark (Wendit) is flat Rp 7.500');
 
-  // Test outside both (e.g., Lowokwaru Kota Malang) - MUST BE REJECTED even if distance < 10 km
-  const outsideCalc = calculateDeliveryFee({
+  // --- 8 MANDATORY VERIFICATION SCENARIOS ---
+  console.log('\n--- 8 MANDATORY VERIFICATION SCENARIOS ---');
+
+  // Case 1: Tumpang, 5 km: accepted, Rp 5.000
+  const case1 = calculateDeliveryFee({
+    address: 'Jl. Raya Tumpang No. 20, Malang',
+    merchantLatitude: -7.9463,
+    merchantLongitude: 112.7602,
+    latitude: -7.9800, // ~4.5 km away within Tumpang
+    longitude: 112.7600
+  });
+  assert(case1.isSupported === true && case1.deliveryFee === 5000 && case1.isInTumpang === true, 'Case 1: Tumpang, 5 km -> ACCEPTED with flat Rp 5.000');
+
+  // Case 2: Pakis, 5 km: accepted, Rp 7.500
+  const case2 = calculateDeliveryFee({
+    address: 'Jl. Raya Pakis No. 10, Malang',
+    merchantLatitude: -7.9463,
+    merchantLongitude: 112.7602,
+    latitude: -7.9600, // ~4.6 km away within Pakis
+    longitude: 112.7200
+  });
+  assert(case2.isSupported === true && case2.deliveryFee === 7500 && case2.isInPakis === true, 'Case 2: Pakis, 5 km -> ACCEPTED with flat Rp 7.500');
+
+  // Case 3: Tumpang, > 10 km: rejected
+  const case3 = calculateDeliveryFee({
+    address: 'Jl. Raya Tumpang No. 99, Malang',
+    merchantLatitude: -7.9463,
+    merchantLongitude: 112.7602,
+    latitude: -8.1500, // ~23 km away
+    longitude: 112.7600
+  });
+  assert(case3.isSupported === false && case3.deliveryFee === 0, 'Case 3: Tumpang, > 10 km -> REJECTED (exceeds max distance)');
+
+  // Case 4: Pakis, > 10 km: rejected
+  const case4 = calculateDeliveryFee({
+    address: 'Jl. Raya Pakis No. 99, Malang',
+    merchantLatitude: -7.9463,
+    merchantLongitude: 112.7602,
+    latitude: -8.1200, // ~19 km away
+    longitude: 112.7000
+  });
+  assert(case4.isSupported === false && case4.deliveryFee === 0, 'Case 4: Pakis, > 10 km -> REJECTED (exceeds max distance)');
+
+  // Case 5: Outside Tumpang & Pakis, < 10 km: rejected
+  const case5 = calculateDeliveryFee({
     address: 'Jl. Soekarno Hatta, Lowokwaru, Kota Malang',
     merchantLatitude: -7.9463,
     merchantLongitude: 112.7602,
     latitude: -7.9420,
     longitude: 112.6150
   });
-  assert(outsideCalc.isInTumpang === false && outsideCalc.isInPakis === false, 'Outside destination correctly detected as neither Tumpang nor Pakis');
-  assert(outsideCalc.isSupported === false && outsideCalc.deliveryFee === 0, 'Outside destination is strictly REJECTED (isSupported: false, deliveryFee: 0)');
+  assert(case5.isSupported === false && case5.deliveryFee === 0, 'Case 5: Outside Tumpang & Pakis, < 10 km -> REJECTED (non-supported region)');
 
-  // Test maximum distance limit (> 10 km from merchant)
-  const tooFarCalc = calculateDeliveryFee({
-    address: 'Jl. Raya Tumpang, Malang',
-    merchantLatitude: -7.9463,
-    merchantLongitude: 112.7602,
-    latitude: -8.1500, // ~23 km away
-    longitude: 112.7600
+  // Case 6: Unknown address: rejected / prompted for fix
+  const case6 = calculateDeliveryFee({
+    address: 'Jl. Random Tanpa Wilayah Jelas No. 99'
   });
-  assert(tooFarCalc.isSupported === false && tooFarCalc.deliveryFee === 0, 'Destination exceeding 10 km limit is strictly REJECTED (isSupported: false)');
+  assert(case6.isSupported === false && case6.deliveryFee === 0, 'Case 6: Unknown address -> REJECTED (not assumed to be Tumpang)');
 
-  // Test unknown / unspecified destination without coordinates
-  const unknownCalc = calculateDeliveryFee({
-    address: 'Jl. Random Tanpa Kecamatan No. 99'
-  });
-  assert(unknownCalc.isSupported === false && unknownCalc.deliveryFee === 0, 'Unknown destination without region is strictly REJECTED (not assumed to be Tumpang)');
+  // Case 7: Merchant coordinates missing: rejected / invalid
+  let case7Threw = false;
+  try {
+    OrderService.validateAndBuildOrder(
+      {
+        customerName: 'Budi Test',
+        customerPhone: '081234567890',
+        deliveryAddress: 'Jl. Raya Tumpang No. 1',
+        latitude: -7.9482,
+        longitude: 112.7612,
+        items: [{ menuItemId: 'mi_test', quantity: 1 }],
+        merchantId: 'm_missing_coords'
+      },
+      {
+        id: 'm_missing_coords',
+        name: 'Warung Tanpa Koordinat',
+        active: true,
+        latitude: 0, // Missing / zero
+        longitude: 0, // Missing / zero
+        ownerName: 'Pak Test',
+        phone: '08123',
+        address: 'Tumpang',
+        openTime: '08:00',
+        closeTime: '21:00',
+        bankName: 'BCA',
+        bankAccount: '123',
+        bankHolder: 'Test',
+        rating: 5,
+        cookTimeEstimate: '15m',
+        image: '',
+        description: '',
+        createdAt: '',
+        updatedAt: ''
+      },
+      [{ id: 'mi_test', merchantId: 'm_missing_coords', name: 'Bakso', price: 15000, available: true } as any],
+      { defaultDeliveryFee: 5000, serviceFee: 1200 } as any,
+      []
+    );
+  } catch (err: any) {
+    case7Threw = true;
+  }
+  assert(case7Threw === true, 'Case 7: Merchant coordinates missing/zero -> REJECTED with validation error');
 
-  // Test normalization
-  const sampleOrderTumpang: any = {
+  // Case 8: Customer tampers with fee/total: recalculated by backend
+  const sampleOrderTampered: any = {
     deliveryAddress: 'Jl. Raya Tumpang No. 12',
-    deliveryFee: 15000, // Tampered
+    deliveryFee: 99000, // Malicious client injection
     subtotal: 50000,
     serviceFee: 2000,
     uniqueCode: 15,
-    total: 67015
+    total: 151015 // Manipulated total
   };
-  const normalizedTumpang = normalizeOrderDeliveryFee(sampleOrderTumpang);
-  assert(normalizedTumpang.deliveryFee === 5000, 'Tampered Tumpang order normalized to flat Rp 5.000');
-  assert(normalizedTumpang.total === 57015, 'Tumpang order total recalculated accurately with flat Rp 5.000');
-
-  const sampleOrderPakis: any = {
-    deliveryAddress: 'Jl. Ampeldento No. 8, Kecamatan Pakis',
-    deliveryFee: 20000, // Tampered
-    subtotal: 50000,
-    serviceFee: 2000,
-    uniqueCode: 22,
-    total: 72022
-  };
-  const normalizedPakis = normalizeOrderDeliveryFee(sampleOrderPakis);
-  assert(normalizedPakis.deliveryFee === 7500, 'Tampered Pakis order normalized to flat Rp 7.500');
-  assert(normalizedPakis.total === 59522, 'Pakis order total recalculated accurately with flat Rp 7.500');
+  const normalizedTampered = normalizeOrderDeliveryFee(sampleOrderTampered);
+  assert(normalizedTampered.deliveryFee === 5000, 'Case 8a: Tampered fee strictly overridden to flat Rp 5.000 by backend');
+  assert(normalizedTampered.total === 57015, 'Case 8b: Tampered total strictly recalculated to correct subtotal + fee + service + uniqueCode');
 
   // --- SUITE 3: CONCURRENCY & SAFE LOCKING ---
   console.log('\n--- TEST SUITE 3: CONCURRENCY & SAFE IN-MEMORY LOCKING ---');

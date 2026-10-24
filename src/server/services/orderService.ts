@@ -51,6 +51,10 @@ export class OrderService {
       throw new Error(`Toko "${merchant.name}" saat ini sedang tutup dan tidak menerima pesanan.`);
     }
 
+    if (!merchant.latitude || !merchant.longitude || Number(merchant.latitude) === 0 || Number(merchant.longitude) === 0) {
+      throw new Error(`Data koordinat toko "${merchant.name}" tidak lengkap atau tidak valid.`);
+    }
+
     if (!input.items || input.items.length === 0) {
       throw new Error('Keranjang belanja kosong. Silakan pilih menu terlebih dahulu.');
     }

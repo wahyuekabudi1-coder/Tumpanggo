@@ -1142,8 +1142,12 @@ export default function CustomerView({
       return;
     }
 
-    if (checkoutDistrict === 'LUAR_WILAYAH') {
-      setCheckoutErrorMsg('Mohon maaf, pengantaran ke luar wilayah Kecamatan Tumpang dan Kecamatan Pakis saat ini belum didukung oleh tumpangGo.');
+    const deliveryCalc = getDeliveryCalculation();
+    if (checkoutDistrict === 'LUAR_WILAYAH' || deliveryCalc.isSupported === false) {
+      setCheckoutErrorMsg(
+        deliveryCalc.explanation || 
+        'Mohon maaf, pengantaran ke luar wilayah Kecamatan Tumpang dan Kecamatan Pakis atau melebihi batas 10 km saat ini belum didukung oleh tumpangGo.'
+      );
       return;
     }
 
@@ -3741,9 +3745,9 @@ export default function CustomerView({
               )}
               <button
                 type="submit"
-                disabled={isSubmittingOrder}
+                disabled={isSubmittingOrder || checkoutDistrict === 'LUAR_WILAYAH' || getDeliveryCalculation().isSupported === false}
                 className={`w-full py-3.5 font-extrabold rounded-xl transition-all text-sm flex items-center justify-center gap-2 ${
-                  isSubmittingOrder
+                  isSubmittingOrder || checkoutDistrict === 'LUAR_WILAYAH' || getDeliveryCalculation().isSupported === false
                     ? 'bg-slate-200 text-slate-400 border border-slate-300 shadow-none cursor-not-allowed'
                     : 'bg-rose-600 hover:bg-rose-700 text-white shadow-lg shadow-rose-600/25 cursor-pointer'
                 }`}
