@@ -6,7 +6,7 @@ import { apiFetch as fetch } from '../utils/apiClient.ts';
 import { 
   ShieldCheck, Lock, Mail, ArrowRight, ChevronLeft, Store, 
   CheckCircle, AlertCircle, Loader2, Phone, Bike, User, MapPin, Tag, ExternalLink,
-  Eye, EyeOff, Key, X, UserPlus
+  Eye, EyeOff, Key, X, UserPlus, BarChart3, Users
 } from 'lucide-react';
 import { PWAInstallButton } from './PWAInstallButton.tsx';
 
@@ -492,95 +492,97 @@ export default function PortalLogin({ role, targetMerchantId, targetDriverId, in
       <div className="fixed inset-0 bg-slate-900/60 flex items-center justify-center p-3 sm:p-5 z-[100] backdrop-blur-md animate-fadeIn font-sans overflow-y-auto">
         <div className="bg-white rounded-3xl max-w-4xl w-full shadow-2xl border border-slate-100 flex flex-col md:flex-row my-auto max-h-[94vh] overflow-hidden">
           
-          {/* Left Column: Dark Forest Green Background with Official Logo, Headline, UMKM Photo & Badges */}
+          {/* Left Column: Dark Forest Green Background with Headline, UMKM Photo & Benefits (NO logo) */}
           <div className="hidden md:flex md:w-5/12 bg-gradient-to-br from-[#064e3b] via-[#053d2e] to-[#03261c] p-6 lg:p-7 flex-col justify-between text-white relative overflow-hidden select-none">
             {/* Ambient subtle glow */}
             <div className="absolute -top-16 -left-16 w-48 h-48 bg-emerald-400/10 rounded-full blur-3xl pointer-events-none" />
             <div className="absolute -bottom-16 -right-16 w-48 h-48 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none" />
 
             <div>
-              {/* Official TumpangGo Logo seamlessly integrated */}
-              <div className="flex items-center">
-                <Logo size={50} className="shrink-0" />
-              </div>
-
               {/* Headline */}
-              <h2 className="text-2xl lg:text-[26px] font-extrabold text-white tracking-tight leading-snug mt-5">
+              <h2 className="text-2xl lg:text-[28px] font-extrabold text-white tracking-tight leading-snug">
                 Bersama Majukan UMKM Tumpang
               </h2>
 
               {/* Deskripsi Singkat */}
-              <p className="text-emerald-100/85 text-xs mt-2.5 leading-relaxed">
-                Kelola menu makanan, terima pesanan pelanggan secara real-time, dan kembangkan usaha kuliner Anda dengan ekosistem digital TumpangGo.
+              <p className="text-emerald-100/90 text-xs sm:text-[13px] mt-2.5 leading-relaxed">
+                Kelola usaha Anda lebih mudah, jangkau lebih banyak pelanggan, dan berkembang bersama TumpangGo.
               </p>
 
               {/* Gambar Aktivitas UMKM */}
-              <div className="mt-4 rounded-2xl overflow-hidden shadow-lg border border-emerald-500/20 aspect-[16/10] bg-emerald-950/50 relative">
+              <div className="mt-4 rounded-2xl overflow-hidden shadow-xl border border-emerald-500/20 aspect-[16/10] bg-emerald-950/50 relative">
                 <img 
                   src="/umkm-activity.jpg" 
                   alt="Aktivitas Mitra UMKM TumpangGo" 
                   className="w-full h-full object-cover"
                 />
-                <div className="absolute inset-0 bg-gradient-to-t from-black/50 via-transparent to-transparent pointer-events-none" />
-                <div className="absolute bottom-2 left-2.5 right-2.5 flex items-center justify-between text-[11px] text-white font-semibold">
-                  <span className="bg-[#064e3b]/90 backdrop-blur-xs px-2 py-0.5 rounded-lg border border-emerald-400/30 text-[10px]">
+                <div className="absolute inset-0 bg-gradient-to-t from-black/55 via-black/10 to-transparent pointer-events-none" />
+                <div className="absolute bottom-2.5 left-3 right-3 flex items-center justify-between text-[11px] text-white font-semibold">
+                  <span className="bg-[#064e3b]/90 backdrop-blur-xs px-2.5 py-0.5 rounded-lg border border-emerald-400/30 text-[10px] shadow-xs">
                     Mitra Kuliner Lokal
                   </span>
-                  <span className="text-emerald-200 text-[10px]">
+                  <span className="text-emerald-200 text-[10px] font-medium drop-shadow-xs">
                     Kecamatan Tumpang
                   </span>
                 </div>
               </div>
             </div>
 
-            {/* Value Badges at bottom */}
-            <div className="mt-4 pt-3 border-t border-emerald-700/40 flex flex-col gap-1.5 text-xs font-semibold text-emerald-100">
-              <div className="inline-flex items-center gap-2 px-2.5 py-1.5 rounded-xl bg-emerald-800/40 border border-emerald-600/30 text-[11px]">
-                <CheckCircle className="w-3.5 h-3.5 text-emerald-300 shrink-0" />
-                <span>Pendaftaran Gratis</span>
+            {/* Value Badges at bottom matching mockup */}
+            <div className="mt-4 bg-white/95 backdrop-blur-md rounded-2xl p-2.5 sm:p-3 text-slate-800 shadow-lg border border-white/40 grid grid-cols-3 gap-2">
+              <div className="flex items-center gap-1.5 text-left">
+                <div className="w-6 h-6 rounded-lg bg-emerald-100 text-[#064e3b] flex items-center justify-center shrink-0">
+                  <Store className="w-3.5 h-3.5" />
+                </div>
+                <span className="text-[10px] font-bold text-slate-800 leading-tight">
+                  Pendaftaran Gratis
+                </span>
               </div>
-              <div className="inline-flex items-center gap-2 px-2.5 py-1.5 rounded-xl bg-emerald-800/40 border border-emerald-600/30 text-[11px]">
-                <CheckCircle className="w-3.5 h-3.5 text-emerald-300 shrink-0" />
-                <span>Kelola Menu & Pesanan</span>
+              <div className="flex items-center gap-1.5 text-left border-l border-slate-200/80 pl-1.5">
+                <div className="w-6 h-6 rounded-lg bg-emerald-100 text-[#064e3b] flex items-center justify-center shrink-0">
+                  <BarChart3 className="w-3.5 h-3.5" />
+                </div>
+                <span className="text-[10px] font-bold text-slate-800 leading-tight">
+                  Kelola Menu & Pesanan
+                </span>
               </div>
-              <div className="inline-flex items-center gap-2 px-2.5 py-1.5 rounded-xl bg-emerald-800/40 border border-emerald-600/30 text-[11px]">
-                <CheckCircle className="w-3.5 h-3.5 text-emerald-300 shrink-0" />
-                <span>Jangkau Lebih Banyak Pelanggan</span>
+              <div className="flex items-center gap-1.5 text-left border-l border-slate-200/80 pl-1.5">
+                <div className="w-6 h-6 rounded-lg bg-emerald-100 text-[#064e3b] flex items-center justify-center shrink-0">
+                  <Users className="w-3.5 h-3.5" />
+                </div>
+                <span className="text-[10px] font-bold text-slate-800 leading-tight">
+                  Jangkau Pelanggan
+                </span>
               </div>
             </div>
           </div>
 
-          {/* Right Column: Portal Mitra Form */}
-          <div className="flex-1 p-5 sm:p-7 lg:p-8 flex flex-col justify-between overflow-y-auto max-h-[94vh]">
+          {/* Right Column: Portal Mitra Form with Single Official Logo at Top */}
+          <div className="flex-1 p-5 sm:p-7 lg:p-8 flex flex-col justify-between overflow-y-auto max-h-[94vh] bg-white relative">
             <div>
-              {/* Header / Top Bar with Natural Logo */}
-              <div className="flex items-center justify-between mb-3">
-                <div className="flex items-center gap-2">
-                  <Logo size={44} className="shrink-0" />
-                  <span className="hidden sm:inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-800 text-[10px] font-bold border border-emerald-200">
-                    <Store className="w-3 h-3 text-emerald-600" />
-                    <span>Portal Mitra</span>
-                  </span>
-                </div>
+              {/* Close Button top-right */}
+              <button 
+                type="button"
+                onClick={onCancel}
+                className="absolute top-3.5 right-3.5 sm:top-5 sm:right-5 p-2 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-500 hover:text-slate-800 transition-colors cursor-pointer z-10"
+                title="Kembali ke Beranda"
+                aria-label="Tutup"
+              >
+                <X className="w-4 h-4" />
+              </button>
 
-                <button 
-                  type="button"
-                  onClick={onCancel}
-                  className="p-1.5 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-500 hover:text-slate-800 transition-colors cursor-pointer"
-                  title="Kembali ke Beranda"
-                  aria-label="Tutup"
-                >
-                  <X className="w-4 h-4" />
-                </button>
+              {/* Single Official Logo - Centered Horizontally & Enlarged */}
+              <div className="flex justify-center items-center pt-1 sm:pt-2 pb-1 mb-5 sm:mb-6">
+                <Logo size={68} className="shrink-0" />
               </div>
 
               {/* Title & Subtitle */}
-              <div className="mb-4">
+              <div className="mb-4 sm:mb-5">
                 <h1 className="font-display font-black text-xl sm:text-2xl text-slate-900 tracking-tight">
                   Masuk ke Portal Mitra
                 </h1>
-                <p className="text-xs text-slate-500 mt-1 leading-relaxed">
-                  Silakan masukkan email atau nomor handphone dan password akun toko Anda.
+                <p className="text-xs sm:text-sm text-slate-500 mt-1.5 leading-relaxed">
+                  Kelola usaha Anda di TumpangGo dengan mudah dan aman.
                 </p>
               </div>
 
@@ -764,6 +766,10 @@ export default function PortalLogin({ role, targetMerchantId, targetDriverId, in
                   <UserPlus className="w-4 h-4 text-amber-700" />
                   <span>Daftar Menjadi Mitra</span>
                 </button>
+
+                <p className="text-[11px] text-center text-slate-500 mt-0.5">
+                  Belum punya akun? Daftar sekarang dan bergabung bersama TumpangGo.
+                </p>
               </form>
             </div>
 
