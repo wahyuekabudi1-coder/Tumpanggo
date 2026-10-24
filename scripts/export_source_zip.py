@@ -87,6 +87,7 @@ def export_zip():
 
     # Also copy to current artifact directory for AI Studio Build
     artifact_dirs = [
+        os.path.join(root_dir, '.aistudio', 'artifacts', 'brain', 'bc8758c6-d4e9-4c51-89c0-7de48a5e5073'),
         os.path.join(root_dir, '.aistudio', 'artifacts', 'brain', 'beb95fb3-b008-4dbd-bec7-0dd9de135170'),
         os.path.join(root_dir, '.aistudio', 'artifacts', 'brain', '2ee7047e-bf14-42a0-96e3-38772562a041')
     ]

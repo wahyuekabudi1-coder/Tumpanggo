@@ -198,6 +198,61 @@ assert(adminContent.includes('<PWAInstallButton role="ADMIN"'), 'AdminView inclu
 const appPath = path.resolve(process.cwd(), 'src/App.tsx');
 const appContent = fs.readFileSync(appPath, 'utf-8');
 assert(appContent.includes('syncPWAManifest(currentRole)'), 'App.tsx dynamically synchronizes manifest for the active role');
+assert(appContent.includes('setActiveMerchantId(idParam)'), 'App.tsx captures and preserves merchant id parameter on direct URL access');
+assert(appContent.includes('setActiveDriverId(idParam)'), 'App.tsx captures and preserves driver id parameter on direct URL access');
+
+// -----------------------------------------------------------------------------
+// 5. AUDIT VERCEL CONFIGURATION & STATIC DEPLOYMENT FALLBACKS (404 REMEDIATION)
+// -----------------------------------------------------------------------------
+console.log('\n--- 5. AUDIT VERCEL CONFIGURATION & PHYSICAL STATIC FALLBACKS ---');
+
+const vercelPath = path.resolve(process.cwd(), 'vercel.json');
+assert(fs.existsSync(vercelPath), 'vercel.json exists');
+
+if (fs.existsSync(vercelPath)) {
+  const vercelConfig = JSON.parse(fs.readFileSync(vercelPath, 'utf-8'));
+  assert(vercelConfig.cleanUrls !== true, 'cleanUrls is NOT enabled (cleanUrls: true breaks index.html rewrites on Vercel)');
+  
+  const rewrites: any[] = vercelConfig.rewrites || [];
+  const hasMerchantRewrite = rewrites.some(r => r.source === '/merchant' && r.destination === '/index.html');
+  const hasMerchantWildcard = rewrites.some(r => r.source === '/merchant/(.*)' && r.destination === '/index.html');
+  const hasDriverRewrite = rewrites.some(r => r.source === '/driver' && r.destination === '/index.html');
+  const hasDriverWildcard = rewrites.some(r => r.source === '/driver/(.*)' && r.destination === '/index.html');
+  const hasAdminRewrite = rewrites.some(r => r.source === '/admin' && r.destination === '/index.html');
+  const hasAdminWildcard = rewrites.some(r => r.source === '/admin/(.*)' && r.destination === '/index.html');
+  const hasSpaCatchall = rewrites.some(r => r.destination === '/index.html' && r.source.includes('api/'));
+
+  assert(hasMerchantRewrite, 'vercel.json contains exact rewrite for /merchant');
+  assert(hasMerchantWildcard, 'vercel.json contains wildcard rewrite for /merchant/(.*)');
+  assert(hasDriverRewrite, 'vercel.json contains exact rewrite for /driver');
+  assert(hasDriverWildcard, 'vercel.json contains wildcard rewrite for /driver/(.*)');
+  assert(hasAdminRewrite, 'vercel.json contains exact rewrite for /admin');
+  assert(hasAdminWildcard, 'vercel.json contains wildcard rewrite for /admin/(.*)');
+  assert(hasSpaCatchall, 'vercel.json contains SPA catch-all excluding /api/');
+}
+
+// Check physical fallbacks in dist
+const distMerchant = path.resolve(process.cwd(), 'dist/merchant/index.html');
+const distDriver = path.resolve(process.cwd(), 'dist/driver/index.html');
+const distAdmin = path.resolve(process.cwd(), 'dist/admin/index.html');
+
+assert(fs.existsSync(distMerchant), 'Physical static entry dist/merchant/index.html exists');
+if (fs.existsSync(distMerchant)) {
+  const content = fs.readFileSync(distMerchant, 'utf-8');
+  assert(content.includes('/manifest-merchant.json'), 'dist/merchant/index.html pre-bakes /manifest-merchant.json');
+}
+
+assert(fs.existsSync(distDriver), 'Physical static entry dist/driver/index.html exists');
+if (fs.existsSync(distDriver)) {
+  const content = fs.readFileSync(distDriver, 'utf-8');
+  assert(content.includes('/manifest-driver.json'), 'dist/driver/index.html pre-bakes /manifest-driver.json');
+}
+
+assert(fs.existsSync(distAdmin), 'Physical static entry dist/admin/index.html exists');
+if (fs.existsSync(distAdmin)) {
+  const content = fs.readFileSync(distAdmin, 'utf-8');
+  assert(content.includes('/manifest-admin.json'), 'dist/admin/index.html pre-bakes /manifest-admin.json');
+}
 
 console.log('\n================================================================================');
 console.log(`📊 PWA INSTALLATION VERIFICATION: ${passed} PASSED, ${failed} FAILED`);

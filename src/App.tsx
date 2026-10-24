@@ -67,8 +67,28 @@ export default function App() {
   useEffect(() => {
     syncPWAManifest(currentRole);
   }, [currentRole]);
-  const [activeMerchantId, setActiveMerchantId] = useState<string>(() => safeStorage.getItem('tumpang_active_merchant_id') || '');
-  const [activeDriverId, setActiveDriverId] = useState<string>(() => safeStorage.getItem('tumpang_active_driver_id') || '');
+  const [activeMerchantId, setActiveMerchantId] = useState<string>(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      const urlId = params.get('id') || params.get('merchantId');
+      if (urlId) {
+        safeStorage.setItem('tumpang_active_merchant_id', urlId);
+        return urlId;
+      }
+    }
+    return safeStorage.getItem('tumpang_active_merchant_id') || '';
+  });
+  const [activeDriverId, setActiveDriverId] = useState<string>(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      const urlId = params.get('id') || params.get('driverId');
+      if (urlId) {
+        safeStorage.setItem('tumpang_active_driver_id', urlId);
+        return urlId;
+      }
+    }
+    return safeStorage.getItem('tumpang_active_driver_id') || '';
+  });
   const [merchantPortalTab, setMerchantPortalTab] = useState<'login' | 'register'>('login');
   const [verifiedEmail, setVerifiedEmail] = useState<string>(() => safeStorage.getItem('tumpang_auth_email') || '');
   const [showAuthModal, setShowAuthModal] = useState(false);
@@ -145,6 +165,15 @@ export default function App() {
         if (idParam) setActiveDriverId(idParam);
         const newUrl = idParam ? `/driver?id=${encodeURIComponent(idParam)}` : '/driver';
         window.history.replaceState(null, '', newUrl);
+      }
+    } else if (typeof window !== 'undefined') {
+      const pName = window.location.pathname.toLowerCase();
+      if (pName.startsWith('/merchant') && idParam) {
+        setActiveMerchantId(idParam);
+        safeStorage.setItem('tumpang_active_merchant_id', idParam);
+      } else if (pName.startsWith('/driver') && idParam) {
+        setActiveDriverId(idParam);
+        safeStorage.setItem('tumpang_active_driver_id', idParam);
       }
     }
 

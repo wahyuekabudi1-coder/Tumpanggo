@@ -93,6 +93,24 @@ self.addEventListener('fetch', (event) => {
   event.respondWith(
     fetch(event.request)
       .then((networkResponse) => {
+        const isNavigation = event.request.mode === 'navigate' || event.request.headers.get('accept')?.includes('text/html');
+        // If server unexpectedly returns 404 for an HTML navigation route, fallback gracefully to cached app shell
+        if (networkResponse && networkResponse.status === 404 && isNavigation) {
+          return caches.match(event.request, { ignoreSearch: true }).then((cached) => {
+            if (cached) return cached;
+            if (url.includes('/merchant')) {
+              return caches.match('/merchant') || caches.match('/index.html');
+            }
+            if (url.includes('/driver')) {
+              return caches.match('/driver') || caches.match('/index.html');
+            }
+            if (url.includes('/admin')) {
+              return caches.match('/admin') || caches.match('/index.html');
+            }
+            return caches.match('/') || caches.match('/index.html');
+          });
+        }
+
         if (networkResponse && networkResponse.status === 200 && networkResponse.type === 'basic') {
           const responseClone = networkResponse.clone();
           caches.open(CACHE_NAME).then((cache) => {
@@ -102,11 +120,20 @@ self.addEventListener('fetch', (event) => {
         return networkResponse;
       })
       .catch(() => {
-        return caches.match(event.request).then((cachedResponse) => {
+        return caches.match(event.request, { ignoreSearch: true }).then((cachedResponse) => {
           if (cachedResponse) {
             return cachedResponse;
           }
-          if (event.request.headers.get('accept')?.includes('text/html')) {
+          if (event.request.mode === 'navigate' || event.request.headers.get('accept')?.includes('text/html')) {
+            if (url.includes('/merchant')) {
+              return caches.match('/merchant') || caches.match('/index.html');
+            }
+            if (url.includes('/driver')) {
+              return caches.match('/driver') || caches.match('/index.html');
+            }
+            if (url.includes('/admin')) {
+              return caches.match('/admin') || caches.match('/index.html');
+            }
             return caches.match('/') || caches.match('/index.html');
           }
         });

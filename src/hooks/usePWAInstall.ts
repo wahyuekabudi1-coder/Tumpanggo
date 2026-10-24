@@ -169,9 +169,6 @@ export function usePWAInstall(role?: PWARole) {
     }
 
     try {
-      if (role) {
-        syncPWAManifest(role);
-      }
       await promptToUse.prompt();
       const choice = await promptToUse.userChoice;
 

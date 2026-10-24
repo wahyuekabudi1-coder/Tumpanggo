@@ -2,7 +2,6 @@
   "version": 2,
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
-  "cleanUrls": true,
   "functions": {
     "api/index.ts": {
       "includeFiles": "{api/_app.cjs*,firebase-applet-config.json,tumpang_food_db.json*,public/**}"
@@ -51,6 +50,19 @@
           "value": "/"
         }
       ]
+    },
+    {
+      "source": "/(.*manifest.*\\.json)",
+      "headers": [
+        {
+          "key": "Content-Type",
+          "value": "application/manifest+json; charset=utf-8"
+        },
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=0, must-revalidate"
+        }
+      ]
     }
   ],
   "rewrites": [
@@ -67,7 +79,15 @@
       "destination": "/index.html"
     },
     {
+      "source": "/merchant/(.*)",
+      "destination": "/index.html"
+    },
+    {
       "source": "/driver",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/driver/(.*)",
       "destination": "/index.html"
     },
     {
@@ -75,7 +95,11 @@
       "destination": "/index.html"
     },
     {
-      "source": "/((?!api/|assets/|.*\\.(?:js|css|json|png|jpg|jpeg|gif|ico|svg|webp|xml|txt|webmanifest)).*)",
+      "source": "/admin/(.*)",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/((?!api/).*)",
       "destination": "/index.html"
     }
   ]

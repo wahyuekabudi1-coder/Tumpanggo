@@ -165,8 +165,28 @@
     <link rel="shortcut icon" href="/favicon.png?v=6" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
-    <!-- PWA Support -->
-    <link rel="manifest" href="/manifest.json" />
+    <!-- PWA Support with instant path-based manifest detection -->
+    <link rel="manifest" id="pwa-manifest-link" href="/manifest.json" />
+    <script>
+      (function() {
+        try {
+          var p = window.location.pathname.toLowerCase();
+          var s = window.location.search.toLowerCase();
+          var target = '/manifest.json';
+          if (p === '/merchant' || p.indexOf('/merchant/') === 0 || s.indexOf('role=merchant') !== -1) {
+            target = '/manifest-merchant.json';
+          } else if (p === '/driver' || p.indexOf('/driver/') === 0 || s.indexOf('role=driver') !== -1) {
+            target = '/manifest-driver.json';
+          } else if (p === '/admin' || p.indexOf('/admin/') === 0 || s.indexOf('role=admin') !== -1) {
+            target = '/manifest-admin.json';
+          }
+          var link = document.getElementById('pwa-manifest-link');
+          if (link && link.getAttribute('href') !== target) {
+            link.setAttribute('href', target);
+          }
+        } catch (e) {}
+      })();
+    </script>
     <meta name="theme-color" content="#059669" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
