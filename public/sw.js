@@ -8,15 +8,17 @@
  * Strictly bypasses API requests, authentication, and QRIS endpoints to prevent stale data.
  */
 
-const CACHE_NAME = 'tumpanggo-pwa-v12';
+const CACHE_NAME = 'tumpanggo-pwa-v13';
 const STATIC_ASSETS = [
   '/',
   '/index.html',
   '/merchant',
   '/driver',
+  '/admin',
   '/manifest.json',
   '/manifest-merchant.json',
   '/manifest-driver.json',
+  '/manifest-admin.json',
   '/pwa-192x192.png',
   '/pwa-512x512.png',
   '/pwa-maskable-512x512.png',

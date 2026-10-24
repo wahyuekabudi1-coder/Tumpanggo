@@ -91,7 +91,14 @@ export async function startServer() {
         const cleanUrl = url.toLowerCase();
         const isMerchant = cleanUrl.startsWith('/merchant') || cleanUrl.includes('role=merchant');
         const isDriver = cleanUrl.startsWith('/driver') || cleanUrl.includes('role=driver');
-        const manifestHref = isMerchant ? '/manifest-merchant.json' : (isDriver ? '/manifest-driver.json' : '/manifest.json');
+        const isAdmin = cleanUrl.startsWith('/admin') || cleanUrl.includes('role=admin');
+        const manifestHref = isMerchant 
+          ? '/manifest-merchant.json' 
+          : isDriver 
+            ? '/manifest-driver.json' 
+            : isAdmin 
+              ? '/manifest-admin.json' 
+              : '/manifest.json';
         template = template.replace(/<link rel="manifest" href="[^"]*"/, `<link rel="manifest" href="${manifestHref}"`);
 
         res.status(200).set({ 'Content-Type': 'text/html; charset=utf-8' }).end(template);
@@ -122,7 +129,14 @@ export async function startServer() {
         const cleanUrl = req.originalUrl.toLowerCase();
         const isMerchant = cleanUrl.startsWith('/merchant') || cleanUrl.includes('role=merchant');
         const isDriver = cleanUrl.startsWith('/driver') || cleanUrl.includes('role=driver');
-        const manifestHref = isMerchant ? '/manifest-merchant.json' : (isDriver ? '/manifest-driver.json' : '/manifest.json');
+        const isAdmin = cleanUrl.startsWith('/admin') || cleanUrl.includes('role=admin');
+        const manifestHref = isMerchant 
+          ? '/manifest-merchant.json' 
+          : isDriver 
+            ? '/manifest-driver.json' 
+            : isAdmin 
+              ? '/manifest-admin.json' 
+              : '/manifest.json';
         template = template.replace(/<link rel="manifest" href="[^"]*"/, `<link rel="manifest" href="${manifestHref}"`);
 
         res.status(200).set({ 'Content-Type': 'text/html; charset=utf-8' }).end(template);

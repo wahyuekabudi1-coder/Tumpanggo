@@ -234,39 +234,38 @@
         }
       }, 3500);
 
-      // Safe ServiceWorker Cleanup for Development / Preview Iframe
+      // Global PWA BeforeInstallPrompt and AppInstalled Event Bus
+      window.__tumpang_install_prompt = null;
+      window.__tumpang_app_installed = false;
+      window.addEventListener('beforeinstallprompt', function(e) {
+        e.preventDefault();
+        window.__tumpang_install_prompt = e;
+        if (typeof window.__tumpang_notify_pwa === 'function') {
+          window.__tumpang_notify_pwa();
+        }
+      });
+      window.addEventListener('appinstalled', function() {
+        window.__tumpang_install_prompt = null;
+        window.__tumpang_app_installed = true;
+        if (typeof window.__tumpang_notify_pwa === 'function') {
+          window.__tumpang_notify_pwa();
+        }
+      });
+
+      // Service Worker Registration for PWA Compliance
       try {
         if ('serviceWorker' in navigator) {
           var isIframe = false;
           try { isIframe = window.self !== window.top; } catch (e) { isIframe = true; }
-          var isDevOrPreview = isIframe ||
-                               window.location.hostname === 'localhost' ||
-                               window.location.hostname === '127.0.0.1' ||
-                               window.location.hostname.indexOf('run.app') !== -1 ||
-                               window.location.hostname.indexOf('google') !== -1 ||
-                               window.location.port === '3000';
-          if (isDevOrPreview) {
-            navigator.serviceWorker.getRegistrations()
-              .then(function(registrations) {
-                if (registrations && registrations.length > 0) {
-                  for (var i = 0; i < registrations.length; i++) {
-                    registrations[i].unregister().catch(function() {});
-                  }
-                  console.log('[tumpangGo Dev] Active Service Workers unregistered.');
-                }
-              })
-              .catch(function(err) {});
-
-            if ('caches' in window) {
-              caches.keys()
-                .then(function(keys) {
-                  keys.forEach(function(k) { caches.delete(k).catch(function() {}); });
-                })
-                .catch(function() {});
-            }
-          } else {
+          if (!isIframe) {
             window.addEventListener('load', function() {
-              navigator.serviceWorker.register('/sw.js').catch(function() {});
+              navigator.serviceWorker.register('/sw.js', { scope: '/' })
+                .then(function(reg) {
+                  console.log('[TumpangGo PWA] Service Worker terdaftar:', reg.scope);
+                })
+                .catch(function(err) {
+                  console.warn('[TumpangGo PWA] Service Worker bypass:', err);
+                });
             });
           }
         }
