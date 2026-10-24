@@ -64,7 +64,7 @@ export const PWAInstallButton: React.FC<PWAInstallButtonProps> = ({
       case 'MERCHANT':
         return {
           title: 'Install Aplikasi Merchant',
-          subtitle: 'Aplikasi Mitra Toko & Dapur TumpangGo',
+          subtitle: 'Aplikasi Mitra Toko & Dapur tumpangGo',
           desc: 'Akses cepat pesanan dapur, laporan omset, dan notifikasi pesanan dari layar utama HP.',
           icon: Store,
           gradient: 'from-emerald-700 via-emerald-600 to-teal-800',
@@ -84,9 +84,9 @@ export const PWAInstallButton: React.FC<PWAInstallButtonProps> = ({
       case 'CUSTOMER':
       default:
         return {
-          title: 'Install Aplikasi TumpangGo',
+          title: 'Install Aplikasi tumpangGo',
           subtitle: 'Pesan Kuliner Lokal Lebih Praktis',
-          desc: 'Pasang TumpangGo di layar utama untuk akses instan tanpa unduh APK berat.',
+          desc: 'Pasang tumpangGo di layar utama untuk akses instan tanpa unduh APK berat.',
           icon: Smartphone,
           gradient: 'from-emerald-600 via-emerald-700 to-green-800',
           btnBg: 'bg-white text-emerald-800 hover:bg-emerald-50',

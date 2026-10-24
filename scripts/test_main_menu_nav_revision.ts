@@ -68,8 +68,8 @@ function runTests() {
   const hasNavTracking = code.includes('id="nav-track-order"') && code.includes('Lacak Order');
   assert(hasNavTracking, 'Tombol 2: Lacak Order tersedia dengan target tracking');
 
-  const hasNavPartner = code.includes('id="nav-partner-register"') && code.includes('Mitra TumpangGo');
-  assert(hasNavPartner, 'Tombol 3: Mitra TumpangGo tersedia dengan target partner-register');
+  const hasNavPartner = code.includes('id="nav-partner-register"') && (code.includes('Mitra tumpangGo') || code.includes('Mitra TumpangGo'));
+  assert(hasNavPartner, 'Tombol 3: Mitra tumpangGo tersedia dengan target partner-register');
 
   const hasNavHelp = code.includes('id="nav-help-center"') && code.includes('Bantuan');
   assert(hasNavHelp, 'Tombol 4: Bantuan tersedia dengan target help');
@@ -98,8 +98,8 @@ function runTests() {
   const hasLogoInFooter = code.includes('<Logo size={96} />');
   assert(hasLogoInFooter, 'Logo TumpangGo tetap tampil di footer');
 
-  const hasCopyright = code.includes('© 2026 TumpangGo. All rights reserved.');
-  assert(hasCopyright, 'Copyright TumpangGo tetap tampil di footer');
+  const hasCopyright = code.includes('© 2026 tumpangGo. All rights reserved.') || code.includes('© 2026 TumpangGo. All rights reserved.');
+  assert(hasCopyright, 'Copyright tumpangGo tetap tampil di footer');
 
   const hasSocialButtons = code.includes('<SocialMediaButtons');
   assert(hasSocialButtons, 'Ikon media sosial tetap tampil di footer');

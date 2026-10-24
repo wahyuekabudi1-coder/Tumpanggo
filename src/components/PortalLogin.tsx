@@ -6,7 +6,7 @@ import { apiFetch as fetch } from '../utils/apiClient.ts';
 import { 
   ShieldCheck, Lock, Mail, ArrowRight, ChevronLeft, Store, 
   CheckCircle, AlertCircle, Loader2, Phone, Bike, User, MapPin, Tag, ExternalLink,
-  Eye, EyeOff, Key, X
+  Eye, EyeOff, Key, X, UserPlus
 } from 'lucide-react';
 import { PWAInstallButton } from './PWAInstallButton.tsx';
 
@@ -32,6 +32,11 @@ export default function PortalLogin({ role, targetMerchantId, targetDriverId, in
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
+
+  // Merchant Portal custom validation & remember me states
+  const [rememberMe, setRememberMe] = useState(true);
+  const [isNotRegisteredError, setIsNotRegisteredError] = useState(false);
+  const [isPasswordMismatchError, setIsPasswordMismatchError] = useState(false);
 
   // Merchant Registration state
   const [regStoreName, setRegStoreName] = useState('');
@@ -110,6 +115,12 @@ export default function PortalLogin({ role, targetMerchantId, targetDriverId, in
       setIsActivationMode(true);
       setActivationEmail(params.get('email') || '');
       setActivationStoreName(params.get('storeName') || '');
+    }
+    if (role === 'MERCHANT') {
+      const saved = safeStorage.getItem('tumpang_remembered_merchant_login');
+      if (saved && !emailInput) {
+        setEmailInput(saved);
+      }
     }
   }, [role]);
 
@@ -258,10 +269,23 @@ export default function PortalLogin({ role, targetMerchantId, targetDriverId, in
     }
   };
 
+  const handleRegisterClick = () => {
+    if (onRegisterRedirect) {
+      onRegisterRedirect();
+    } else {
+      const regUrl = window.location.origin + '/?page=merchant-register';
+      if (typeof window !== 'undefined') {
+        window.location.href = regUrl;
+      }
+    }
+  };
+
   const handlePasswordLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     setSuccessMsg('');
+    setIsNotRegisteredError(false);
+    setIsPasswordMismatchError(false);
 
     if (!emailInput || !passwordInput) {
       setError('Mohon isi alamat email / no. telepon dan kata sandi Anda.');
@@ -308,6 +332,15 @@ export default function PortalLogin({ role, targetMerchantId, targetDriverId, in
           userEmail.toLowerCase() === 'tumpanggo@gmail.com' ||
           userEmail.toLowerCase() === 'suaiimokeras@gmail.com'
         );
+
+        if (role === 'MERCHANT') {
+          if (rememberMe) {
+            safeStorage.setItem('tumpang_remembered_merchant_login', userEmail);
+          } else {
+            safeStorage.removeItem('tumpang_remembered_merchant_login');
+          }
+        }
+
         safeStorage.setItem('tumpang_auth_email', userEmail);
         safeStorage.setItem('tumpang_auth_token', data.token);
         if (isMaster) {
@@ -328,18 +361,37 @@ export default function PortalLogin({ role, targetMerchantId, targetDriverId, in
           onSuccess(userEmail, targetEntity, isMaster);
         }, 500);
       } else {
-        const diagSuffix = data?.diagnostic?.code ? ` (${data.diagnostic.code})` : '';
-        // Differentiate HTTP error status codes clearly
-        if (res.status === 401) {
-          setError((data?.error || 'Email/No. Telepon atau kata sandi tidak cocok. Silakan periksa kembali.') + diagSuffix);
+        const diagCode = data?.diagnostic?.code;
+        const diagReason = data?.diagnostic?.reason;
+        const errMsg = String(data?.error || '');
+
+        if (
+          diagCode === 'EMAIL_NOT_MATCHED' || 
+          diagReason === 'MERCHANT_NOT_FOUND' || 
+          errMsg.toLowerCase().includes('tidak terdaftar')
+        ) {
+          setIsNotRegisteredError(true);
+          setError('Email/Nomor belum terdaftar di sistem. Silakan daftar menjadi mitra terlebih dahulu.');
+        } else if (
+          diagCode === 'PASSWORD_MISMATCH' || 
+          diagReason === 'MERCHANT_PASSWORD_INVALID' ||
+          errMsg.toLowerCase().includes('kata sandi toko salah') ||
+          errMsg.toLowerCase().includes('kata sandi driver salah') ||
+          errMsg.toLowerCase().includes('kata sandi administrator salah') ||
+          errMsg.toLowerCase().includes('kata sandi salah')
+        ) {
+          setIsPasswordMismatchError(true);
+          setError('Kata sandi yang Anda masukkan salah. Silakan periksa kembali.');
+        } else if (data?.isPendingApproval || data?.status === 'PENDING') {
+          setError('Pendaftaran toko Anda sedang dalam peninjauan oleh Admin. Akses operasional akan dibuka setelah disetujui.');
         } else if (res.status === 403) {
-          setError((data?.error || 'Akses ditolak: Akun tidak memiliki izin untuk masuk ke portal ini.') + diagSuffix);
+          setError(errMsg || 'Akses ditolak: Akun tidak memiliki izin untuk masuk ke portal ini.');
         } else if (res.status === 404) {
           setError('Layanan login backend tidak ditemukan (HTTP 404). Pastikan server backend sedang aktif.');
         } else if (res.status >= 500) {
-          setError((data?.error || `Terjadi kendala pada server backend (HTTP ${res.status}). Silakan coba beberapa saat lagi.`) + diagSuffix);
+          setError(errMsg || `Terjadi kendala pada server backend (HTTP ${res.status}). Silakan coba beberapa saat lagi.`);
         } else {
-          setError((data?.error || `Gagal melakukan login (HTTP ${res.status}).`) + diagSuffix);
+          setError(errMsg || `Gagal melakukan login (HTTP ${res.status}).`);
         }
       }
     } catch (err: any) {
@@ -433,6 +485,428 @@ export default function PortalLogin({ role, targetMerchantId, targetDriverId, in
       setLoading(false);
     }
   };
+
+  // Specialized 2-Column Layout for Merchant Portal (conforming to official mockup)
+  if (role === 'MERCHANT' && !isActivationMode && activeTab !== 'register') {
+    return (
+      <div className="fixed inset-0 bg-slate-900/60 flex items-center justify-center p-3 sm:p-5 z-[100] backdrop-blur-md animate-fadeIn font-sans overflow-y-auto">
+        <div className="bg-white rounded-3xl max-w-4xl w-full shadow-2xl border border-slate-100 flex flex-col md:flex-row my-auto max-h-[94vh] overflow-hidden">
+          
+          {/* Left Column: Dark Forest Green Background with Official Logo, Headline, UMKM Photo & Badges */}
+          <div className="hidden md:flex md:w-5/12 bg-gradient-to-br from-[#064e3b] via-[#053d2e] to-[#03261c] p-6 lg:p-7 flex-col justify-between text-white relative overflow-hidden select-none">
+            {/* Ambient subtle glow */}
+            <div className="absolute -top-16 -left-16 w-48 h-48 bg-emerald-400/10 rounded-full blur-3xl pointer-events-none" />
+            <div className="absolute -bottom-16 -right-16 w-48 h-48 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none" />
+
+            <div>
+              {/* MANDATORY: Official TumpangGo logo from public/ */}
+              <div className="inline-flex items-center bg-white px-3.5 py-1.5 rounded-2xl shadow-md border border-white/20">
+                <img 
+                  src="/logo44.png" 
+                  alt="TumpangGo" 
+                  className="h-8 lg:h-9 w-auto object-contain"
+                  referrerPolicy="no-referrer"
+                />
+              </div>
+
+              {/* Headline */}
+              <h2 className="text-2xl lg:text-[26px] font-extrabold text-white tracking-tight leading-snug mt-5">
+                Bersama Majukan UMKM Tumpang
+              </h2>
+
+              {/* Deskripsi Singkat */}
+              <p className="text-emerald-100/85 text-xs mt-2.5 leading-relaxed">
+                Kelola menu makanan, terima pesanan pelanggan secara real-time, dan kembangkan usaha kuliner Anda dengan ekosistem digital TumpangGo.
+              </p>
+
+              {/* Gambar Aktivitas UMKM */}
+              <div className="mt-4 rounded-2xl overflow-hidden shadow-lg border border-emerald-500/20 aspect-[16/10] bg-emerald-950/50 relative">
+                <img 
+                  src="/umkm-activity.jpg" 
+                  alt="Aktivitas Mitra UMKM TumpangGo" 
+                  className="w-full h-full object-cover"
+                />
+                <div className="absolute inset-0 bg-gradient-to-t from-black/50 via-transparent to-transparent pointer-events-none" />
+                <div className="absolute bottom-2 left-2.5 right-2.5 flex items-center justify-between text-[11px] text-white font-semibold">
+                  <span className="bg-[#064e3b]/90 backdrop-blur-xs px-2 py-0.5 rounded-lg border border-emerald-400/30 text-[10px]">
+                    Mitra Kuliner Lokal
+                  </span>
+                  <span className="text-emerald-200 text-[10px]">
+                    Kecamatan Tumpang
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* Value Badges at bottom */}
+            <div className="mt-4 pt-3 border-t border-emerald-700/40 flex flex-col gap-1.5 text-xs font-semibold text-emerald-100">
+              <div className="inline-flex items-center gap-2 px-2.5 py-1.5 rounded-xl bg-emerald-800/40 border border-emerald-600/30 text-[11px]">
+                <CheckCircle className="w-3.5 h-3.5 text-emerald-300 shrink-0" />
+                <span>Pendaftaran Gratis</span>
+              </div>
+              <div className="inline-flex items-center gap-2 px-2.5 py-1.5 rounded-xl bg-emerald-800/40 border border-emerald-600/30 text-[11px]">
+                <CheckCircle className="w-3.5 h-3.5 text-emerald-300 shrink-0" />
+                <span>Kelola Menu & Pesanan</span>
+              </div>
+              <div className="inline-flex items-center gap-2 px-2.5 py-1.5 rounded-xl bg-emerald-800/40 border border-emerald-600/30 text-[11px]">
+                <CheckCircle className="w-3.5 h-3.5 text-emerald-300 shrink-0" />
+                <span>Jangkau Lebih Banyak Pelanggan</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Right Column: Portal Mitra Form */}
+          <div className="flex-1 p-5 sm:p-7 lg:p-8 flex flex-col justify-between overflow-y-auto max-h-[94vh]">
+            <div>
+              {/* Mobile Header / Top Bar */}
+              <div className="flex items-center justify-between mb-4">
+                <div className="md:hidden inline-flex items-center bg-white px-2.5 py-1 rounded-xl shadow-xs border border-slate-200">
+                  <img 
+                    src="/logo44.png" 
+                    alt="TumpangGo" 
+                    className="h-7 w-auto object-contain"
+                    referrerPolicy="no-referrer"
+                  />
+                </div>
+                <div className="hidden md:block">
+                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-800 text-[10px] font-bold border border-emerald-200">
+                    <Store className="w-3 h-3 text-emerald-600" />
+                    <span>Portal Mitra Toko</span>
+                  </span>
+                </div>
+
+                <button 
+                  type="button"
+                  onClick={onCancel}
+                  className="p-1.5 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-500 hover:text-slate-800 transition-colors cursor-pointer"
+                  title="Kembali ke Beranda"
+                  aria-label="Tutup"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              {/* Title & Subtitle */}
+              <div className="mb-4">
+                <h1 className="font-display font-black text-xl sm:text-2xl text-slate-900 tracking-tight">
+                  Masuk ke Portal Mitra
+                </h1>
+                <p className="text-xs text-slate-500 mt-1 leading-relaxed">
+                  Silakan masukkan email atau nomor handphone dan password akun toko Anda.
+                </p>
+              </div>
+
+              {/* Status Messages */}
+              {isNotRegisteredError && (
+                <div className="mb-4 p-3.5 rounded-2xl bg-red-50 border-2 border-red-500 text-xs text-red-700 flex flex-col gap-2 animate-fadeIn shadow-xs">
+                  <div className="flex items-start gap-2">
+                    <AlertCircle className="w-4 h-4 text-red-600 shrink-0 mt-0.5" />
+                    <div className="flex-1 font-bold text-red-800 leading-relaxed">
+                      Email/Nomor belum terdaftar di sistem. Silakan daftar menjadi mitra terlebih dahulu.
+                    </div>
+                  </div>
+                  <div className="pl-6 pt-0.5">
+                    <button
+                      type="button"
+                      onClick={handleRegisterClick}
+                      className="inline-flex items-center gap-1 text-xs font-black text-red-900 hover:underline cursor-pointer"
+                    >
+                      <span>Daftar Menjadi Mitra Sekarang</span>
+                      <ArrowRight className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {isPasswordMismatchError && (
+                <div className="mb-4 p-3.5 rounded-2xl bg-red-50 border-2 border-red-500 text-xs text-red-700 flex items-start gap-2 animate-fadeIn shadow-xs">
+                  <AlertCircle className="w-4 h-4 text-red-600 shrink-0 mt-0.5" />
+                  <div className="flex-1">
+                    <p className="font-bold text-red-800 leading-relaxed">
+                      Kata sandi yang Anda masukkan salah. Silakan periksa kembali.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowForgotPasswordModal(true);
+                        setForgotPasswordInput(emailInput || '');
+                        setForgotPasswordMsg(null);
+                        setForgotPasswordError('');
+                      }}
+                      className="text-[11px] font-bold text-red-900 hover:underline mt-1 block cursor-pointer"
+                    >
+                      Lupa password? Klik di sini untuk bantuan pemulihan.
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {error && !isNotRegisteredError && !isPasswordMismatchError && (
+                <div className="mb-4 p-3.5 rounded-2xl bg-red-50 border border-red-300 text-xs text-red-700 flex items-start gap-2 animate-fadeIn font-semibold">
+                  <AlertCircle className="w-4 h-4 text-red-600 shrink-0 mt-0.5" />
+                  <span className="leading-relaxed">{error}</span>
+                </div>
+              )}
+
+              {successMsg && (
+                <div className="mb-4 p-3.5 rounded-2xl bg-emerald-50 border border-emerald-200 text-xs text-emerald-800 flex items-start gap-2 animate-fadeIn font-semibold">
+                  <CheckCircle className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                  <span className="leading-relaxed">{successMsg}</span>
+                </div>
+              )}
+
+              {/* Login Form */}
+              <form onSubmit={handlePasswordLogin} className="flex flex-col gap-3.5">
+                <div>
+                  <label className="text-xs font-bold text-slate-800 block mb-1">
+                    Email atau Nomor Handphone <span className="text-rose-500">*</span>
+                  </label>
+                  <div className="relative">
+                    <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                    <input
+                      type="text"
+                      required
+                      disabled={loading}
+                      placeholder="Contoh: toko@gmail.com atau 081234567890"
+                      value={emailInput}
+                      onChange={(e) => {
+                        setEmailInput(e.target.value);
+                        if (isNotRegisteredError) setIsNotRegisteredError(false);
+                        if (error) setError('');
+                      }}
+                      className={`w-full rounded-xl pl-10 pr-4 py-2.5 text-xs font-semibold transition-all disabled:opacity-55 focus:outline-none ${
+                        isNotRegisteredError
+                          ? 'bg-red-50 border-2 border-red-500 text-red-900 focus:ring-2 focus:ring-red-500/20'
+                          : 'bg-slate-50 border border-slate-200 hover:border-slate-300 focus:border-[#064e3b] focus:bg-white text-slate-900 focus:ring-2 focus:ring-[#064e3b]/15'
+                      }`}
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-xs font-bold text-slate-800 block mb-1">
+                    Password <span className="text-rose-500">*</span>
+                  </label>
+                  <div className="relative">
+                    <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                    <input
+                      type={showPassword ? "text" : "password"}
+                      required
+                      disabled={loading}
+                      placeholder="Masukkan kata sandi akun"
+                      value={passwordInput}
+                      onChange={(e) => {
+                        setPasswordInput(e.target.value);
+                        if (isPasswordMismatchError) setIsPasswordMismatchError(false);
+                        if (error) setError('');
+                      }}
+                      className={`w-full rounded-xl pl-10 pr-11 py-2.5 text-xs font-semibold transition-all disabled:opacity-55 focus:outline-none ${
+                        isPasswordMismatchError
+                          ? 'bg-red-50 border-2 border-red-500 text-red-900 focus:ring-2 focus:ring-red-500/20'
+                          : 'bg-slate-50 border border-slate-200 hover:border-slate-300 focus:border-[#064e3b] focus:bg-white text-slate-900 focus:ring-2 focus:ring-[#064e3b]/15'
+                      }`}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword(!showPassword)}
+                      tabIndex={-1}
+                      className="absolute right-3.5 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-slate-600 transition-colors cursor-pointer"
+                      title={showPassword ? "Sembunyikan kata sandi" : "Lihat kata sandi"}
+                      aria-label={showPassword ? "Sembunyikan kata sandi" : "Lihat kata sandi"}
+                    >
+                      {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between text-xs pt-0.5">
+                  <label className="flex items-center gap-2 text-slate-600 font-medium cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={rememberMe}
+                      onChange={(e) => setRememberMe(e.target.checked)}
+                      className="w-4 h-4 rounded border-slate-300 text-[#064e3b] focus:ring-[#064e3b] cursor-pointer"
+                    />
+                    <span>Ingat saya</span>
+                  </label>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowForgotPasswordModal(true);
+                      setForgotPasswordInput(emailInput || '');
+                      setForgotPasswordMsg(null);
+                      setForgotPasswordError('');
+                    }}
+                    className="text-xs font-bold text-emerald-700 hover:text-emerald-800 hover:underline cursor-pointer"
+                  >
+                    Lupa password?
+                  </button>
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="w-full mt-1 py-3 bg-[#064e3b] hover:bg-[#053d2e] active:bg-[#042f24] text-white font-extrabold rounded-xl transition-all shadow-md shadow-[#064e3b]/20 text-xs flex items-center justify-center gap-2 cursor-pointer disabled:opacity-60 active:scale-[0.99]"
+                >
+                  {loading ? (
+                    <Loader2 className="w-4 h-4 animate-spin text-white" />
+                  ) : (
+                    <>
+                      <Lock className="w-4 h-4" />
+                      <span>Login</span>
+                    </>
+                  )}
+                </button>
+
+                <div className="relative my-0.5">
+                  <div className="absolute inset-0 flex items-center">
+                    <div className="w-full border-t border-slate-200"></div>
+                  </div>
+                  <div className="relative flex justify-center text-[11px] uppercase tracking-wider">
+                    <span className="bg-white px-3 text-slate-400 font-bold">atau</span>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleRegisterClick}
+                  className="w-full py-2.5 bg-amber-50 hover:bg-amber-100/80 border-2 border-amber-400 text-amber-900 font-extrabold rounded-xl transition-all text-xs flex items-center justify-center gap-2 cursor-pointer hover:border-amber-500 active:scale-[0.99]"
+                >
+                  <UserPlus className="w-4 h-4 text-amber-700" />
+                  <span>Daftar Menjadi Mitra</span>
+                </button>
+              </form>
+            </div>
+
+            <div className="mt-4 pt-3 border-t border-slate-100 flex flex-col items-center gap-2 text-center">
+              <p className="text-[11px] text-slate-500">
+                Mengalami kendala masuk portal?{' '}
+                <a
+                  href="https://wa.me/6281234567890?text=Halo%20Admin%20TumpangGo,%20saya%20pemilik%20toko%20kuliner%20membutuhkan%20bantuan%20terkait%20login%20Portal%20Mitra"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="font-bold text-emerald-700 hover:underline"
+                >
+                  Hubungi Bantuan Mitra
+                </a>
+              </p>
+
+              <PWAInstallButton role="MERCHANT" />
+            </div>
+          </div>
+
+        </div>
+
+        {/* Modal Lupa Kata Sandi Merchant */}
+        {showForgotPasswordModal && (
+          <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 animate-fadeIn">
+            <div className="bg-white rounded-3xl max-w-sm w-full p-5 sm:p-6 shadow-2xl border border-slate-200 relative animate-scaleUp">
+              <button
+                type="button"
+                onClick={() => setShowForgotPasswordModal(false)}
+                className="absolute right-4 top-4 p-1.5 rounded-full hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+
+              <div className="flex items-center gap-3 mb-4">
+                <div className="w-10 h-10 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-700 flex items-center justify-center shrink-0">
+                  <Lock className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-display font-bold text-sm text-slate-900">Pemulihan Kata Sandi Toko</h3>
+                  <p className="text-[11px] text-slate-500">Portal Merchant UMKM TumpangGo</p>
+                </div>
+              </div>
+
+              {forgotPasswordMsg ? (
+                <div className="space-y-4">
+                  <div className="p-3.5 bg-emerald-50 border border-emerald-200 rounded-2xl text-xs text-emerald-900 space-y-2">
+                    <div className="flex items-center gap-1.5 font-bold text-emerald-800">
+                      <CheckCircle className="w-4 h-4 text-emerald-600 shrink-0" />
+                      <span>Permohonan Diterima</span>
+                    </div>
+                    <p className="text-[11px] leading-relaxed text-slate-700">
+                      {forgotPasswordMsg}
+                    </p>
+                  </div>
+
+                  <a
+                    href={`https://wa.me/6281234567890?text=${encodeURIComponent(`Halo Admin Pusat tumpangGo, saya pemilik toko kuliner (${forgotPasswordInput}) membutuhkan bantuan pemulihan kata sandi akun merchant saya.`)}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs flex items-center justify-center gap-2 transition-colors shadow-xs"
+                  >
+                    <Phone className="w-4 h-4" />
+                    <span>Hubungi Admin Pusat via WhatsApp</span>
+                  </a>
+
+                  <button
+                    type="button"
+                    onClick={() => setShowForgotPasswordModal(false)}
+                    className="w-full py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-xs transition-colors cursor-pointer"
+                  >
+                    Tutup
+                  </button>
+                </div>
+              ) : (
+                <form onSubmit={handleForgotPasswordSubmit} className="space-y-4">
+                  <p className="text-xs text-slate-600 leading-relaxed">
+                    Masukkan email atau nomor WhatsApp yang Anda daftarkan saat registrasi mitra toko.
+                  </p>
+
+                  {forgotPasswordError && (
+                    <div className="p-3 bg-red-50 border border-red-200 text-red-700 text-xs rounded-xl flex items-center gap-2">
+                      <AlertCircle className="w-4 h-4 shrink-0 text-red-600" />
+                      <span>{forgotPasswordError}</span>
+                    </div>
+                  )}
+
+                  <div>
+                    <label className="text-[11px] font-bold uppercase tracking-wider text-slate-700 block mb-1">
+                      Email / No. WhatsApp Toko
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      disabled={forgotPasswordLoading}
+                      placeholder="Contoh: toko@gmail.com / 081234567890"
+                      value={forgotPasswordInput}
+                      onChange={(e) => setForgotPasswordInput(e.target.value)}
+                      className="w-full bg-slate-50 border border-slate-200 focus:border-[#064e3b] focus:bg-white rounded-xl px-3.5 py-2.5 text-xs font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-[#064e3b]/20"
+                    />
+                  </div>
+
+                  <div className="pt-2 flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setShowForgotPasswordModal(false)}
+                      disabled={forgotPasswordLoading}
+                      className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-xs transition-colors cursor-pointer"
+                    >
+                      Batal
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={forgotPasswordLoading}
+                      className="flex-1 py-2.5 bg-[#064e3b] hover:bg-[#053d2e] text-white font-extrabold rounded-xl text-xs transition-colors flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+                    >
+                      {forgotPasswordLoading ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <span>Kirim Permohonan</span>
+                      )}
+                    </button>
+                  </div>
+                </form>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className="fixed inset-0 bg-slate-900/60 flex items-center justify-center p-3 sm:p-6 z-[100] backdrop-blur-md animate-fadeIn font-sans overflow-y-auto">

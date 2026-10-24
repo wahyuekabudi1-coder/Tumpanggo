@@ -57,7 +57,7 @@ export default function MerchantPortalLanding({
           </div>
 
           <h1 className="font-display font-black text-2xl text-slate-900 tracking-tight">
-            Portal Merchant TumpangGo
+            Portal Merchant tumpangGo
           </h1>
 
           <p className="text-xs text-slate-500 leading-relaxed mt-2 max-w-sm">
@@ -135,7 +135,7 @@ export default function MerchantPortalLanding({
                   </span>
                 </div>
                 <p className="text-xs text-slate-500 mt-1 leading-relaxed">
-                  Belum memiliki akun toko? Daftarkan usaha kuliner Anda ke ekosistem TumpangGo. Pendaftaran 100% gratis!
+                  Belum memiliki akun toko? Daftarkan usaha kuliner Anda ke ekosistem tumpangGo. Pendaftaran 100% gratis!
                 </p>
               </div>
             </div>
@@ -184,8 +184,8 @@ export default function MerchantPortalLanding({
 
       {/* Clean Minimalist Footer */}
       <div className="text-center mt-6 text-xs text-slate-400">
-        <p className="font-medium text-slate-500">TumpangGo — Super App lokal Kecamatan Tumpang.</p>
-        <p className="text-[11px] mt-1 select-none">© 2026 TumpangGo</p>
+        <p className="font-medium text-slate-500">tumpangGo — Super App lokal Kecamatan Tumpang.</p>
+        <p className="text-[11px] mt-1 select-none">© 2026 tumpangGo</p>
       </div>
     </div>
   );

@@ -36,14 +36,14 @@ if (typeof window !== 'undefined') {
   const statusEl = document.getElementById('startup-status');
   const subEl = document.getElementById('startup-sub');
   if (statusEl) statusEl.textContent = 'Menginisialisasi React...';
-  if (subEl) subEl.textContent = 'Merender komponen antarmuka TumpangGo...';
+  if (subEl) subEl.textContent = 'Merender komponen antarmuka tumpangGo...';
 }
 
 const rootElement = document.getElementById('root');
 if (rootElement) {
   createRoot(rootElement).render(
     <StrictMode>
-      <ErrorBoundary fallbackTitle="TumpangGo - Kendala Tampilan">
+      <ErrorBoundary fallbackTitle="tumpangGo - Kendala Tampilan">
         <App />
       </ErrorBoundary>
     </StrictMode>,

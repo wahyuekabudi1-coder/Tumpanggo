@@ -1564,17 +1564,12 @@ export default function CustomerView({
   const headerTheme = getHeaderTheme();
 
   const renderFooter = (idSuffix: string = '') => (
-    <footer className="w-full mt-4 text-slate-700 relative overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-xs">
-      <div className="py-4 px-4 flex flex-col items-center justify-center text-center gap-1.5">
-        <h3 className="font-display font-black text-base text-slate-900 tracking-tight">
-          TumpangGo
-        </h3>
-        <p className="text-xs text-slate-600 font-medium max-w-sm">
-          Super App lokal Kecamatan Tumpang.
-        </p>
-
-        {/* Ringkas: Link Pusat Bantuan & Media Sosial */}
-        <div className="flex items-center gap-3 my-0.5 text-xs text-slate-500">
+    <footer className="w-full mt-5 text-slate-700 relative overflow-hidden rounded-2xl border border-slate-100 shadow-xs">
+      {/* Top White Section with Logo & Social Media */}
+      <div className="py-3 px-4 flex flex-col items-center justify-center text-center bg-white gap-2">
+        <Logo size={96} />
+        {/* Pusat Bantuan Quick Navigation */}
+        <div className="flex flex-col items-center gap-2 mt-1 w-full max-w-sm">
           <button
             type="button"
             onClick={() => {
@@ -1583,21 +1578,33 @@ export default function CustomerView({
                 window.scrollTo({ top: 0, behavior: 'smooth' });
               }
             }}
-            className="hover:text-emerald-800 font-semibold transition-colors cursor-pointer flex items-center gap-1"
+            className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-xs font-semibold border border-emerald-200 transition-colors shadow-2xs cursor-pointer"
           >
             <HelpCircle className="w-3.5 h-3.5 text-emerald-600" />
-            <span>Pusat Bantuan</span>
+            <span>Pusat Bantuan tumpangGo</span>
           </button>
-          <span>•</span>
-          <SocialMediaButtons variant="compact" />
+          
+          <div className="pt-0.5">
+            <SocialMediaButtons variant="compact" />
+          </div>
         </div>
+      </div>
 
-        {/* Plain Copyright text - completely normal, preserving handleCopyrightClick for secret portal trigger */}
+      {/* Green Divider Line */}
+      <div className="w-full h-[1px] bg-[#224B33]/20"></div>
+
+      {/* Bottom Green Section - Hijau Adventure */}
+      <div className="bg-[#224B33] text-white py-3 px-4 flex flex-col items-center justify-center text-center">
+        <p className="text-xs text-emerald-50 font-medium max-w-sm leading-snug">
+          Super-App lokal Kecamatan Tumpang untuk UMKM, kurir instan, dan layanan digital.
+        </p>
+
+        {/* Plain Copyright text - completely normal, no hover effects or glow */}
         <p 
           onClick={handleCopyrightClick}
-          className="text-[11px] text-slate-400 font-medium select-none cursor-default"
+          className="text-[10px] text-emerald-200/70 font-normal mt-1.5 select-none cursor-default"
         >
-          © 2026 TumpangGo
+          © 2026 tumpangGo. All rights reserved.
         </p>
 
         {/* Portal Login & Akses Dashboard (Secret - Unlocked strictly between 10 to 13 clicks on copyright) */}
@@ -1640,10 +1647,10 @@ export default function CustomerView({
               <button 
                 onClick={handleInstallClick}
                 className={`text-[10px] px-2.5 py-1.5 rounded-full font-extrabold flex items-center gap-1 cursor-pointer transition-all active:scale-95 ${headerTheme.installBtnClass}`}
-                title="Install Aplikasi TumpangGo di Layar Utama"
+                title="Install Aplikasi tumpangGo di Layar Utama"
               >
                 <Download className="w-3 h-3 animate-bounce" />
-                <span>Install TumpangGo</span>
+                <span>Install tumpangGo</span>
               </button>
             )}
             {/* Service text badges cleared as requested */}
@@ -1844,7 +1851,7 @@ export default function CustomerView({
                 </button>
               </div>
               
-              <h4 className="font-display font-bold text-base text-slate-800 mt-4">Cara Memasang Aplikasi TumpangGo</h4>
+              <h4 className="font-display font-bold text-base text-slate-800 mt-4">Cara Memasang Aplikasi tumpangGo</h4>
               <p className="text-slate-500 text-xs mt-1.5 leading-relaxed">
                 Nikmati kemudahan pesan kuliner lokal langsung dari layar ponsel Anda dengan aplikasi yang sangat ringan dan cepat dibuka.
               </p>
@@ -1864,7 +1871,7 @@ export default function CustomerView({
                     📱 Langsung di Layar Utama HP
                   </h5>
                   <p className="text-[11px] text-slate-500 mt-0.5 leading-relaxed">
-                    TumpangGo akan memiliki ikon di layar utama ponsel Anda, dapat dibuka sekali ketuk tanpa repot membuka browser atau mengetik alamat web.
+                    tumpangGo akan memiliki ikon di layar utama ponsel Anda, dapat dibuka sekali ketuk tanpa repot membuka browser atau mengetik alamat web.
                   </p>
                 </div>
 
@@ -1903,7 +1910,7 @@ export default function CustomerView({
                       </div>
                       <div className="min-w-0">
                         <p className="text-xs font-bold text-slate-800 truncate leading-tight">
-                          Install Aplikasi TumpangGo
+                          Install Aplikasi tumpangGo
                         </p>
                         <p className="text-[10px] text-slate-500 truncate hidden sm:block">
                           Akses cepat langsung dari layar HP Anda
@@ -2295,7 +2302,7 @@ export default function CustomerView({
                     </div>
                     <div>
                       <h2 id="section-faq-title" className="font-display font-extrabold text-sm sm:text-base text-slate-900 leading-tight">
-                        Tanya Jawab Seputar TumpangGo
+                        Tanya Jawab Seputar tumpangGo
                       </h2>
                     </div>
                   </div>
@@ -2303,12 +2310,12 @@ export default function CustomerView({
                   <div className="flex flex-col gap-1.5">
                     {[
                       {
-                        q: 'Apa itu platform TumpangGo?',
-                        a: 'TumpangGo adalah ekosistem digital lokal yang menghubungkan warga Kecamatan Tumpang, Kabupaten Malang dengan aneka kuliner UMKM lokal, kurir pengantaran cepat, serta layanan pembayaran QRIS praktis.'
+                        q: 'Apa itu platform tumpangGo?',
+                        a: 'tumpangGo adalah ekosistem digital lokal yang menghubungkan warga Kecamatan Tumpang, Kabupaten Malang dengan aneka kuliner UMKM lokal, kurir pengantaran cepat, serta layanan pembayaran QRIS praktis.'
                       },
                       {
-                        q: 'Berapa tarif ongkir pengantaran kuliner di TumpangGo?',
-                        a: 'Tarif pengantaran makanan di TumpangGo sangat bersahabat yaitu flat Rp 5.000 se-Kecamatan Tumpang, didukung oleh pengemudi kurir lokal yang mengenal jalan dan lingkungan sekitar.'
+                        q: 'Berapa tarif ongkir pengantaran kuliner di tumpangGo?',
+                        a: 'Tarif pengantaran makanan di tumpangGo sangat bersahabat yaitu flat Rp 5.000 se-Kecamatan Tumpang, didukung oleh pengemudi kurir lokal yang mengenal jalan dan lingkungan sekitar.'
                       },
                       {
                         q: 'Bagaimana cara pelaku UMKM mendaftar menjadi mitra?',
@@ -2316,7 +2323,7 @@ export default function CustomerView({
                       },
                       {
                         q: 'Apa saja metode pembayaran yang didukung?',
-                        a: 'TumpangGo menyediakan pilihan pembayaran QRIS resmi toko merchant yang menerima semua bank dan dompet digital (BCA, BRI, Mandiri, BNI, GoPay, OVO, Dana, ShopeePay), serta verifikasi cepat oleh admin.'
+                        a: 'tumpangGo menyediakan pilihan pembayaran QRIS resmi toko merchant yang menerima semua bank dan dompet digital (BCA, BRI, Mandiri, BNI, GoPay, OVO, Dana, ShopeePay), serta verifikasi cepat oleh admin.'
                       }
                     ].map((faq, idx) => {
                       const isOpen = openFaqIndex === idx;
@@ -2374,7 +2381,7 @@ export default function CustomerView({
                           Menjadi Mitra UMKM
                         </h3>
                         <p className="text-xs sm:text-sm text-emerald-100/90 font-medium mt-0.5">
-                          Jualan online lebih mudah bersama TumpangGo.
+                          Jualan online lebih mudah bersama tumpangGo.
                         </p>
                       </div>
                     </div>
@@ -2896,9 +2903,9 @@ export default function CustomerView({
                 <Globe className="w-8 h-8 text-purple-600 animate-pulse" />
               </div>
               <div>
-                <h4 className="font-sans font-black text-slate-800 text-base uppercase tracking-tight">Menuju Web Portal TumpangGo</h4>
+                <h4 className="font-sans font-black text-slate-800 text-base uppercase tracking-tight">Menuju Web Portal tumpangGo</h4>
                 <p className="text-xs text-slate-500 mt-1.5 max-w-sm leading-relaxed font-medium">
-                  Anda akan dialihkan ke portal transaksi resmi TumpangGo di BuyLink untuk melakukan pembelian & top-up instan.
+                  Anda akan dialihkan ke portal transaksi resmi tumpangGo di BuyLink untuk melakukan pembelian & top-up instan.
                 </p>
               </div>
               
@@ -2908,7 +2915,7 @@ export default function CustomerView({
                 className="w-full bg-gradient-to-r from-purple-600 to-indigo-700 hover:from-purple-700 hover:to-indigo-800 text-white font-black py-4 px-6 rounded-2xl text-xs uppercase tracking-wider shadow-lg shadow-purple-500/10 transition-all cursor-pointer active:scale-95 flex items-center justify-center gap-2"
               >
                 <ExternalLink className="w-4 h-4" />
-                <span>Buka Portal TumpangGo</span>
+                <span>Buka Portal tumpangGo</span>
               </button>
             </div>
           </div>
@@ -2929,7 +2936,7 @@ export default function CustomerView({
                       <X className="w-4 h-4" />
                     </button>
                     <span className="text-[9px] uppercase font-black bg-white/20 px-2.5 py-1 rounded-full tracking-wider">PROGRAM KEMITRAAN</span>
-                    <h3 className="font-sans font-black text-base mt-2">Daftar Mitra Driver TumpangGo</h3>
+                    <h3 className="font-sans font-black text-base mt-2">Daftar Mitra Driver tumpangGo</h3>
                     <p className="text-[10px] text-white/80 mt-1">Gabung ojek/taksi lokal & raih penghasilan tambahan tanpa potongan aplikasi!</p>
                   </div>
 
@@ -3062,7 +3069,7 @@ export default function CustomerView({
                       </div>
 
                       <p className="text-[10px] text-slate-500 font-medium leading-relaxed px-2">
-                        Halo <strong className="text-slate-700">{driverName}</strong>, data Anda berhasil masuk ke database otonom TumpangGo. Admin kami akan menghubungi Anda via WhatsApp di nomor <strong className="text-slate-700">{driverPhone}</strong> dalam waktu maksimal 1x24 jam untuk koordinasi verifikasi fisik kendaraan. Matur nuwun! 🙏
+                        Halo <strong className="text-slate-700">{driverName}</strong>, data Anda berhasil masuk ke database otonom tumpangGo. Admin kami akan menghubungi Anda via WhatsApp di nomor <strong className="text-slate-700">{driverPhone}</strong> dalam waktu maksimal 1x24 jam untuk koordinasi verifikasi fisik kendaraan. Matur nuwun! 🙏
                       </p>
 
                       <button 
@@ -3093,7 +3100,7 @@ export default function CustomerView({
                     <div className="flex items-center gap-3">
                       <Smartphone className="w-8 h-8 text-white animate-pulse" />
                       <div>
-                        <h4 className="font-sans font-black text-sm uppercase tracking-wider">TumpangGo APK Installer</h4>
+                        <h4 className="font-sans font-black text-sm uppercase tracking-wider">tumpangGo APK Installer</h4>
                         <p className="text-[10px] text-white/90">Aplikasi Resmi Paguyuban Otonom</p>
                       </div>
                     </div>
@@ -3139,7 +3146,7 @@ export default function CustomerView({
                         </div>
                         <h5 className="font-sans font-black text-sm text-slate-800 uppercase tracking-tight">Unduhan Selesai!</h5>
                         <p className="text-[10px] text-slate-500 font-medium leading-relaxed max-w-xs mt-1.5">
-                          File APK resmi TumpangGo berhasil diunduh ke penyimpanan internal HP Anda. Silakan pasang aplikasi untuk menikmati akses langsung yang lebih cepat.
+                          File APK resmi tumpangGo berhasil diunduh ke penyimpanan internal HP Anda. Silakan pasang aplikasi untuk menikmati akses langsung yang lebih cepat.
                         </p>
 
                         <div className="bg-slate-50 rounded-2xl p-4 my-4 border border-slate-100 flex flex-col gap-2.5 text-left text-xs font-bold text-slate-600">
@@ -3174,7 +3181,7 @@ export default function CustomerView({
                           </button>
                           <button 
                             onClick={() => {
-                              alert('Aplikasi TumpangGo berhasil diinstal di smartphone Anda! Silakan cek menu utama HP Anda.');
+                              alert('Aplikasi tumpangGo berhasil diinstal di smartphone Anda! Silakan cek menu utama HP Anda.');
                               setIsApkModalOpen(false);
                               setApkDownloadProgress(0);
                               setIsApkDownloaded(false);
@@ -3200,7 +3207,7 @@ export default function CustomerView({
                     <div className="flex items-center gap-2.5">
                       <MapPin className="w-5 h-5 text-red-500 fill-red-500" />
                       <div>
-                        <h4 className="font-sans font-black text-xs uppercase tracking-wider">Kantor Pusat TumpangGo</h4>
+                        <h4 className="font-sans font-black text-xs uppercase tracking-wider">Kantor Pusat tumpangGo</h4>
                         <p className="text-[9px] text-slate-400">Malang, Jawa Timur, Indonesia</p>
                       </div>
                     </div>
@@ -3288,7 +3295,7 @@ export default function CustomerView({
                       <button 
                         onClick={() => {
                           const routeUri = 'https://www.google.com/maps/dir/?api=1&destination=-7.9455,112.7595';
-                          alert('Membuka Google Maps untuk rute navigasi ke Kantor TumpangGo...');
+                          alert('Membuka Google Maps untuk rute navigasi ke Kantor tumpangGo...');
                           window.open(routeUri, '_blank', 'noreferrer,noopener');
                         }}
                         className="w-full bg-slate-800 hover:bg-slate-900 text-white font-black py-3 rounded-xl text-xs uppercase tracking-wider transition-colors cursor-pointer text-center flex items-center justify-center gap-1.5 mt-2 shadow-sm"
@@ -3816,7 +3823,7 @@ export default function CustomerView({
 
           const handleRetryQris = () => {
             if (qrisRetryCount >= 3) {
-              alert('Batas maksimal muat ulang (3x) tercapai. Silakan periksa koneksi internet Anda atau kunjungi Pusat Bantuan TumpangGo.');
+              alert('Batas maksimal muat ulang (3x) tercapai. Silakan periksa koneksi internet Anda atau kunjungi Pusat Bantuan tumpangGo.');
               return;
             }
             setQrisRetryCount(prev => prev + 1);
@@ -4124,12 +4131,12 @@ export default function CustomerView({
                       </h4>
                       <p className="text-[11px] text-amber-800 leading-relaxed">
                         {qrisLoadFailed 
-                          ? <>Gambar QRIS resmi untuk merchant <strong>{activeOrder.merchantName}</strong> mengalami kendala jaringan saat dimuat dari server. Demi keamanan transaksi Anda, sistem TumpangGo <strong>tidak menampilkan QRIS palsu/tiruan atau QRIS milik merchant lain</strong>.</>
-                          : <>Merchant <strong>{activeOrder.merchantName}</strong> belum mengunggah gambar QRIS statis resminya. Demi keamanan transaksi dan perlindungan data Anda, sistem TumpangGo <strong>tidak menampilkan QRIS palsu/tiruan atau QRIS milik merchant lain</strong>.</>
+                          ? <>Gambar QRIS resmi untuk merchant <strong>{activeOrder.merchantName}</strong> mengalami kendala jaringan saat dimuat dari server. Demi keamanan transaksi Anda, sistem tumpangGo <strong>tidak menampilkan QRIS palsu/tiruan atau QRIS milik merchant lain</strong>.</>
+                          : <>Merchant <strong>{activeOrder.merchantName}</strong> belum mengunggah gambar QRIS statis resminya. Demi keamanan transaksi dan perlindungan data Anda, sistem tumpangGo <strong>tidak menampilkan QRIS palsu/tiruan atau QRIS milik merchant lain</strong>.</>
                         }
                       </p>
                       <p className="text-[11px] text-amber-700 mt-1">
-                        Silakan coba muat ulang atau buka Pusat Bantuan TumpangGo untuk panduan dan verifikasi pembayaran.
+                        Silakan coba muat ulang atau buka Pusat Bantuan tumpangGo untuk panduan dan verifikasi pembayaran.
                       </p>
                     </div>
                   </div>
@@ -4341,7 +4348,7 @@ export default function CustomerView({
                     }}
                     className="text-emerald-700 font-bold hover:underline cursor-pointer inline-flex items-center gap-0.5 mx-1"
                   >
-                    <span>Pusat Bantuan TumpangGo</span>
+                    <span>Pusat Bantuan tumpangGo</span>
                   </button>
                   <span>untuk panduan resmi dan pelaporan kendala.</span>
                 </div>
@@ -4737,7 +4744,7 @@ export default function CustomerView({
                         </div>
                         <div>
                           <div className="flex items-center gap-1.5 flex-wrap">
-                            <span className="font-display font-extrabold text-sm text-emerald-950">E-Receipt Resmi TumpangGo</span>
+                            <span className="font-display font-extrabold text-sm text-emerald-950">E-Receipt Resmi tumpangGo</span>
                             <span className="bg-emerald-600 text-white text-[9px] font-black uppercase px-2 py-0.5 rounded-full tracking-wider">LUNAS</span>
                           </div>
                           <p className="text-[11px] text-emerald-800 font-mono font-medium mt-0.5">
@@ -5178,9 +5185,9 @@ export default function CustomerView({
           >
             <UserPlus className="w-5 h-5" />
             <span className="text-[10px] tracking-tight">
-              Mitra TumpangGo
+              Mitra tumpangGo
             </span>
-            <span className="sr-only">Mitra TumpangGo</span>
+            <span className="sr-only">Mitra tumpangGo</span>
           </button>
 
           {/* 4. Pusat Bantuan Layanan Tumpang Food */}
@@ -5224,8 +5231,8 @@ export default function CustomerView({
           type="button"
           onClick={handleOpenHelpCenter}
           className="fixed bottom-5 right-4 sm:right-6 z-[95] w-12 h-12 sm:w-14 sm:h-14 rounded-full bg-emerald-600 hover:bg-emerald-700 text-white flex items-center justify-center shadow-lg shadow-emerald-700/30 transition-all hover:scale-110 active:scale-95 group cursor-pointer"
-          title="Pusat Bantuan TumpangGo"
-          aria-label="Pusat Bantuan TumpangGo"
+          title="Pusat Bantuan tumpangGo"
+          aria-label="Pusat Bantuan tumpangGo"
         >
           <HelpCircle className="w-6 h-6 sm:w-7 sm:h-7 text-white" />
         </button>

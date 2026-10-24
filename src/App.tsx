@@ -584,7 +584,7 @@ export default function App() {
           </div>
           <h3 className="font-display font-extrabold text-base text-slate-800">Portal Pemilik Toko (Merchant)</h3>
           <p className="text-slate-500 text-xs mt-1.5 leading-relaxed">
-            Selamat datang di Portal Merchant TumpangGo. Silakan pilih toko Anda di bawah ini untuk mengelola menu dan pesanan pelanggan.
+            Selamat datang di Portal Merchant tumpangGo. Silakan pilih toko Anda di bawah ini untuk mengelola menu dan pesanan pelanggan.
           </p>
 
           <div className="mt-6 flex flex-col gap-2 max-h-[280px] overflow-y-auto pr-1">
@@ -648,7 +648,7 @@ export default function App() {
           </div>
           <h3 className="font-display font-extrabold text-base text-slate-800">Portal Kurir Internal</h3>
           <p className="text-slate-500 text-xs mt-1.5 leading-relaxed">
-            Selamat datang di Portal Kurir TumpangGo. Silakan pilih nama Anda untuk melihat tugas pengantaran makanan hari ini.
+            Selamat datang di Portal Kurir tumpangGo. Silakan pilih nama Anda untuk melihat tugas pengantaran makanan hari ini.
           </p>
 
           <div className="mt-6 flex flex-col gap-2 max-h-[280px] overflow-y-auto pr-1">
