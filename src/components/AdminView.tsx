@@ -28,6 +28,7 @@ import EReceiptModal from './EReceiptModal.tsx';
 import { useHiddenTrigger } from '../hooks/useHiddenTrigger.ts';
 import HiddenPortalBar from './HiddenPortalBar.tsx';
 import { useSEO } from '../hooks/useSEO.ts';
+import { PWAInstallButton } from './PWAInstallButton.tsx';
 
 interface AdminViewProps {
   onLogout: () => void;
@@ -1267,6 +1268,8 @@ export default function AdminView({ onLogout, systemConfig, onUpdateConfig, onSe
 
         {/* Sidebar Footer Controls */}
         <div className="p-3 border-t border-slate-200 bg-slate-50/60 space-y-2 shrink-0">
+          <PWAInstallButton role="ADMIN" compact={false} />
+
           <button
             onClick={fetchAdminData}
             disabled={loading}
@@ -1311,6 +1314,8 @@ export default function AdminView({ onLogout, systemConfig, onUpdateConfig, onSe
             </div>
 
             <div className="flex items-center gap-2">
+              <PWAInstallButton role="ADMIN" compact={true} />
+
               <button
                 onClick={fetchAdminData}
                 disabled={loading}
@@ -3803,6 +3808,11 @@ export default function AdminView({ onLogout, systemConfig, onUpdateConfig, onSe
                 </button>
               </div>
             </form>
+
+            {/* PWA Admin Application Card */}
+            <div className="pt-4 border-t border-slate-200">
+              <PWAInstallButton role="ADMIN" />
+            </div>
 
             {/* MASTER ADMIN: CLEAN SLATE MERCHANT & KATALOG PRODUKSI */}
             <div className="mt-8 pt-6 border-t border-slate-200 space-y-4">

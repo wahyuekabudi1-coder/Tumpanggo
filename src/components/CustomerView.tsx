@@ -14,6 +14,7 @@ import { safeStorage } from '../utils/safeStorage.ts';
 import { apiFetch as fetch, extractArrayResponse, getApiBaseUrl } from '../utils/apiClient.ts';
 import { calculateDeliveryFee, FLAT_TUMPANG_DELIVERY_FEE, isDestinationInKecamatanTumpang, normalizeOrderDeliveryFee } from '../utils/deliveryFee.ts';
 import { useSEO } from '../hooks/useSEO.ts';
+import { usePWAInstall } from '../hooks/usePWAInstall.ts';
 import UmkmEducationModule from './UmkmEducationModule.tsx';
 import UserTestimonialsSection from './UserTestimonialsSection.tsx';
 import { HelpCenterView } from './HelpCenterView.tsx';
@@ -909,62 +910,36 @@ export default function CustomerView({
     }
   };
 
-  // PWA states and handlers
-  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
-  const [isInstallable, setIsInstallable] = useState(false);
-  const [isIOS, setIsIOS] = useState(false);
+  // PWA states and handlers - Powered by centralized usePWAInstall singleton
+  const {
+    isInstallable,
+    isInstalled: isStandalone,
+    isIOS,
+    install: triggerPWAInstall
+  } = usePWAInstall('CUSTOMER');
+
   const [showIOSPrompt, setShowIOSPrompt] = useState(false);
-  const [isStandalone, setIsStandalone] = useState(false);
   const [installSuccess, setInstallSuccess] = useState(false);
   const [showPWAInfo, setShowPWAInfo] = useState(false);
+  const [, setIsInstalling] = useState(false);
   const [dismissedPrompt, setDismissedPrompt] = useState(() => {
     return safeStorage.getItem('tumpang_pwa_dismissed') === 'true';
   });
 
-  useEffect(() => {
-    // Check if already running in standalone mode (installed)
-    const checkStandalone = window.matchMedia('(display-mode: standalone)').matches || 
-                           (window.navigator as any).standalone === true;
-    setIsStandalone(checkStandalone);
-
-    // Check if iOS
-    const checkiOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !(window as any).MSStream;
-    setIsIOS(checkiOS);
-
-    // Event listener for Android/Chrome beforeinstallprompt
-    const handleBeforeInstallPrompt = (e: Event) => {
-      e.preventDefault();
-      setDeferredPrompt(e);
-      setIsInstallable(true);
-    };
-
-    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
-
-    // Event listener for successful install
-    const handleAppInstalled = () => {
-      console.log('App was successfully installed');
-      setIsInstallable(false);
-      setDeferredPrompt(null);
-      setIsStandalone(true);
-      setInstallSuccess(true);
-      setTimeout(() => setInstallSuccess(false), 6000);
-    };
-
-    window.addEventListener('appinstalled', handleAppInstalled);
-
-    return () => {
-      window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
-      window.removeEventListener('appinstalled', handleAppInstalled);
-    };
-  }, []);
-
   const handleInstallClick = async () => {
-    if (deferredPrompt) {
-      deferredPrompt.prompt();
-      const { outcome } = await deferredPrompt.userChoice;
-      console.log(`User response to the install prompt: ${outcome}`);
-      setDeferredPrompt(null);
-      setIsInstallable(false);
+    if (isInstallable) {
+      setIsInstalling(true);
+      try {
+        const choice = await triggerPWAInstall();
+        if (choice.accepted) {
+          setInstallSuccess(true);
+          setTimeout(() => setInstallSuccess(false), 6000);
+        }
+      } catch (err) {
+        console.warn('[Customer PWA] Install error:', err);
+      } finally {
+        setIsInstalling(false);
+      }
     } else if (isIOS) {
       setShowIOSPrompt(true);
     } else {

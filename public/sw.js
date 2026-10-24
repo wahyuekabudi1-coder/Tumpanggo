@@ -3,12 +3,12 @@
  * SPDX-License-Identifier: Apache-2.0
  * 
  * TumpangGo Service Worker
- * Secure static asset caching & offline shell for Customer, Merchant & Driver PWA.
+ * Secure static asset caching & offline shell for Customer, Merchant, Driver & Admin PWA.
  * Includes Web Push notification handling when dashboard/app is in background.
  * Strictly bypasses API requests, authentication, and QRIS endpoints to prevent stale data.
  */
 
-const CACHE_NAME = 'tumpanggo-pwa-v13';
+const CACHE_NAME = 'tumpanggo-pwa-v14';
 const STATIC_ASSETS = [
   '/',
   '/index.html',

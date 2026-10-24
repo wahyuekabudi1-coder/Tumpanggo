@@ -20,6 +20,7 @@ import { safeStorage } from './utils/safeStorage.ts';
 import { apiFetch as fetch, extractArrayResponse } from './utils/apiClient.ts';
 import { ShieldAlert, Key, HelpCircle, Store, Navigation, ChevronRight } from 'lucide-react';
 import { useSEO } from './hooks/useSEO.ts';
+import { syncPWAManifest } from './hooks/usePWAInstall.ts';
 
 export default function App() {
   const [currentRole, setCurrentRole] = useState<'CUSTOMER' | 'MERCHANT' | 'DRIVER' | 'ADMIN'>(() => {
@@ -64,21 +65,7 @@ export default function App() {
 
   // Dynamic PWA Manifest Synchronization based on active role
   useEffect(() => {
-    if (typeof document === 'undefined') return;
-    let link = document.querySelector<HTMLLinkElement>('link[rel="manifest"]');
-    if (!link) {
-      link = document.createElement('link');
-      link.rel = 'manifest';
-      document.head.appendChild(link);
-    }
-    const manifestHref = currentRole === 'MERCHANT'
-      ? '/manifest-merchant.json'
-      : currentRole === 'DRIVER'
-        ? '/manifest-driver.json'
-        : '/manifest.json';
-    if (link.getAttribute('href') !== manifestHref) {
-      link.setAttribute('href', manifestHref);
-    }
+    syncPWAManifest(currentRole);
   }, [currentRole]);
   const [activeMerchantId, setActiveMerchantId] = useState<string>(() => safeStorage.getItem('tumpang_active_merchant_id') || '');
   const [activeDriverId, setActiveDriverId] = useState<string>(() => safeStorage.getItem('tumpang_active_driver_id') || '');

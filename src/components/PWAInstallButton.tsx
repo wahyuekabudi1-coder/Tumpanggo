@@ -1,9 +1,18 @@
-import React, { useState, useEffect } from 'react';
-import { usePWAInstall } from '../hooks/usePWAInstall';
-import { Download, Smartphone, X, Store, Bike, Sparkles, CheckCircle2 } from 'lucide-react';
+/**
+ * @license
+ * SPDX-License-Identifier: Apache-2.0
+ * 
+ * TumpangGo Unified PWA Install Button Component
+ * Supports Customer, Merchant, Driver, and Admin portals.
+ * Directly triggers native browser installation when available, with clean fallback guidance.
+ */
+
+import React, { useState } from 'react';
+import { usePWAInstall, PWARole } from '../hooks/usePWAInstall';
+import { Download, Smartphone, X, Store, Bike, ShieldCheck } from 'lucide-react';
 
 interface PWAInstallButtonProps {
-  role?: 'CUSTOMER' | 'MERCHANT' | 'DRIVER';
+  role?: PWARole;
   compact?: boolean;
   className?: string;
 }
@@ -13,31 +22,10 @@ export const PWAInstallButton: React.FC<PWAInstallButtonProps> = ({
   compact = false,
   className = ''
 }) => {
-  const { isInstallable, isInstalled, isIOS, install } = usePWAInstall();
+  const { isInstallable, isInstalled, isIOS, install } = usePWAInstall(role);
   const [showIOSGuide, setShowIOSGuide] = useState(false);
   const [showManualGuide, setShowManualGuide] = useState(false);
   const [isInstalling, setIsInstalling] = useState(false);
-
-  // Dynamically update the manifest link to match the active role
-  useEffect(() => {
-    if (typeof document === 'undefined') return;
-    let manifestLink = document.querySelector<HTMLLinkElement>('link[rel="manifest"]');
-    if (!manifestLink) {
-      manifestLink = document.createElement('link');
-      manifestLink.rel = 'manifest';
-      document.head.appendChild(manifestLink);
-    }
-
-    const targetHref = role === 'MERCHANT'
-      ? '/manifest-merchant.json'
-      : role === 'DRIVER'
-        ? '/manifest-driver.json'
-        : '/manifest.json';
-
-    if (manifestLink.getAttribute('href') !== targetHref) {
-      manifestLink.setAttribute('href', targetHref);
-    }
-  }, [role]);
 
   // If already running inside standalone PWA mode, hide the install button
   if (isInstalled) {
@@ -81,6 +69,16 @@ export const PWAInstallButton: React.FC<PWAInstallButtonProps> = ({
           btnBg: 'bg-emerald-600 text-white hover:bg-emerald-500',
           badgeText: 'Aplikasi Driver'
         };
+      case 'ADMIN':
+        return {
+          title: 'Install Aplikasi Admin',
+          subtitle: 'Pusat Kontrol & Operasional Ekosistem',
+          desc: 'Akses cepat dashboard pengawasan dan pengelolaan tumpangGo langsung dari layar utama.',
+          icon: ShieldCheck,
+          gradient: 'from-slate-900 via-slate-800 to-emerald-950',
+          btnBg: 'bg-emerald-600 text-white hover:bg-emerald-500',
+          badgeText: 'Aplikasi Admin'
+        };
       case 'CUSTOMER':
       default:
         return {
@@ -90,7 +88,7 @@ export const PWAInstallButton: React.FC<PWAInstallButtonProps> = ({
           icon: Smartphone,
           gradient: 'from-emerald-600 via-emerald-700 to-green-800',
           btnBg: 'bg-white text-emerald-800 hover:bg-emerald-50',
-          badgeText: 'Aplikasi Web Resmi'
+          badgeText: 'Aplikasi Resmi'
         };
     }
   };
@@ -110,7 +108,9 @@ export const PWAInstallButton: React.FC<PWAInstallButtonProps> = ({
               ? 'bg-emerald-600 hover:bg-emerald-700 text-white' 
               : role === 'DRIVER' 
                 ? 'bg-slate-900 hover:bg-slate-800 text-white' 
-                : 'bg-emerald-600 hover:bg-emerald-700 text-white'
+                : role === 'ADMIN'
+                  ? 'bg-slate-900 hover:bg-slate-800 text-white border border-slate-700'
+                  : 'bg-emerald-600 hover:bg-emerald-700 text-white'
           } ${className}`}
         >
           <Download className="w-3.5 h-3.5" />
@@ -133,7 +133,7 @@ export const PWAInstallButton: React.FC<PWAInstallButtonProps> = ({
           <div className="flex flex-col min-w-0">
             <div className="flex items-center gap-1.5 flex-wrap">
               <span className="text-xs font-extrabold tracking-tight">{cfg.title}</span>
-              <span className="text-[9px] font-extrabold uppercase px-1.5 py-0.2 rounded-md bg-white/20 text-white">
+              <span className="text-[9px] font-extrabold uppercase px-1.5 py-0.5 rounded-md bg-white/20 text-white">
                 {cfg.badgeText}
               </span>
             </div>
@@ -184,15 +184,15 @@ export const PWAInstallButton: React.FC<PWAInstallButtonProps> = ({
             </div>
             <div className="flex items-start gap-2.5">
               <span className="flex-shrink-0 w-5 h-5 rounded-full bg-emerald-600 text-white flex items-center justify-center font-bold text-[10px]">2</span>
-              <span>Tekan tombol <strong>Bagikan / Share</strong> (ikon kotak dengan panah ke atas di bagian bawah layar).</span>
+              <span>Tekan tombol <strong>Bagikan / Share</strong> (ikon kotak dengan panah ke atas di bilah menu Safari).</span>
             </div>
             <div className="flex items-start gap-2.5">
               <span className="flex-shrink-0 w-5 h-5 rounded-full bg-emerald-600 text-white flex items-center justify-center font-bold text-[10px]">3</span>
-              <span>Gulir ke bawah dan pilih <strong>"Tambah ke Layar Utama" (Add to Home Screen)</strong>.</span>
+              <span>Gulir ke bawah dan pilih opsi <strong>"Tambah ke Layar Utama" (Add to Home Screen)</strong>.</span>
             </div>
             <div className="flex items-start gap-2.5">
               <span className="flex-shrink-0 w-5 h-5 rounded-full bg-emerald-600 text-white flex items-center justify-center font-bold text-[10px]">4</span>
-              <span>Tekan <strong>Tambah (Add)</strong> di pojok kanan atas. Ikon aplikasi akan langsung muncul di layar iPhone Anda!</span>
+              <span>Tekan <strong>Tambah (Add)</strong> di pojok kanan atas. Ikon aplikasi akan langsung terpasang di layar utama Anda.</span>
             </div>
           </div>
 
