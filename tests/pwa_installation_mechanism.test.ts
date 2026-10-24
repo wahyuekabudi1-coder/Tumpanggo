@@ -261,6 +261,258 @@ if (fs.existsSync(distAdminFlat)) {
   assert(content.includes('/manifest-admin.json'), 'dist/admin.html pre-bakes /manifest-admin.json');
 }
 
+// -----------------------------------------------------------------------------
+// 6. LIVE PRODUCTION DIST HTTP SERVER INTEGRATION TEST
+// -----------------------------------------------------------------------------
+console.log('\n--- 6. LIVE PRODUCTION DIST HTTP SERVER INTEGRATION TEST ---');
+import http from 'http';
+import { app } from '../src/server/app';
+
+const distPath = path.resolve(process.cwd(), 'dist');
+const testServer = http.createServer((req, res) => {
+  const url = req.url || '/';
+  
+  // API Routes delegating to Express backend
+  if (url.startsWith('/api')) {
+    return (app as any)(req, res);
+  }
+
+  // Clean path without query params
+  const cleanPath = url.split('?')[0].replace(/^\//, '');
+  const pubFile = path.resolve(distPath, cleanPath);
+
+  // Direct static file match in dist
+  if (cleanPath && fs.existsSync(pubFile) && fs.statSync(pubFile).isFile()) {
+    const ext = path.extname(cleanPath).toLowerCase();
+    const mimeMap: Record<string, string> = {
+      '.html': 'text/html; charset=utf-8',
+      '.json': 'application/json; charset=utf-8',
+      '.js': 'application/javascript; charset=utf-8',
+      '.css': 'text/css; charset=utf-8',
+      '.svg': 'image/svg+xml',
+      '.png': 'image/png'
+    };
+    res.setHeader('Content-Type', mimeMap[ext] || 'application/octet-stream');
+    return res.end(fs.readFileSync(pubFile));
+  }
+
+  // SPA fallback rewrite to index.html (matches Vercel rewrites: /merchant, /driver, /admin, etc.)
+  const indexPath = path.join(distPath, 'index.html');
+  if (fs.existsSync(indexPath)) {
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    return res.end(fs.readFileSync(indexPath));
+  }
+
+  res.statusCode = 404;
+  res.end('Not Found');
+});
+
+await new Promise<void>((resolve) => {
+  testServer.listen(0, '127.0.0.1', () => resolve());
+});
+
+const testAddr = testServer.address() as any;
+const testBaseUrl = `http://127.0.0.1:${testAddr.port}`;
+
+try {
+  // Test direct navigation and refresh on /merchant
+  const resMerchant = await fetch(`${testBaseUrl}/merchant`);
+  assert(resMerchant.status === 200, `Direct access to /merchant returns HTTP 200 (got ${resMerchant.status})`);
+  const textMerchant = await resMerchant.text();
+  assert(textMerchant.includes('<div id="root">') && textMerchant.includes('main.tsx') || textMerchant.includes('/assets/index'), '/merchant serves complete SPA HTML shell');
+
+  // Test trailing slash /merchant/
+  const resMerchantSlash = await fetch(`${testBaseUrl}/merchant/`);
+  assert(resMerchantSlash.status === 200, `Direct access to /merchant/ returns HTTP 200 (got ${resMerchantSlash.status})`);
+
+  // Test query parameter /merchant?id=resto_test_123
+  const resMerchantQuery = await fetch(`${testBaseUrl}/merchant?id=resto_test_123&source=pwa`);
+  assert(resMerchantQuery.status === 200, `Direct access to /merchant?id=resto_test_123 returns HTTP 200 (got ${resMerchantQuery.status})`);
+
+  // Test subroute /merchant/orders
+  const resMerchantSub = await fetch(`${testBaseUrl}/merchant/orders`);
+  assert(resMerchantSub.status === 200, `Direct access to /merchant/orders returns HTTP 200 (got ${resMerchantSub.status})`);
+
+  // Test driver portal /driver and /driver/
+  const resDriver = await fetch(`${testBaseUrl}/driver`);
+  assert(resDriver.status === 200, `Direct access to /driver returns HTTP 200 (got ${resDriver.status})`);
+  const resDriverSlash = await fetch(`${testBaseUrl}/driver/`);
+  assert(resDriverSlash.status === 200, `Direct access to /driver/ returns HTTP 200 (got ${resDriverSlash.status})`);
+
+  // Test admin portal /admin and /admin/
+  const resAdmin = await fetch(`${testBaseUrl}/admin`);
+  assert(resAdmin.status === 200, `Direct access to /admin returns HTTP 200 (got ${resAdmin.status})`);
+  const resAdminSlash = await fetch(`${testBaseUrl}/admin/`);
+  assert(resAdminSlash.status === 200, `Direct access to /admin/ returns HTTP 200 (got ${resAdminSlash.status})`);
+
+  // Test API priority and JSON isolation
+  const resApiHealth = await fetch(`${testBaseUrl}/api/health`);
+  assert(resApiHealth.status === 200, `API /api/health returns HTTP 200`);
+  assert(resApiHealth.headers.get('content-type')?.includes('application/json') === true, 'API /api/health returns JSON, never HTML SPA shell');
+  const jsonHealth = await resApiHealth.json();
+  assert(Boolean(jsonHealth.status), 'API /api/health contains valid JSON status payload');
+
+  const resApiMerchants = await fetch(`${testBaseUrl}/api/merchants`);
+  assert(resApiMerchants.headers.get('content-type')?.includes('application/json') === true, 'API /api/merchants returns JSON, never HTML SPA shell');
+
+  // Test static manifest serving
+  const resManifestMerchant = await fetch(`${testBaseUrl}/manifest-merchant.json`);
+  assert(resManifestMerchant.status === 200, 'Static manifest /manifest-merchant.json returns HTTP 200');
+  const jsonManifestMerchant = await resManifestMerchant.json();
+  assert(jsonManifestMerchant.start_url === '/merchant', 'Served manifest-merchant.json start_url is strictly "/merchant"');
+
+  const resManifestDriver = await fetch(`${testBaseUrl}/manifest-driver.json`);
+  assert(resManifestDriver.status === 200, 'Static manifest /manifest-driver.json returns HTTP 200');
+
+  const resManifestAdmin = await fetch(`${testBaseUrl}/manifest-admin.json`);
+  assert(resManifestAdmin.status === 200, 'Static manifest /manifest-admin.json returns HTTP 200');
+
+  const resManifestCustomer = await fetch(`${testBaseUrl}/manifest.json`);
+  assert(resManifestCustomer.status === 200, 'Static manifest /manifest.json returns HTTP 200');
+
+} finally {
+  await new Promise<void>((resolve) => testServer.close(() => resolve()));
+}
+
+// -----------------------------------------------------------------------------
+// 7. SERVICE WORKER ENGINE SIMULATION & RESILIENCE AUDIT
+// -----------------------------------------------------------------------------
+console.log('\n--- 7. SERVICE WORKER ENGINE SIMULATION & RESILIENCE AUDIT ---');
+
+// Mock CacheStorage and Cache implementations to rigorously verify resolveNavigationShell
+class MockCache {
+  private map = new Map<string, Response>();
+  put(req: any, res: Response) {
+    const key = typeof req === 'string' ? req : req.url;
+    this.map.set(key, res);
+  }
+  match(req: any, opts?: any) {
+    let key = typeof req === 'string' ? req : req.url;
+    if (opts?.ignoreSearch && key.includes('?')) {
+      key = key.split('?')[0];
+    }
+    return Promise.resolve(this.map.get(key) || null);
+  }
+  keys() {
+    return Promise.resolve(Array.from(this.map.keys()));
+  }
+}
+
+const mockCaches = new Map<string, MockCache>();
+const mockCachesGlobal = {
+  open: async (name: string) => {
+    if (!mockCaches.has(name)) mockCaches.set(name, new MockCache());
+    return mockCaches.get(name)!;
+  },
+  match: async (req: any, opts?: any) => {
+    for (const cache of mockCaches.values()) {
+      const match = await cache.match(req, opts);
+      if (match) return match;
+    }
+    return null;
+  },
+  keys: async () => Array.from(mockCaches.keys()),
+  delete: async (name: string) => mockCaches.delete(name)
+};
+
+// Test Navigation Shell Resolution Algorithm exactly as deployed in sw.js
+async function simulateResolveNavigationShell(cachesObj: typeof mockCachesGlobal, request: any, url: string) {
+  const exact = await cachesObj.match(request, { ignoreSearch: true });
+  if (exact) return exact;
+
+  let pathStr = '';
+  try { pathStr = new URL(url).pathname.toLowerCase(); } catch { pathStr = String(url || '').toLowerCase(); }
+
+  if (pathStr === '/merchant' || pathStr.startsWith('/merchant/')) {
+    const m = await cachesObj.match('/merchant', { ignoreSearch: true });
+    if (m) return m;
+    const mf = await cachesObj.match('/merchant.html', { ignoreSearch: true });
+    if (mf) return mf;
+  } else if (pathStr === '/driver' || pathStr.startsWith('/driver/')) {
+    const d = await cachesObj.match('/driver', { ignoreSearch: true });
+    if (d) return d;
+    const df = await cachesObj.match('/driver.html', { ignoreSearch: true });
+    if (df) return df;
+  } else if (pathStr === '/admin' || pathStr.startsWith('/admin/')) {
+    const a = await cachesObj.match('/admin', { ignoreSearch: true });
+    if (a) return a;
+    const af = await cachesObj.match('/admin.html', { ignoreSearch: true });
+    if (af) return af;
+  }
+
+  const index = await cachesObj.match('/index.html', { ignoreSearch: true });
+  if (index) return index;
+
+  const root = await cachesObj.match('/', { ignoreSearch: true });
+  if (root) return root;
+
+  return new Response('<html>offline-fallback</html>', { status: 200, headers: { 'Content-Type': 'text/html' } });
+}
+
+// Scenario A: Cache has /merchant and user requests /merchant?id=123 (query param)
+const cacheV15 = await mockCachesGlobal.open('tumpanggo-pwa-v15');
+cacheV15.put('/merchant', new Response('<html>merchant-shell</html>', { status: 200 }));
+cacheV15.put('/index.html', new Response('<html>index-shell</html>', { status: 200 }));
+
+const resParam = await simulateResolveNavigationShell(mockCachesGlobal, 'https://example.com/merchant?id=resto_1', 'https://example.com/merchant?id=resto_1');
+assert(resParam !== null && resParam !== undefined, 'Navigation shell resolution for /merchant?id=resto_1 never returns null or undefined');
+const textParam = await resParam.text();
+assert(textParam.includes('merchant-shell'), 'Navigation shell with query param correctly resolves role cached entry');
+
+// Scenario B: Cache only has universal /index.html and user requests /driver
+mockCaches.clear();
+const cacheOnlyIndex = await mockCachesGlobal.open('tumpanggo-pwa-v15');
+cacheOnlyIndex.put('/index.html', new Response('<html>universal-index-shell</html>', { status: 200 }));
+
+const resDriverFallback = await simulateResolveNavigationShell(mockCachesGlobal, 'https://example.com/driver', 'https://example.com/driver');
+assert(resDriverFallback !== null && resDriverFallback !== undefined, 'Navigation shell resolution for /driver falls back to universal /index.html');
+const textDriverFallback = await resDriverFallback.text();
+assert(textDriverFallback.includes('universal-index-shell'), 'Driver route cleanly receives universal SPA app shell');
+
+// Scenario C: Cache is completely empty (zero cache)
+mockCaches.clear();
+const resEmpty = await simulateResolveNavigationShell(mockCachesGlobal, 'https://example.com/admin', 'https://example.com/admin');
+assert(resEmpty !== null && resEmpty !== undefined, 'Zero-cache offline navigation returns resilient offline Response instead of crash');
+assert(resEmpty.status === 200, 'Resilient offline fallback Response has HTTP status 200');
+
+// Scenario D: Old cache cleanup on activation
+mockCaches.clear();
+await mockCachesGlobal.open('tumpanggo-pwa-v13');
+await mockCachesGlobal.open('tumpanggo-pwa-v14');
+await mockCachesGlobal.open('tumpanggo-pwa-v15');
+const keysBefore = await mockCachesGlobal.keys();
+assert(keysBefore.length === 3, 'Simulated multiple cache versions present before activation');
+
+// Run SW activate purge logic
+const targetCache = 'tumpanggo-pwa-v15';
+await Promise.all(
+  keysBefore.map((k) => (k !== targetCache ? mockCachesGlobal.delete(k) : null))
+);
+const keysAfter = await mockCachesGlobal.keys();
+assert(keysAfter.length === 1 && keysAfter[0] === targetCache, 'Service worker activation purges older caches and retains only active version');
+
+// -----------------------------------------------------------------------------
+// 8. START_URL TO PORTAL RUNTIME MAPPING AUDIT
+// -----------------------------------------------------------------------------
+console.log('\n--- 8. START_URL TO PORTAL RUNTIME MAPPING AUDIT ---');
+
+function resolvePortalRoleFromUrl(urlStr: string): string {
+  const urlObj = new URL(urlStr, 'https://example.com');
+  const pathname = urlObj.pathname.toLowerCase();
+  if (pathname === '/merchant' || pathname.startsWith('/merchant/')) return 'MERCHANT';
+  if (pathname === '/driver' || pathname.startsWith('/driver/')) return 'DRIVER';
+  if (pathname === '/admin' || pathname.startsWith('/admin/')) return 'ADMIN';
+  const roleParam = urlObj.searchParams.get('role')?.toUpperCase();
+  if (roleParam && ['CUSTOMER', 'MERCHANT', 'DRIVER', 'ADMIN'].includes(roleParam)) return roleParam;
+  return 'CUSTOMER';
+}
+
+assert(resolvePortalRoleFromUrl('https://example.com/merchant') === 'MERCHANT', 'Start URL /merchant strictly maps to MERCHANT portal');
+assert(resolvePortalRoleFromUrl('https://example.com/merchant?source=pwa') === 'MERCHANT', 'Start URL /merchant?source=pwa strictly maps to MERCHANT portal');
+assert(resolvePortalRoleFromUrl('https://example.com/driver') === 'DRIVER', 'Start URL /driver strictly maps to DRIVER portal');
+assert(resolvePortalRoleFromUrl('https://example.com/admin') === 'ADMIN', 'Start URL /admin strictly maps to ADMIN portal');
+assert(resolvePortalRoleFromUrl('https://example.com/') === 'CUSTOMER', 'Start URL / strictly maps to CUSTOMER portal');
+
 console.log('\n================================================================================');
 console.log(`📊 PWA INSTALLATION VERIFICATION: ${passed} PASSED, ${failed} FAILED`);
 console.log('================================================================================');

@@ -8,7 +8,7 @@
  * Strictly bypasses API requests, authentication, and QRIS endpoints to prevent stale data.
  */
 
-const CACHE_NAME = 'tumpanggo-pwa-v14';
+const CACHE_NAME = 'tumpanggo-pwa-v15';
 const STATIC_ASSETS = [
   '/',
   '/index.html',
@@ -26,13 +26,65 @@ const STATIC_ASSETS = [
   '/favicon.svg'
 ];
 
-// Install Event - Precache static app shell
+// Helper to asynchronously resolve cached app shell for navigation requests
+async function resolveNavigationShell(request, url) {
+  // 1. Try exact matched request from cache (ignoring search params like ?id=... or ?source=pwa)
+  const exact = await caches.match(request, { ignoreSearch: true });
+  if (exact) return exact;
+
+  let path = '';
+  try {
+    path = new URL(url).pathname.toLowerCase();
+  } catch {
+    path = String(url || '').toLowerCase();
+  }
+
+  // 2. Try role-specific entry points if available in cache
+  if (path === '/merchant' || path.startsWith('/merchant/')) {
+    const merchantCached = await caches.match('/merchant', { ignoreSearch: true });
+    if (merchantCached) return merchantCached;
+    const merchantFlat = await caches.match('/merchant.html', { ignoreSearch: true });
+    if (merchantFlat) return merchantFlat;
+  } else if (path === '/driver' || path.startsWith('/driver/')) {
+    const driverCached = await caches.match('/driver', { ignoreSearch: true });
+    if (driverCached) return driverCached;
+    const driverFlat = await caches.match('/driver.html', { ignoreSearch: true });
+    if (driverFlat) return driverFlat;
+  } else if (path === '/admin' || path.startsWith('/admin/')) {
+    const adminCached = await caches.match('/admin', { ignoreSearch: true });
+    if (adminCached) return adminCached;
+    const adminFlat = await caches.match('/admin.html', { ignoreSearch: true });
+    if (adminFlat) return adminFlat;
+  }
+
+  // 3. Guaranteed universal SPA shell fallback
+  const indexCached = await caches.match('/index.html', { ignoreSearch: true });
+  if (indexCached) return indexCached;
+
+  const rootCached = await caches.match('/', { ignoreSearch: true });
+  if (rootCached) return rootCached;
+
+  // 4. Resilient inline offline HTML fallback: never return undefined for HTML navigation
+  return new Response(
+    '<!doctype html><html lang="id"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>TumpangGo Offline</title><style>body{font-family:sans-serif;background:#F4F7F5;color:#1e293b;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;margin:0;padding:24px;box-sizing:border-box;text-align:center}h2{color:#15803d;margin-bottom:8px}button{margin-top:16px;padding:10px 24px;background:#15803d;color:#fff;border:none;border-radius:10px;font-weight:700;font-size:14px;cursor:pointer}</style></head><body><h2>Koneksi Terputus</h2><p>Halaman TumpangGo belum dapat dimuat karena tidak ada koneksi internet aktif.</p><button onclick="window.location.reload()">Muat Ulang</button></body></html>',
+    {
+      status: 200,
+      headers: { 'Content-Type': 'text/html; charset=utf-8' }
+    }
+  );
+}
+
+// Install Event - Precache static app shell with resilient individual caching
 self.addEventListener('install', (event) => {
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => {
-      return cache.addAll(STATIC_ASSETS).catch((err) => {
-        console.warn('[SW] Static cache pre-population warning:', err);
-      });
+    caches.open(CACHE_NAME).then(async (cache) => {
+      await Promise.all(
+        STATIC_ASSETS.map((asset) =>
+          cache.add(asset).catch((err) => {
+            console.warn('[SW] Static asset precache notice for ' + asset + ':', err?.message || err);
+          })
+        )
+      );
     })
   );
   self.skipWaiting();
@@ -68,21 +120,29 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
+  let pathname = '';
+  try {
+    pathname = new URL(url).pathname.toLowerCase();
+  } catch {
+    pathname = String(url || '').toLowerCase();
+  }
+
   // CRITICAL SECURITY & CONSISTENCY:
-  // Never cache API endpoints, authentication, QRIS assets, payment proofs, or dev-server files
+  // Strictly bypass API endpoints, authentication, QRIS assets, payment proofs, and dev-server files.
+  // Never intercept, cache, or replace API responses with HTML fallback.
   if (
-    url.includes('/api/') ||
-    url.includes('/auth') ||
-    url.includes('qris') ||
-    url.includes('payment') ||
-    url.includes('delivery-proof') ||
-    url.includes('/@vite') ||
-    url.includes('/@fs') ||
-    url.includes('/__vite') ||
-    url.includes('/src/') ||
-    url.includes('.tsx') ||
-    url.includes('.ts') ||
-    url.includes('node_modules') ||
+    pathname === '/api' ||
+    pathname.startsWith('/api/') ||
+    pathname === '/auth' ||
+    pathname.startsWith('/auth/') ||
+    pathname.includes('qris') ||
+    pathname.includes('payment') ||
+    pathname.includes('delivery-proof') ||
+    pathname.startsWith('/@') ||
+    pathname.startsWith('/src/') ||
+    pathname.endsWith('.tsx') ||
+    pathname.endsWith('.ts') ||
+    pathname.includes('node_modules') ||
     self.location.hostname.includes('run.app') ||
     self.location.hostname === 'localhost' ||
     self.location.hostname === '127.0.0.1'
@@ -92,23 +152,11 @@ self.addEventListener('fetch', (event) => {
 
   event.respondWith(
     fetch(event.request)
-      .then((networkResponse) => {
+      .then(async (networkResponse) => {
         const isNavigation = event.request.mode === 'navigate' || event.request.headers.get('accept')?.includes('text/html');
-        // If server unexpectedly returns 404 for an HTML navigation route, fallback gracefully to cached app shell
-        if (networkResponse && networkResponse.status === 404 && isNavigation) {
-          return caches.match(event.request, { ignoreSearch: true }).then((cached) => {
-            if (cached) return cached;
-            if (url.includes('/merchant')) {
-              return caches.match('/merchant') || caches.match('/index.html');
-            }
-            if (url.includes('/driver')) {
-              return caches.match('/driver') || caches.match('/index.html');
-            }
-            if (url.includes('/admin')) {
-              return caches.match('/admin') || caches.match('/index.html');
-            }
-            return caches.match('/') || caches.match('/index.html');
-          });
+        // If server unexpectedly returns 404 or error for an HTML navigation route, fallback gracefully to cached app shell
+        if (networkResponse && networkResponse.status >= 400 && isNavigation) {
+          return await resolveNavigationShell(event.request, url);
         }
 
         if (networkResponse && networkResponse.status === 200 && networkResponse.type === 'basic') {
@@ -119,24 +167,13 @@ self.addEventListener('fetch', (event) => {
         }
         return networkResponse;
       })
-      .catch(() => {
-        return caches.match(event.request, { ignoreSearch: true }).then((cachedResponse) => {
-          if (cachedResponse) {
-            return cachedResponse;
-          }
-          if (event.request.mode === 'navigate' || event.request.headers.get('accept')?.includes('text/html')) {
-            if (url.includes('/merchant')) {
-              return caches.match('/merchant') || caches.match('/index.html');
-            }
-            if (url.includes('/driver')) {
-              return caches.match('/driver') || caches.match('/index.html');
-            }
-            if (url.includes('/admin')) {
-              return caches.match('/admin') || caches.match('/index.html');
-            }
-            return caches.match('/') || caches.match('/index.html');
-          }
-        });
+      .catch(async () => {
+        const isNavigation = event.request.mode === 'navigate' || event.request.headers.get('accept')?.includes('text/html');
+        if (isNavigation) {
+          return await resolveNavigationShell(event.request, url);
+        }
+        const cachedAsset = await caches.match(event.request, { ignoreSearch: true });
+        return cachedAsset || new Response('', { status: 504, statusText: 'Gateway Timeout (Offline)' });
       })
   );
 });

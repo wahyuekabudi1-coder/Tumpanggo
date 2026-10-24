@@ -45,10 +45,10 @@ export function generatePwaFallbacks() {
       fs.mkdirSync(portalDir, { recursive: true });
     }
 
-    // Replace manifest link with the specific portal manifest
+    // Replace manifest link with the specific portal manifest while preserving the id
     let portalHtml = baseHtml.replace(
       /<link rel="manifest"[^>]*>/i,
-      `<link rel="manifest" href="${portal.manifest}">`
+      `<link rel="manifest" id="pwa-manifest-link" href="${portal.manifest}" />`
     );
 
     // Replace title if present

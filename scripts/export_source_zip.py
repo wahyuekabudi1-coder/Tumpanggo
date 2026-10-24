@@ -86,7 +86,9 @@ def export_zip():
     print(f"📁 Source archive location: {output_zip}")
 
     # Also copy to current artifact directory for AI Studio Build
+    # Also copy to current artifact directory for AI Studio Build
     artifact_dirs = [
+        os.path.join(root_dir, '.aistudio', 'artifacts', 'brain', 'fcc79869-ec65-4c37-aed9-b8c9a4e34753'),
         os.path.join(root_dir, '.aistudio', 'artifacts', 'brain', 'bc8758c6-d4e9-4c51-89c0-7de48a5e5073'),
         os.path.join(root_dir, '.aistudio', 'artifacts', 'brain', 'beb95fb3-b008-4dbd-bec7-0dd9de135170'),
         os.path.join(root_dir, '.aistudio', 'artifacts', 'brain', '2ee7047e-bf14-42a0-96e3-38772562a041')
@@ -130,13 +132,21 @@ def export_zip():
         assert len(public_sensitive) == 0, f"VIOLATION: Found unexpected files in public/: {public_sensitive}"
         print("  ✅ [PASS] Public directory is completely free of source archives, dumps, or sensitive files.")
 
-        # Check vercel.json in ZIP contains cleanUrls and merchant rewrite
+        # Check vercel.json in ZIP contains cleanUrls, trailingSlash, and SPA rewrite to /index.html
         assert 'vercel.json' in names, "VIOLATION: vercel.json missing from ZIP"
         vercel_in_zip = zf.read('vercel.json').decode('utf-8')
         assert '"cleanUrls": true' in vercel_in_zip, "VIOLATION: vercel.json in ZIP must have cleanUrls: true"
         assert '"trailingSlash": false' in vercel_in_zip, "VIOLATION: vercel.json in ZIP must have trailingSlash: false"
-        assert '/merchant.html' in vercel_in_zip, "VIOLATION: vercel.json in ZIP must have /merchant.html rewrite"
-        print("  ✅ [PASS] vercel.json in ZIP contains cleanUrls: true, trailingSlash: false, and /merchant.html rewrite.")
+        assert '"source": "/merchant"' in vercel_in_zip, "VIOLATION: vercel.json in ZIP must have /merchant rewrite"
+        assert '"destination": "/index.html"' in vercel_in_zip, "VIOLATION: vercel.json in ZIP must rewrite SPA routes to /index.html"
+        print("  ✅ [PASS] vercel.json in ZIP contains cleanUrls: true, trailingSlash: false, and /index.html SPA rewrites.")
+
+        # Check public/sw.js in ZIP
+        assert 'public/sw.js' in names, "VIOLATION: public/sw.js missing from ZIP"
+        sw_in_zip = zf.read('public/sw.js').decode('utf-8')
+        assert 'resolveNavigationShell' in sw_in_zip, "VIOLATION: public/sw.js in ZIP must have resolveNavigationShell"
+        assert 'tumpanggo-pwa-v15' in sw_in_zip, "VIOLATION: public/sw.js in ZIP must specify tumpanggo-pwa-v15 cache"
+        print("  ✅ [PASS] public/sw.js in ZIP contains resolveNavigationShell and tumpanggo-pwa-v15 cache.")
 
         # Check usePWAInstall.ts in ZIP contains isInstallationInProgress lock
         assert 'src/hooks/usePWAInstall.ts' in names, "VIOLATION: usePWAInstall.ts missing from ZIP"

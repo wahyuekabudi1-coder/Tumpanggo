@@ -78,7 +78,7 @@
     },
     {
       "source": "/merchant",
-      "destination": "/merchant.html"
+      "destination": "/index.html"
     },
     {
       "source": "/merchant/(.*)",
@@ -86,7 +86,7 @@
     },
     {
       "source": "/driver",
-      "destination": "/driver.html"
+      "destination": "/index.html"
     },
     {
       "source": "/driver/(.*)",
@@ -94,7 +94,7 @@
     },
     {
       "source": "/admin",
-      "destination": "/admin.html"
+      "destination": "/index.html"
     },
     {
       "source": "/admin/(.*)",
