@@ -41,11 +41,6 @@ export default function App() {
       if (roleParam && ['CUSTOMER', 'MERCHANT', 'DRIVER', 'ADMIN'].includes(roleParam)) {
         return roleParam as any;
       }
-      const isMaster = safeStorage.getItem('tumpang_is_master') === 'true' || safeStorage.getItem('tumpang_auth_role') === 'MASTER_ADMIN';
-      const savedPortal = safeStorage.getItem('tumpang_current_portal');
-      if (isMaster && savedPortal && ['CUSTOMER', 'MERCHANT', 'DRIVER', 'ADMIN'].includes(savedPortal)) {
-        return savedPortal as any;
-      }
     }
     return 'CUSTOMER';
   });
@@ -427,8 +422,9 @@ export default function App() {
         window.history.pushState(null, '', '/admin');
       }
     } else if (role === 'CUSTOMER') {
-      if (typeof window !== 'undefined' && window.location.pathname !== '/') {
+      if (typeof window !== 'undefined') {
         window.history.pushState(null, '', '/');
+        window.scrollTo({ top: 0, behavior: 'smooth' });
       }
     }
     setShowAuthModal(false);
@@ -441,14 +437,92 @@ export default function App() {
     safeStorage.removeItem('tumpang_auth_token');
     safeStorage.removeItem('tumpang_auth_role');
     safeStorage.removeItem('tumpang_is_master');
-    safeStorage.removeItem('tumpang_current_portal');
+    safeStorage.setItem('tumpang_current_portal', 'CUSTOMER');
     safeStorage.removeItem('tumpang_active_merchant_id');
     safeStorage.removeItem('tumpang_active_driver_id');
     setActiveMerchantId('');
     setActiveDriverId('');
     setCurrentRole('CUSTOMER');
-    if (typeof window !== 'undefined' && window.location.pathname !== '/') {
+    if (typeof window !== 'undefined') {
       window.history.pushState(null, '', '/');
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+  };
+
+  const handleMerchantLogout = () => {
+    if (isMasterAdmin) {
+      handleMasterLogout();
+      return;
+    }
+    setVerifiedEmail('');
+    setActiveMerchantId('');
+    safeStorage.removeItem('tumpang_auth_email');
+    safeStorage.removeItem('tumpang_active_merchant_id');
+    safeStorage.setItem('tumpang_current_portal', 'CUSTOMER');
+
+    // Invalidate merchant session
+    const authRole = safeStorage.getItem('tumpang_auth_role');
+    if (authRole === 'MERCHANT' || !authRole) {
+      safeStorage.removeItem('tumpang_auth_token');
+      safeStorage.removeItem('tumpang_auth_role');
+    }
+
+    setCurrentRole('CUSTOMER');
+    if (typeof window !== 'undefined') {
+      window.history.pushState(null, '', '/');
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+  };
+
+  const handleDriverLogout = () => {
+    if (isMasterAdmin) {
+      handleMasterLogout();
+      return;
+    }
+    setVerifiedEmail('');
+    setActiveDriverId('');
+    safeStorage.removeItem('tumpang_auth_email');
+    safeStorage.removeItem('tumpang_active_driver_id');
+    safeStorage.setItem('tumpang_current_portal', 'CUSTOMER');
+
+    const authRole = safeStorage.getItem('tumpang_auth_role');
+    if (authRole === 'DRIVER' || !authRole) {
+      safeStorage.removeItem('tumpang_auth_token');
+      safeStorage.removeItem('tumpang_auth_role');
+    }
+
+    setCurrentRole('CUSTOMER');
+    if (typeof window !== 'undefined') {
+      window.history.pushState(null, '', '/');
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+  };
+
+  const handleAdminLogout = () => {
+    if (isMasterAdmin) {
+      handleMasterLogout();
+      return;
+    }
+    setVerifiedEmail('');
+    safeStorage.removeItem('tumpang_auth_email');
+    safeStorage.removeItem('tumpang_auth_token');
+    safeStorage.removeItem('tumpang_auth_role');
+    safeStorage.setItem('tumpang_current_portal', 'CUSTOMER');
+    setCurrentRole('CUSTOMER');
+    if (typeof window !== 'undefined') {
+      window.history.pushState(null, '', '/');
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+  };
+
+  const handleCancelPortalLogin = () => {
+    setActiveMerchantId('');
+    setActiveDriverId('');
+    safeStorage.setItem('tumpang_current_portal', 'CUSTOMER');
+    setCurrentRole('CUSTOMER');
+    if (typeof window !== 'undefined') {
+      window.history.pushState(null, '', '/');
+      window.scrollTo({ top: 0, behavior: 'smooth' });
     }
   };
 
@@ -559,12 +633,13 @@ export default function App() {
               setActiveMerchantId(targetStoreId);
             } else {
               setVerifiedEmail(email);
-              if (mId) setActiveMerchantId(mId);
+              if (mId) {
+                setActiveMerchantId(mId);
+                safeStorage.setItem('tumpang_active_merchant_id', mId);
+              }
             }
           }} 
-          onCancel={() => {
-            setCurrentRole('CUSTOMER');
-          }} 
+          onCancel={handleCancelPortalLogin} 
         />
       );
     }
@@ -623,12 +698,13 @@ export default function App() {
               setActiveDriverId(targetDriverId);
             } else {
               setVerifiedEmail(email);
-              if (dId) setActiveDriverId(dId);
+              if (dId) {
+                setActiveDriverId(dId);
+                safeStorage.setItem('tumpang_active_driver_id', dId);
+              }
             }
           }} 
-          onCancel={() => {
-            setCurrentRole('CUSTOMER');
-          }} 
+          onCancel={handleCancelPortalLogin} 
         />
       );
     }
@@ -759,19 +835,22 @@ export default function App() {
               initialTab={merchantPortalTab}
               onRegisterRedirect={handleOpenMerchantRegister}
               onSuccess={(email, mId, isMaster) => {
+                safeStorage.setItem('tumpang_current_portal', 'MERCHANT');
                 if (isMaster) {
                   setIsMasterAdmin(true);
                   setVerifiedEmail(email || 'tumpanggo@gmail.com');
                   const targetStoreId = (mId && merchants.some(m => m.id === mId)) ? mId : (merchants[0]?.id || '');
                   setActiveMerchantId(targetStoreId);
+                  safeStorage.setItem('tumpang_active_merchant_id', targetStoreId);
                 } else {
                   setVerifiedEmail(email);
-                  if (mId) setActiveMerchantId(mId);
+                  if (mId) {
+                    setActiveMerchantId(mId);
+                    safeStorage.setItem('tumpang_active_merchant_id', mId);
+                  }
                 }
               }} 
-              onCancel={() => {
-                setCurrentRole('CUSTOMER');
-              }} 
+              onCancel={handleCancelPortalLogin} 
             />
           ) : (activeMerchantId && merchants.length > 0 && !isDemoMode && 
                !(isAdminEmail(verifiedEmail) || 
@@ -781,31 +860,29 @@ export default function App() {
               role="MERCHANT" 
               targetMerchantId={activeMerchantId} 
               onRegisterRedirect={handleOpenMerchantRegister}
-              onSuccess={(email, _mId, isMaster) => {
+              onSuccess={(email, mId, isMaster) => {
                 safeStorage.setItem('tumpang_current_portal', 'MERCHANT');
                 if (isMaster) {
                   setIsMasterAdmin(true);
                   setVerifiedEmail(email || 'tumpanggo@gmail.com');
+                  const targetStoreId = (mId && merchants.some(m => m.id === mId)) ? mId : (merchants[0]?.id || '');
+                  setActiveMerchantId(targetStoreId);
+                  safeStorage.setItem('tumpang_active_merchant_id', targetStoreId);
                 } else {
                   setVerifiedEmail(email);
+                  if (mId) {
+                    setActiveMerchantId(mId);
+                    safeStorage.setItem('tumpang_active_merchant_id', mId);
+                  }
                 }
               }} 
-              onCancel={() => {
-                setActiveMerchantId('');
-                setCurrentRole('CUSTOMER');
-              }} 
+              onCancel={handleCancelPortalLogin} 
             />
           ) : (
             <ErrorBoundary fallbackTitle="Kendala Memuat Portal Mitra Toko">
               <MerchantView 
                 merchantId={activeMerchantId || safeStorage.getItem('tumpang_active_merchant_id') || merchants[0]?.id || ''} 
-                onLogout={() => {
-                  setVerifiedEmail('');
-                  safeStorage.removeItem('tumpang_auth_email');
-                  safeStorage.removeItem('tumpang_active_merchant_id');
-                  setActiveMerchantId('');
-                  setCurrentRole('CUSTOMER');
-                }}
+                onLogout={handleMerchantLogout}
                 onSelectRole={handleRoleSelection}
               />
             </ErrorBoundary>
@@ -840,9 +917,7 @@ export default function App() {
                   }
                 }
               }} 
-              onCancel={() => {
-                setCurrentRole('CUSTOMER');
-              }} 
+              onCancel={handleCancelPortalLogin} 
             />
           ) : (activeDriverId && drivers.length > 0 && !isDemoMode && 
                !(isAdminEmail(verifiedEmail) || 
@@ -872,23 +947,13 @@ export default function App() {
                   if (dId) safeStorage.setItem('tumpang_active_driver_id', dId);
                 }
               }} 
-              onCancel={() => {
-                setActiveDriverId('');
-                safeStorage.removeItem('tumpang_active_driver_id');
-                setCurrentRole('CUSTOMER');
-              }} 
+              onCancel={handleCancelPortalLogin} 
             />
           ) : (
             <ErrorBoundary fallbackTitle="Kendala Memuat Portal Kurir">
               <DriverView 
                 driverId={activeDriverId || safeStorage.getItem('tumpang_active_driver_id') || drivers[0]?.id || ''} 
-                onLogout={() => {
-                  setVerifiedEmail('');
-                  safeStorage.removeItem('tumpang_auth_email');
-                  safeStorage.removeItem('tumpang_active_driver_id');
-                  setActiveDriverId('');
-                  setCurrentRole('CUSTOMER');
-                }}
+                onLogout={handleDriverLogout}
                 onSelectRole={handleRoleSelection}
               />
             </ErrorBoundary>
@@ -901,11 +966,7 @@ export default function App() {
               <AdminView 
                 systemConfig={systemConfig}
                 onUpdateConfig={(conf) => setSystemConfig(conf)}
-                onLogout={isMasterAdmin ? handleMasterLogout : () => {
-                  setVerifiedEmail('');
-                  safeStorage.removeItem('tumpang_auth_email');
-                  setCurrentRole('CUSTOMER');
-                }}
+                onLogout={handleAdminLogout}
                 onSelectRole={handleRoleSelection}
               />
             </ErrorBoundary>
@@ -921,7 +982,7 @@ export default function App() {
                   setVerifiedEmail(email || 'tumpanggo@gmail.com');
                 }
               }} 
-              onCancel={() => setCurrentRole('CUSTOMER')} 
+              onCancel={handleCancelPortalLogin} 
             />
           )
         )}

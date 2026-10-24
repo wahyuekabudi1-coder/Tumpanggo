@@ -756,6 +756,20 @@ export default function MerchantView({ merchantId: rawMerchantId, onLogout, onSe
     }
   };
 
+  const handleViewCustomerSite = () => {
+    if (onSelectRole) {
+      onSelectRole('CUSTOMER');
+    } else {
+      window.location.href = '/';
+    }
+  };
+
+  const handleConfirmLogout = () => {
+    if (window.confirm('Apakah Anda yakin ingin keluar dari Portal Toko?')) {
+      onLogout();
+    }
+  };
+
   // --- FILTERED ORDERS LOGIC ---
   const safeOrders = Array.isArray(orders) ? orders : [];
   
@@ -1038,7 +1052,17 @@ export default function MerchantView({ merchantId: rawMerchantId, onLogout, onSe
             </button>
           </div>
 
-          <div className="flex gap-2 pt-1">
+          <button
+            type="button"
+            onClick={handleViewCustomerSite}
+            className="w-full py-1.5 px-2.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-100 text-slate-700 text-xs font-bold transition-all cursor-pointer shadow-xs flex items-center justify-center gap-1.5"
+            title="Lihat Website Utama TumpangGo"
+          >
+            <Store className="w-3.5 h-3.5 text-emerald-700" />
+            <span>Lihat Website Utama</span>
+          </button>
+
+          <div className="flex gap-2 pt-0.5">
             <button
               onClick={() => fetchMerchantData(false)}
               disabled={loading || isRefreshing}
@@ -1049,9 +1073,9 @@ export default function MerchantView({ merchantId: rawMerchantId, onLogout, onSe
               <span>Refresh</span>
             </button>
             <button
-              onClick={onLogout}
-              className="py-1.5 px-3 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold transition-all shadow-xs cursor-pointer flex items-center justify-center gap-1.5"
-              title="Keluar"
+              onClick={handleConfirmLogout}
+              className="py-1.5 px-3 rounded-xl bg-slate-900 hover:bg-rose-700 text-white text-xs font-bold transition-all shadow-xs cursor-pointer flex items-center justify-center gap-1.5"
+              title="Keluar dari Akun Toko"
             >
               <LogOut className="w-3.5 h-3.5" />
               <span>Keluar</span>
@@ -1141,6 +1165,18 @@ export default function MerchantView({ merchantId: rawMerchantId, onLogout, onSe
             {/* Drawer Footer Actions */}
             <div className="p-4 border-t border-slate-100 bg-slate-50 space-y-2">
               <button
+                type="button"
+                onClick={() => {
+                  setIsMobileDrawerOpen(false);
+                  handleViewCustomerSite();
+                }}
+                className="w-full min-h-[42px] py-2 px-3 rounded-xl border border-slate-200 bg-white hover:bg-slate-100 text-slate-800 text-xs font-bold transition-all shadow-xs cursor-pointer flex items-center justify-center gap-2"
+              >
+                <Store className="w-4 h-4 text-emerald-700" />
+                <span>Lihat Website Utama</span>
+              </button>
+
+              <button
                 onClick={() => {
                   toggleOpenStatus();
                   setIsMobileDrawerOpen(false);
@@ -1166,8 +1202,11 @@ export default function MerchantView({ merchantId: rawMerchantId, onLogout, onSe
                   <span>Refresh</span>
                 </button>
                 <button
-                  onClick={onLogout}
-                  className="min-h-[40px] py-2 px-3 rounded-xl bg-slate-900 text-white text-xs font-bold shadow-xs flex items-center justify-center gap-1.5"
+                  onClick={() => {
+                    setIsMobileDrawerOpen(false);
+                    handleConfirmLogout();
+                  }}
+                  className="min-h-[40px] py-2 px-3 rounded-xl bg-slate-900 hover:bg-rose-700 text-white text-xs font-bold shadow-xs flex items-center justify-center gap-1.5 cursor-pointer"
                 >
                   <LogOut className="w-3.5 h-3.5" />
                   <span>Keluar</span>
