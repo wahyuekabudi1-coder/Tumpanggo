@@ -34,9 +34,9 @@ console.log('--- 1. AUDIT MANIFEST IDENTITAS (CUSTOMER, MERCHANT, DRIVER, ADMIN)
 
 const manifestConfigs = [
   { file: 'public/manifest.json', role: 'CUSTOMER', expectedStart: '/', expectedScope: '/', expectedId: '/' },
-  { file: 'public/manifest-merchant.json', role: 'MERCHANT', expectedStart: '/merchant', expectedScope: '/', expectedId: '/merchant' },
-  { file: 'public/manifest-driver.json', role: 'DRIVER', expectedStart: '/driver', expectedScope: '/', expectedId: '/driver' },
-  { file: 'public/manifest-admin.json', role: 'ADMIN', expectedStart: '/admin', expectedScope: '/', expectedId: '/admin' }
+  { file: 'public/manifest-merchant.json', role: 'MERCHANT', expectedStart: '/merchant', expectedScope: '/merchant', expectedId: '/merchant' },
+  { file: 'public/manifest-driver.json', role: 'DRIVER', expectedStart: '/driver', expectedScope: '/driver', expectedId: '/driver' },
+  { file: 'public/manifest-admin.json', role: 'ADMIN', expectedStart: '/admin', expectedScope: '/admin', expectedId: '/admin' }
 ];
 
 for (const m of manifestConfigs) {
@@ -119,18 +119,20 @@ class MockBeforeInstallPromptEvent extends MockEvent {
 const hookPath = path.resolve(process.cwd(), 'src/hooks/usePWAInstall.ts');
 const hookContent = fs.readFileSync(hookPath, 'utf-8');
 
-assert(hookContent.includes('globalDeferredPrompt'), 'usePWAInstall utilizes module-level singleton globalDeferredPrompt');
-assert(hookContent.includes('globalIsInstalled'), 'usePWAInstall maintains module-level installation state');
-assert(hookContent.includes('__tumpang_install_prompt'), 'usePWAInstall synchronizes with index.html global bus (__tumpang_install_prompt)');
+assert(hookContent.includes('getPromptForRole'), 'usePWAInstall exports getPromptForRole with strict role segregation');
+assert(hookContent.includes('detectCurrentPWARole'), 'usePWAInstall implements detectCurrentPWARole URL detector');
+assert(hookContent.includes('rolePrompts'), 'usePWAInstall manages rolePrompts isolated by portal role');
+assert(hookContent.includes('checkIsStandalone'), 'usePWAInstall checks standalone status per target role');
 assert(hookContent.includes('syncPWAManifest'), 'usePWAInstall exports syncPWAManifest helper for all roles');
 assert(hookContent.includes('outcome: choice.outcome'), 'install() accurately returns the native browser outcome without faking');
 
-// Test Simulated Lifecycle Scenario 1: User lands on Customer, prompt captured, user navigates to Merchant
-console.log('\n--- Scenario 1: Cross-portal prompt preservation (Customer -> Merchant) ---');
+// Test Simulated Lifecycle Scenario 1: Strict Prompt Segregation (Customer prompt NOT used for Merchant)
+console.log('\n--- Scenario 1: Strict prompt isolation & role segregation ---');
 
 // Mock DOM & window
 const mockEventBus: Record<string, Function[]> = {};
 const mockWindow: any = {
+  __tumpang_prompts: {},
   __tumpang_install_prompt: null,
   __tumpang_app_installed: false,
   addEventListener: (event: string, fn: Function) => {
@@ -138,27 +140,36 @@ const mockWindow: any = {
     mockEventBus[event].push(fn);
   },
   matchMedia: () => ({ matches: false, addEventListener: () => {} }),
-  navigator: { userAgent: 'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 Chrome/130.0.0.0 Mobile Safari/537.36' }
+  navigator: { userAgent: 'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 Chrome/130.0.0.0 Mobile Safari/537.36' },
+  location: { pathname: '/' }
 };
 
-// Simulate early beforeinstallprompt event before components render
-const earlyPrompt = new MockBeforeInstallPromptEvent('accepted');
-mockWindow.__tumpang_install_prompt = earlyPrompt;
+// Simulate Customer prompt captured on /
+const customerPrompt = new MockBeforeInstallPromptEvent('accepted');
+(customerPrompt as any).__tumpang_role = 'CUSTOMER';
+mockWindow.__tumpang_prompts['CUSTOMER'] = customerPrompt;
+mockWindow.__tumpang_install_prompt = customerPrompt;
 
-assert(mockWindow.__tumpang_install_prompt !== null, 'Early beforeinstallprompt captured on global window object');
+assert(mockWindow.__tumpang_prompts['CUSTOMER'] === customerPrompt, 'Customer prompt captured and recorded under role "CUSTOMER"');
+assert(mockWindow.__tumpang_prompts['MERCHANT'] === undefined, 'Merchant prompt is initially empty, preventing customer prompt hijacking');
 
-// Simulate Merchant mounting and accessing stored prompt
-const merchantPrompt = mockWindow.__tumpang_install_prompt;
-assert(merchantPrompt === earlyPrompt, 'Merchant portal successfully accesses retained prompt without event loss');
+// Simulate Merchant prompt dispatched when loading /merchant
+const merchantPrompt = new MockBeforeInstallPromptEvent('accepted');
+(merchantPrompt as any).__tumpang_role = 'MERCHANT';
+mockWindow.__tumpang_prompts['MERCHANT'] = merchantPrompt;
+
+assert(mockWindow.__tumpang_prompts['MERCHANT'] === merchantPrompt, 'Merchant receives dedicated beforeinstallprompt bound to manifest-merchant.json');
+assert(mockWindow.__tumpang_prompts['MERCHANT'] !== customerPrompt, 'Merchant prompt is strictly distinct from Customer prompt');
 
 // Simulate Merchant triggering installation
 let installTriggered = false;
-if (merchantPrompt) {
-  await merchantPrompt.prompt();
+if (mockWindow.__tumpang_prompts['MERCHANT']) {
+  await mockWindow.__tumpang_prompts['MERCHANT'].prompt();
   installTriggered = true;
 }
-assert(installTriggered, 'Merchant install button successfully executes native prompt() on the retained event');
-assert(earlyPrompt.promptCallCount === 1, 'Native prompt() was called exactly once');
+assert(installTriggered, 'Merchant install button successfully executes native prompt() on its own role event');
+assert(merchantPrompt.promptCallCount === 1, 'Merchant native prompt() called exactly once');
+assert(customerPrompt.promptCallCount === 0, 'Customer prompt was NEVER consumed or called by Merchant');
 
 // Test Simulated Lifecycle Scenario 2: User dismisses prompt (cancel)
 console.log('\n--- Scenario 2: User dismisses browser prompt (no fake install) ---');
@@ -170,9 +181,10 @@ assert(choice.outcome === 'dismissed', 'outcome is properly identified as "dismi
 // Test Simulated Lifecycle Scenario 3: appinstalled event fires
 console.log('\n--- Scenario 3: Browser triggers appinstalled event ---');
 mockWindow.__tumpang_app_installed = true;
+mockWindow.__tumpang_prompts['MERCHANT'] = null;
 mockWindow.__tumpang_install_prompt = null;
 assert(mockWindow.__tumpang_app_installed === true, 'appinstalled correctly sets installed status');
-assert(mockWindow.__tumpang_install_prompt === null, 'Consumed install prompt is cleared');
+assert(mockWindow.__tumpang_prompts['MERCHANT'] === null, 'Consumed Merchant install prompt is cleared');
 
 // -----------------------------------------------------------------------------
 // 4. VERIFY INTEGRATION IN PORTAL COMPONENTS
@@ -216,11 +228,11 @@ if (fs.existsSync(vercelPath)) {
   
   const rewrites: any[] = vercelConfig.rewrites || [];
   const hasMerchantRewrite = rewrites.some(r => r.source === '/merchant' && (r.destination === '/merchant.html' || r.destination === '/index.html'));
-  const hasMerchantWildcard = rewrites.some(r => r.source === '/merchant/(.*)' && r.destination === '/index.html');
+  const hasMerchantWildcard = rewrites.some(r => r.source === '/merchant/(.*)' && (r.destination === '/merchant.html' || r.destination === '/index.html'));
   const hasDriverRewrite = rewrites.some(r => r.source === '/driver' && (r.destination === '/driver.html' || r.destination === '/index.html'));
-  const hasDriverWildcard = rewrites.some(r => r.source === '/driver/(.*)' && r.destination === '/index.html');
+  const hasDriverWildcard = rewrites.some(r => r.source === '/driver/(.*)' && (r.destination === '/driver.html' || r.destination === '/index.html'));
   const hasAdminRewrite = rewrites.some(r => r.source === '/admin' && (r.destination === '/admin.html' || r.destination === '/index.html'));
-  const hasAdminWildcard = rewrites.some(r => r.source === '/admin/(.*)' && r.destination === '/index.html');
+  const hasAdminWildcard = rewrites.some(r => r.source === '/admin/(.*)' && (r.destination === '/admin.html' || r.destination === '/index.html'));
   const hasSpaCatchall = rewrites.some(r => r.destination === '/index.html' && r.source.includes('api/'));
 
   assert(hasMerchantRewrite, 'vercel.json contains rewrite for /merchant');
@@ -296,6 +308,27 @@ const testServer = http.createServer((req, res) => {
     return res.end(fs.readFileSync(pubFile));
   }
 
+  // Role portal rewrites matching vercel.json destination
+  if (cleanPath === 'merchant' || cleanPath.startsWith('merchant/')) {
+    const mPath = path.join(distPath, 'merchant.html');
+    if (fs.existsSync(mPath)) {
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      return res.end(fs.readFileSync(mPath));
+    }
+  } else if (cleanPath === 'driver' || cleanPath.startsWith('driver/')) {
+    const dPath = path.join(distPath, 'driver.html');
+    if (fs.existsSync(dPath)) {
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      return res.end(fs.readFileSync(dPath));
+    }
+  } else if (cleanPath === 'admin' || cleanPath.startsWith('admin/')) {
+    const aPath = path.join(distPath, 'admin.html');
+    if (fs.existsSync(aPath)) {
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      return res.end(fs.readFileSync(aPath));
+    }
+  }
+
   // SPA fallback rewrite to index.html (matches Vercel rewrites: /merchant, /driver, /admin, etc.)
   const indexPath = path.join(distPath, 'index.html');
   if (fs.existsSync(indexPath)) {
@@ -319,7 +352,8 @@ try {
   const resMerchant = await fetch(`${testBaseUrl}/merchant`);
   assert(resMerchant.status === 200, `Direct access to /merchant returns HTTP 200 (got ${resMerchant.status})`);
   const textMerchant = await resMerchant.text();
-  assert(textMerchant.includes('<div id="root">') && textMerchant.includes('main.tsx') || textMerchant.includes('/assets/index'), '/merchant serves complete SPA HTML shell');
+  assert(textMerchant.includes('<div id="root">') && (textMerchant.includes('main.tsx') || textMerchant.includes('/assets/index')), '/merchant serves complete SPA HTML shell');
+  assert(textMerchant.includes('href="/manifest-merchant.json"'), '/merchant initial HTTP document delivers pre-baked <link rel="manifest" href="/manifest-merchant.json">');
 
   // Test trailing slash /merchant/
   const resMerchantSlash = await fetch(`${testBaseUrl}/merchant/`);

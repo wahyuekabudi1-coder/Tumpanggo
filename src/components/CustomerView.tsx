@@ -70,7 +70,7 @@ export default function CustomerView({
       onSelectRole('MERCHANT');
     } else {
       if (typeof window !== 'undefined') {
-        window.history.pushState(null, '', '/?role=merchant');
+        window.history.pushState(null, '', '/merchant');
         window.scrollTo({ top: 0, behavior: 'smooth' });
       }
     }

@@ -4,7 +4,7 @@
   "short_name": "TG Admin",
   "description": "Dashboard Manajemen & Pengawasan Ekosistem TumpangGo",
   "start_url": "/admin",
-  "scope": "/",
+  "scope": "/admin",
   "display": "standalone",
   "orientation": "portrait",
   "theme_color": "#0F172A",

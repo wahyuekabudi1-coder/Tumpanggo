@@ -8,13 +8,16 @@
  * Strictly bypasses API requests, authentication, and QRIS endpoints to prevent stale data.
  */
 
-const CACHE_NAME = 'tumpanggo-pwa-v15';
+const CACHE_NAME = 'tumpanggo-pwa-v16';
 const STATIC_ASSETS = [
   '/',
   '/index.html',
   '/merchant',
+  '/merchant.html',
   '/driver',
+  '/driver.html',
   '/admin',
+  '/admin.html',
   '/manifest.json',
   '/manifest-merchant.json',
   '/manifest-driver.json',
@@ -201,7 +204,7 @@ self.addEventListener('push', (event) => {
     vibrate: [300, 150, 300, 150, 450],
     requireInteraction: true,
     data: {
-      url: data.url || (data.role === 'DRIVER' ? '/?role=DRIVER' : '/?role=MERCHANT'),
+      url: data.url || (data.role === 'DRIVER' ? '/driver' : '/merchant'),
       timestamp: Date.now()
     },
     actions: [

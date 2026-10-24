@@ -4,7 +4,8 @@
  * 
  * TumpangGo Centralized PWA Installation Manager
  * Unified singleton event bus, prompt lifecycle manager, and manifest synchronizer.
- * Ensures beforeinstallprompt is never lost on navigation, role switching, or re-renders.
+ * Supports distinct standalone identities for Customer, Merchant, Driver, and Admin.
+ * Strictly prevents prompt hijacking (e.g. customer prompt used for merchant).
  */
 
 import { useEffect, useState } from 'react';
@@ -16,10 +17,41 @@ export interface BeforeInstallPromptEvent extends Event {
 
 export type PWARole = 'CUSTOMER' | 'MERCHANT' | 'DRIVER' | 'ADMIN';
 
-// Module-level singleton store so that state persists across component unmounts,
-// portal navigation (Customer <-> Merchant <-> Driver <-> Admin), and re-renders.
-let globalDeferredPrompt: BeforeInstallPromptEvent | null = null;
-let globalIsInstalled: boolean = false;
+export function detectCurrentPWARole(): PWARole {
+  if (typeof window === 'undefined') return 'CUSTOMER';
+  const pathname = window.location.pathname.toLowerCase();
+  if (pathname === '/merchant' || pathname.startsWith('/merchant/')) return 'MERCHANT';
+  if (pathname === '/driver' || pathname.startsWith('/driver/')) return 'DRIVER';
+  if (pathname === '/admin' || pathname.startsWith('/admin/')) return 'ADMIN';
+
+  const search = window.location.search.toLowerCase();
+  if (search.includes('role=merchant') || search.includes('portal=merchant')) return 'MERCHANT';
+  if (search.includes('role=driver') || search.includes('portal=driver')) return 'DRIVER';
+  if (search.includes('role=admin') || search.includes('portal=admin')) return 'ADMIN';
+
+  return 'CUSTOMER';
+}
+
+// Module-level segregated prompt store by role
+const rolePrompts: Record<PWARole, BeforeInstallPromptEvent | null> = {
+  CUSTOMER: null,
+  MERCHANT: null,
+  DRIVER: null,
+  ADMIN: null
+};
+
+// Track installation states per role
+const roleInstalledMap: Record<PWARole, boolean> = {
+  CUSTOMER: false,
+  MERCHANT: false,
+  DRIVER: false,
+  ADMIN: false
+};
+
+// Global backward compatibility references
+export let globalDeferredPrompt: BeforeInstallPromptEvent | null = null;
+export let globalIsInstalled: boolean = false;
+
 const listeners = new Set<() => void>();
 
 function notifyListeners() {
@@ -32,14 +64,20 @@ function notifyListeners() {
   });
 }
 
-export function checkIsStandalone(): boolean {
+export function checkIsStandalone(targetRole?: PWARole): boolean {
   if (typeof window === 'undefined') return false;
-  return Boolean(
+  const isStandalone = Boolean(
     window.matchMedia('(display-mode: standalone)').matches ||
     (window.navigator as any).standalone === true ||
     document.referrer.includes('android-app://') ||
     new URLSearchParams(window.location.search).get('source') === 'pwa'
   );
+
+  if (!isStandalone) return false;
+  if (!targetRole) return true;
+
+  const currentRole = detectCurrentPWARole();
+  return currentRole === targetRole;
 }
 
 export function checkIsIOS(): boolean {
@@ -57,7 +95,6 @@ export function isInstallPromptActive(): boolean {
 
 export function syncPWAManifest(role: PWARole) {
   if (typeof document === 'undefined') return;
-  // Strictly prevent manifest mutation while browser is actively processing installation prompt
   if (isInstallationInProgress) {
     return;
   }
@@ -73,6 +110,7 @@ export function syncPWAManifest(role: PWARole) {
   if (!link) {
     link = document.createElement('link');
     link.rel = 'manifest';
+    link.id = 'pwa-manifest-link';
     document.head.appendChild(link);
   }
   if (link.getAttribute('href') !== targetHref) {
@@ -80,41 +118,92 @@ export function syncPWAManifest(role: PWARole) {
   }
 }
 
+export function getPromptForRole(role: PWARole): BeforeInstallPromptEvent | null {
+  if (typeof window === 'undefined') return null;
+
+  // 1. Direct role prompt in memory
+  if (rolePrompts[role]) {
+    return rolePrompts[role];
+  }
+
+  // 2. From window.__tumpang_prompts bus
+  const windowPrompts = (window as any).__tumpang_prompts;
+  if (windowPrompts && windowPrompts[role]) {
+    rolePrompts[role] = windowPrompts[role];
+    return windowPrompts[role];
+  }
+
+  // 3. Fallback: Check window.__tumpang_install_prompt only if role matches
+  const singlePrompt = (window as any).__tumpang_install_prompt || globalDeferredPrompt;
+  if (singlePrompt) {
+    const promptRole = (singlePrompt as any).__tumpang_role || detectCurrentPWARole();
+    if (promptRole === role) {
+      rolePrompts[role] = singlePrompt;
+      return singlePrompt;
+    }
+  }
+
+  return null;
+}
+
 // Global bootstrap for window listeners
 if (typeof window !== 'undefined') {
   globalIsInstalled = checkIsStandalone() || Boolean((window as any).__tumpang_app_installed);
-  
-  if ((window as any).__tumpang_install_prompt) {
+
+  const initialRole = detectCurrentPWARole();
+
+  if ((window as any).__tumpang_prompts && (window as any).__tumpang_prompts[initialRole]) {
+    rolePrompts[initialRole] = (window as any).__tumpang_prompts[initialRole];
+    globalDeferredPrompt = rolePrompts[initialRole];
+  } else if ((window as any).__tumpang_install_prompt) {
+    const promptRole = (window as any).__tumpang_install_prompt.__tumpang_role || initialRole;
+    rolePrompts[promptRole] = (window as any).__tumpang_install_prompt;
     globalDeferredPrompt = (window as any).__tumpang_install_prompt;
   }
 
   // Intercept and chain index.html event notification bus
   const previousNotify = (window as any).__tumpang_notify_pwa;
-  (window as any).__tumpang_notify_pwa = () => {
+  (window as any).__tumpang_notify_pwa = (eventRole?: PWARole) => {
     if (typeof previousNotify === 'function') {
-      try { previousNotify(); } catch {}
+      try { previousNotify(eventRole); } catch {}
     }
-    if ((window as any).__tumpang_install_prompt) {
-      globalDeferredPrompt = (window as any).__tumpang_install_prompt;
+    const targetRole = eventRole || detectCurrentPWARole();
+    const activeP = (window as any).__tumpang_prompts?.[targetRole] || (window as any).__tumpang_install_prompt;
+    if (activeP) {
+      rolePrompts[targetRole] = activeP;
+      globalDeferredPrompt = activeP;
     }
     if ((window as any).__tumpang_app_installed) {
+      roleInstalledMap[targetRole] = true;
       globalIsInstalled = true;
+      rolePrompts[targetRole] = null;
       globalDeferredPrompt = null;
     }
     notifyListeners();
   };
 
-  // Register window event listeners directly with passive dual redundancy
+  // Register window event listeners directly
   window.addEventListener('beforeinstallprompt', (e: Event) => {
     e.preventDefault();
+    const capturedRole = detectCurrentPWARole();
+    try { (e as any).__tumpang_role = capturedRole; } catch {}
+    rolePrompts[capturedRole] = e as BeforeInstallPromptEvent;
     globalDeferredPrompt = e as BeforeInstallPromptEvent;
+    (window as any).__tumpang_prompts = (window as any).__tumpang_prompts || {};
+    (window as any).__tumpang_prompts[capturedRole] = e;
     (window as any).__tumpang_install_prompt = e;
     notifyListeners();
   });
 
   window.addEventListener('appinstalled', () => {
+    const installedRole = detectCurrentPWARole();
+    roleInstalledMap[installedRole] = true;
     globalIsInstalled = true;
+    rolePrompts[installedRole] = null;
     globalDeferredPrompt = null;
+    if ((window as any).__tumpang_prompts) {
+      (window as any).__tumpang_prompts[installedRole] = null;
+    }
     (window as any).__tumpang_install_prompt = null;
     (window as any).__tumpang_app_installed = true;
     notifyListeners();
@@ -125,7 +214,10 @@ if (typeof window !== 'undefined') {
     const mql = window.matchMedia('(display-mode: standalone)');
     mql.addEventListener('change', (e) => {
       if (e.matches) {
+        const curRole = detectCurrentPWARole();
+        roleInstalledMap[curRole] = true;
         globalIsInstalled = true;
+        rolePrompts[curRole] = null;
         globalDeferredPrompt = null;
         notifyListeners();
       }
@@ -134,16 +226,19 @@ if (typeof window !== 'undefined') {
 }
 
 export function usePWAInstall(role?: PWARole) {
+  const targetRole: PWARole = role || detectCurrentPWARole();
+
   const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(() => {
-    if (typeof window !== 'undefined') {
-      return globalDeferredPrompt || (window as any).__tumpang_install_prompt || null;
-    }
-    return null;
+    return getPromptForRole(targetRole);
   });
 
   const [isInstalled, setIsInstalled] = useState<boolean>(() => {
     if (typeof window !== 'undefined') {
-      return globalIsInstalled || checkIsStandalone() || Boolean((window as any).__tumpang_app_installed);
+      return (
+        checkIsStandalone(targetRole) ||
+        roleInstalledMap[targetRole] ||
+        (targetRole === 'CUSTOMER' && Boolean((window as any).__tumpang_app_installed))
+      );
     }
     return false;
   });
@@ -152,17 +247,20 @@ export function usePWAInstall(role?: PWARole) {
 
   // Automatically synchronize manifest if role is specified
   useEffect(() => {
-    if (role) {
-      syncPWAManifest(role);
+    if (targetRole) {
+      syncPWAManifest(targetRole);
     }
-  }, [role]);
+  }, [targetRole]);
 
   // Subscribe to changes in singleton store
   useEffect(() => {
     const updateState = () => {
-      const activePrompt = globalDeferredPrompt || (window as any).__tumpang_install_prompt || null;
+      const activePrompt = getPromptForRole(targetRole);
       setDeferredPrompt(activePrompt);
-      const installed = globalIsInstalled || checkIsStandalone() || Boolean((window as any).__tumpang_app_installed);
+      const installed =
+        checkIsStandalone(targetRole) ||
+        roleInstalledMap[targetRole] ||
+        (targetRole === 'CUSTOMER' && Boolean((window as any).__tumpang_app_installed));
       setIsInstalled(installed);
     };
 
@@ -171,10 +269,34 @@ export function usePWAInstall(role?: PWARole) {
     return () => {
       listeners.delete(updateState);
     };
-  }, []);
+  }, [targetRole]);
+
+  const isDirectRoute = typeof window !== 'undefined' && (() => {
+    const path = window.location.pathname.toLowerCase();
+    if (targetRole === 'MERCHANT') return path === '/merchant' || path.startsWith('/merchant/');
+    if (targetRole === 'DRIVER') return path === '/driver' || path.startsWith('/driver/');
+    if (targetRole === 'ADMIN') return path === '/admin' || path.startsWith('/admin/');
+    return path === '/';
+  })();
+
+  const openDirectPortalRoute = () => {
+    if (typeof window === 'undefined') return;
+    const targetMap: Record<PWARole, string> = {
+      CUSTOMER: '/',
+      MERCHANT: '/merchant',
+      DRIVER: '/driver',
+      ADMIN: '/admin'
+    };
+    const dest = targetMap[targetRole] || '/';
+    if (window.location.pathname !== dest) {
+      window.location.href = dest;
+    } else {
+      window.location.reload();
+    }
+  };
 
   const install = async (): Promise<{ outcome: 'accepted' | 'dismissed' | 'unavailable'; accepted: boolean }> => {
-    const promptToUse = deferredPrompt || globalDeferredPrompt || (typeof window !== 'undefined' ? (window as any).__tumpang_install_prompt : null);
+    const promptToUse = getPromptForRole(targetRole);
     if (!promptToUse) {
       return { outcome: 'unavailable', accepted: false };
     }
@@ -185,29 +307,36 @@ export function usePWAInstall(role?: PWARole) {
       const choice = await promptToUse.userChoice;
 
       // Event is consumed by the browser prompt
-      globalDeferredPrompt = null;
+      rolePrompts[targetRole] = null;
+      if (globalDeferredPrompt === promptToUse) {
+        globalDeferredPrompt = null;
+      }
       if (typeof window !== 'undefined') {
-        (window as any).__tumpang_install_prompt = null;
+        if ((window as any).__tumpang_prompts) {
+          (window as any).__tumpang_prompts[targetRole] = null;
+        }
+        if ((window as any).__tumpang_install_prompt === promptToUse) {
+          (window as any).__tumpang_install_prompt = null;
+        }
       }
       setDeferredPrompt(null);
 
       if (choice.outcome === 'accepted') {
-        globalIsInstalled = true;
+        roleInstalledMap[targetRole] = true;
         setIsInstalled(true);
       }
       notifyListeners();
       return { outcome: choice.outcome, accepted: choice.outcome === 'accepted' };
     } catch (err) {
-      console.warn('[PWA] Error calling native install prompt:', err);
-      globalDeferredPrompt = null;
-      if (typeof window !== 'undefined') {
-        (window as any).__tumpang_install_prompt = null;
+      console.warn(`[PWA] Error calling native install prompt for ${targetRole}:`, err);
+      rolePrompts[targetRole] = null;
+      if (globalDeferredPrompt === promptToUse) {
+        globalDeferredPrompt = null;
       }
       setDeferredPrompt(null);
       notifyListeners();
       return { outcome: 'unavailable', accepted: false };
     } finally {
-      // Delay releasing the lock to let browser complete OS shortcut/WebAPK creation
       setTimeout(() => {
         isInstallationInProgress = false;
       }, 1500);
@@ -215,12 +344,15 @@ export function usePWAInstall(role?: PWARole) {
   };
 
   return {
-    isInstallable: Boolean(deferredPrompt || globalDeferredPrompt || (typeof window !== 'undefined' && (window as any).__tumpang_install_prompt)),
+    isInstallable: Boolean(deferredPrompt),
     isInstalled,
     isIOS,
+    isDirectRoute,
+    targetRole,
     install,
+    openDirectPortalRoute,
     syncManifest: () => {
-      if (role) syncPWAManifest(role);
+      syncPWAManifest(targetRole);
     }
   };
 }

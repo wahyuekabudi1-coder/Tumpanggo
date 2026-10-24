@@ -9,7 +9,7 @@
 
 import React, { useState } from 'react';
 import { usePWAInstall, PWARole } from '../hooks/usePWAInstall';
-import { Download, Smartphone, X, Store, Bike, ShieldCheck } from 'lucide-react';
+import { Download, Smartphone, X, Store, Bike, ShieldCheck, ExternalLink } from 'lucide-react';
 
 interface PWAInstallButtonProps {
   role?: PWARole;
@@ -22,7 +22,7 @@ export const PWAInstallButton: React.FC<PWAInstallButtonProps> = ({
   compact = false,
   className = ''
 }) => {
-  const { isInstallable, isInstalled, isIOS, install } = usePWAInstall(role);
+  const { isInstallable, isInstalled, isIOS, isDirectRoute, install, openDirectPortalRoute } = usePWAInstall(role);
   const [showIOSGuide, setShowIOSGuide] = useState(false);
   const [showManualGuide, setShowManualGuide] = useState(false);
   const [isInstalling, setIsInstalling] = useState(false);
@@ -208,6 +208,7 @@ export const PWAInstallButton: React.FC<PWAInstallButtonProps> = ({
   }
 
   function renderManualGuideModal() {
+    const isDirect = isDirectRoute;
     return (
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4">
         <div className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-2xl relative animate-in fade-in zoom-in-95 duration-200">
@@ -224,30 +225,50 @@ export const PWAInstallButton: React.FC<PWAInstallButtonProps> = ({
             </div>
             <div>
               <h3 className="text-sm font-bold text-slate-900">Pasang {cfg.title}</h3>
-              <p className="text-[11px] text-slate-500">Petunjuk instalasi browser</p>
+              <p className="text-[11px] text-slate-500">Petunjuk instalasi PWA Android / Chrome</p>
             </div>
           </div>
 
           <div className="space-y-2.5 text-xs text-slate-700 bg-slate-50 p-3.5 rounded-xl border border-slate-200">
-            <p>
-              Browser Anda saat ini belum menampilkan prompt otomatis, atau aplikasi telah tersimpan di browser Anda.
-            </p>
-            <p className="font-semibold text-slate-900">
-              Untuk memasang secara manual:
+            {!isDirect && role !== 'CUSTOMER' ? (
+              <div className="space-y-2">
+                <p className="text-slate-800 font-medium leading-relaxed">
+                  Untuk menginstal <strong>{cfg.title}</strong> sebagai aplikasi terpisah dengan ikon tersendiri di HP Android, browser memerlukan akses langsung ke rute portal mandiri.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => openDirectPortalRoute()}
+                  className="w-full py-2 px-3 bg-emerald-700 hover:bg-emerald-800 text-white font-bold rounded-xl text-xs transition flex items-center justify-center gap-1.5 cursor-pointer shadow-xs"
+                >
+                  <ExternalLink className="w-3.5 h-3.5" />
+                  <span>Buka Langsung Rute /{role.toLowerCase()}</span>
+                </button>
+              </div>
+            ) : (
+              <p>
+                Browser Anda belum memicu prompt otomatis instalasi, atau aplikasi ini sudah tersimpan di perangkat Anda.
+              </p>
+            )}
+
+            <p className="font-semibold text-slate-900 pt-1">
+              Cara instal manual di Google Chrome Android:
             </p>
             <ul className="list-disc pl-4 space-y-1 text-[11px]">
-              <li>Tekan tombol menu <strong>titik tiga (⋮)</strong> di pojok kanan atas browser Chrome/Edge.</li>
+              <li>Tekan tombol menu <strong>titik tiga (⋮)</strong> di pojok kanan atas browser.</li>
               <li>Pilih opsi <strong>"Pasang aplikasi" (Install app)</strong> atau <strong>"Tambahkan ke Layar Utama"</strong>.</li>
-              <li>Aplikasi akan langsung terpasang dan dapat dibuka mandiri tanpa bilah URL.</li>
+              <li>Konfirmasi nama aplikasi <strong>"{cfg.title}"</strong> lalu ketuk <strong>Pasang</strong>.</li>
+              <li>Aplikasi terpasang mandiri dengan ikon dan portal terpisah dari Customer.</li>
             </ul>
           </div>
 
-          <button
-            onClick={() => setShowManualGuide(false)}
-            className="w-full mt-4 py-2.5 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-xl text-xs transition cursor-pointer"
-          >
-            Tutup
-          </button>
+          <div className="mt-4 flex gap-2">
+            <button
+              onClick={() => setShowManualGuide(false)}
+              className="flex-1 py-2.5 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-xl text-xs transition cursor-pointer text-center"
+            >
+              Tutup
+            </button>
+          </div>
         </div>
       </div>
     );

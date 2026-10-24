@@ -255,20 +255,36 @@
       }, 3500);
 
       // Global PWA BeforeInstallPrompt and AppInstalled Event Bus
+      window.__tumpang_prompts = window.__tumpang_prompts || {};
       window.__tumpang_install_prompt = null;
       window.__tumpang_app_installed = false;
       window.addEventListener('beforeinstallprompt', function(e) {
         e.preventDefault();
+        var p = window.location.pathname.toLowerCase();
+        var capturedRole = 'CUSTOMER';
+        if (p === '/merchant' || p.indexOf('/merchant/') === 0) capturedRole = 'MERCHANT';
+        else if (p === '/driver' || p.indexOf('/driver/') === 0) capturedRole = 'DRIVER';
+        else if (p === '/admin' || p.indexOf('/admin/') === 0) capturedRole = 'ADMIN';
+        try { e.__tumpang_role = capturedRole; } catch (err) {}
+        window.__tumpang_prompts[capturedRole] = e;
         window.__tumpang_install_prompt = e;
         if (typeof window.__tumpang_notify_pwa === 'function') {
-          window.__tumpang_notify_pwa();
+          window.__tumpang_notify_pwa(capturedRole);
         }
       });
       window.addEventListener('appinstalled', function() {
+        var p = window.location.pathname.toLowerCase();
+        var capturedRole = 'CUSTOMER';
+        if (p === '/merchant' || p.indexOf('/merchant/') === 0) capturedRole = 'MERCHANT';
+        else if (p === '/driver' || p.indexOf('/driver/') === 0) capturedRole = 'DRIVER';
+        else if (p === '/admin' || p.indexOf('/admin/') === 0) capturedRole = 'ADMIN';
+        if (window.__tumpang_prompts) {
+          window.__tumpang_prompts[capturedRole] = null;
+        }
         window.__tumpang_install_prompt = null;
         window.__tumpang_app_installed = true;
         if (typeof window.__tumpang_notify_pwa === 'function') {
-          window.__tumpang_notify_pwa();
+          window.__tumpang_notify_pwa(capturedRole);
         }
       });
 

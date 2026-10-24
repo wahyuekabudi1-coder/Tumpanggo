@@ -141,13 +141,13 @@ export default function App() {
       setCurrentRole('MERCHANT');
       setMerchantPortalTab('login');
       if (typeof window !== 'undefined' && window.location.search.includes('page=merchant-portal')) {
-        window.history.replaceState(null, '', '/?role=merchant');
+        window.history.replaceState(null, '', '/merchant');
       }
     } else if (page === 'merchant-register' || page === 'partner-register' || page === 'register-merchant') {
       setIsRegisterPage(true);
       setIsMerchantPortal(false);
-      // Clean up /merchant if present in pathname to prevent 404 on refresh or sub-navigation
-      if (typeof window !== 'undefined' && window.location.pathname !== '/') {
+      // Clean up other pathnames if present, but preserve /merchant if already on merchant portal to keep PWA scope
+      if (typeof window !== 'undefined' && !window.location.pathname.startsWith('/merchant') && window.location.pathname !== '/') {
         window.history.replaceState(null, '', `/?page=${encodeURIComponent(page)}`);
       }
     }
@@ -462,7 +462,7 @@ export default function App() {
     setCurrentRole('MERCHANT');
     setMerchantPortalTab('login');
     if (typeof window !== 'undefined') {
-      window.history.pushState(null, '', '/?role=merchant');
+      window.history.pushState(null, '', '/merchant');
       window.scrollTo({ top: 0, behavior: 'smooth' });
     }
   };
@@ -471,7 +471,9 @@ export default function App() {
     setIsRegisterPage(true);
     setIsMerchantPortal(false);
     if (typeof window !== 'undefined') {
-      window.history.pushState(null, '', '/?page=merchant-register');
+      const isMerchantRoute = window.location.pathname.startsWith('/merchant');
+      const target = isMerchantRoute ? '/merchant?page=merchant-register' : '/?page=merchant-register';
+      window.history.pushState(null, '', target);
       window.scrollTo({ top: 0, behavior: 'smooth' });
     }
   };
@@ -491,7 +493,8 @@ export default function App() {
           setIsRegisterPage(false);
           setIsMerchantPortal(true);
           if (typeof window !== 'undefined') {
-            window.history.pushState(null, '', '/?page=merchant-portal');
+            const dest = currentRole === 'MERCHANT' ? '/merchant' : '/?page=merchant-portal';
+            window.history.pushState(null, '', dest);
             window.scrollTo({ top: 0, behavior: 'smooth' });
           }
         }}
@@ -501,7 +504,7 @@ export default function App() {
           setCurrentRole('MERCHANT');
           setMerchantPortalTab('login');
           if (typeof window !== 'undefined') {
-            window.history.pushState(null, '', '/?role=merchant');
+            window.history.pushState(null, '', '/merchant');
             window.scrollTo({ top: 0, behavior: 'smooth' });
           }
         }}

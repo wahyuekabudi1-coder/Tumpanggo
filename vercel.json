@@ -78,27 +78,27 @@
     },
     {
       "source": "/merchant",
-      "destination": "/index.html"
+      "destination": "/merchant.html"
     },
     {
       "source": "/merchant/(.*)",
-      "destination": "/index.html"
+      "destination": "/merchant.html"
     },
     {
       "source": "/driver",
-      "destination": "/index.html"
+      "destination": "/driver.html"
     },
     {
       "source": "/driver/(.*)",
-      "destination": "/index.html"
+      "destination": "/driver.html"
     },
     {
       "source": "/admin",
-      "destination": "/index.html"
+      "destination": "/admin.html"
     },
     {
       "source": "/admin/(.*)",
-      "destination": "/index.html"
+      "destination": "/admin.html"
     },
     {
       "source": "/((?!api/).*)",

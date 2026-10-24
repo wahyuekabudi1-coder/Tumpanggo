@@ -132,21 +132,23 @@ def export_zip():
         assert len(public_sensitive) == 0, f"VIOLATION: Found unexpected files in public/: {public_sensitive}"
         print("  ✅ [PASS] Public directory is completely free of source archives, dumps, or sensitive files.")
 
-        # Check vercel.json in ZIP contains cleanUrls, trailingSlash, and SPA rewrite to /index.html
+        # Check vercel.json in ZIP contains cleanUrls, trailingSlash, and portal rewrites to *.html
         assert 'vercel.json' in names, "VIOLATION: vercel.json missing from ZIP"
         vercel_in_zip = zf.read('vercel.json').decode('utf-8')
         assert '"cleanUrls": true' in vercel_in_zip, "VIOLATION: vercel.json in ZIP must have cleanUrls: true"
         assert '"trailingSlash": false' in vercel_in_zip, "VIOLATION: vercel.json in ZIP must have trailingSlash: false"
         assert '"source": "/merchant"' in vercel_in_zip, "VIOLATION: vercel.json in ZIP must have /merchant rewrite"
-        assert '"destination": "/index.html"' in vercel_in_zip, "VIOLATION: vercel.json in ZIP must rewrite SPA routes to /index.html"
-        print("  ✅ [PASS] vercel.json in ZIP contains cleanUrls: true, trailingSlash: false, and /index.html SPA rewrites.")
+        assert '"destination": "/merchant.html"' in vercel_in_zip, "VIOLATION: vercel.json in ZIP must rewrite /merchant to /merchant.html"
+        assert '"destination": "/driver.html"' in vercel_in_zip, "VIOLATION: vercel.json in ZIP must rewrite /driver to /driver.html"
+        assert '"destination": "/admin.html"' in vercel_in_zip, "VIOLATION: vercel.json in ZIP must rewrite /admin to /admin.html"
+        print("  ✅ [PASS] vercel.json in ZIP contains cleanUrls: true, trailingSlash: false, and dedicated portal *.html rewrites.")
 
         # Check public/sw.js in ZIP
         assert 'public/sw.js' in names, "VIOLATION: public/sw.js missing from ZIP"
         sw_in_zip = zf.read('public/sw.js').decode('utf-8')
         assert 'resolveNavigationShell' in sw_in_zip, "VIOLATION: public/sw.js in ZIP must have resolveNavigationShell"
-        assert 'tumpanggo-pwa-v15' in sw_in_zip, "VIOLATION: public/sw.js in ZIP must specify tumpanggo-pwa-v15 cache"
-        print("  ✅ [PASS] public/sw.js in ZIP contains resolveNavigationShell and tumpanggo-pwa-v15 cache.")
+        assert 'tumpanggo-pwa-v16' in sw_in_zip, "VIOLATION: public/sw.js in ZIP must specify tumpanggo-pwa-v16 cache"
+        print("  ✅ [PASS] public/sw.js in ZIP contains resolveNavigationShell and tumpanggo-pwa-v16 cache.")
 
         # Check usePWAInstall.ts in ZIP contains isInstallationInProgress lock
         assert 'src/hooks/usePWAInstall.ts' in names, "VIOLATION: usePWAInstall.ts missing from ZIP"
@@ -160,7 +162,24 @@ def export_zip():
         assert '"start_url": "/merchant"' in manifest_in_zip, "VIOLATION: manifest-merchant.json in ZIP must specify /merchant start_url"
         print("  ✅ [PASS] public/manifest-merchant.json in ZIP specifies /merchant start_url.")
 
+    # Also make available in public/ directory for instant direct web download
+    import shutil
+    public_target_clean = os.path.join(root_dir, 'public', 'tumpanggo-clean-source.zip')
+    public_target_named = os.path.join(root_dir, 'public', 'tumpanggo-merchant-pwa-release-candidate.zip')
+    shutil.copy2(output_zip, public_target_clean)
+    shutil.copy2(output_zip, public_target_named)
+    print(f"📁 Public download link available at: /tumpanggo-clean-source.zip and /tumpanggo-merchant-pwa-release-candidate.zip")
+
+    # In production dist/, also copy so it is available when served from dist
+    dist_public_clean = os.path.join(root_dir, 'dist', 'tumpanggo-clean-source.zip')
+    dist_public_named = os.path.join(root_dir, 'dist', 'tumpanggo-merchant-pwa-release-candidate.zip')
+    if os.path.exists(os.path.join(root_dir, 'dist')):
+        shutil.copy2(output_zip, dist_public_clean)
+        shutil.copy2(output_zip, dist_public_named)
+        print(f"📁 Synced to dist/ for static delivery.")
+
     print("🎉 All ZIP audit assertions passed successfully!\n")
 
 if __name__ == '__main__':
     export_zip()
+
