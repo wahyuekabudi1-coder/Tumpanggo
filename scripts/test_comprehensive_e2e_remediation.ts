@@ -98,7 +98,7 @@ async function runTestSuite() {
     latitude: -7.9420,
     longitude: 112.6150
   });
-  assert(outsideResult.deliveryFee > 7500, `Outside destination calculates distance-based rate (Calculated: Rp ${outsideResult.deliveryFee})`);
+  assert(outsideResult.isSupported === false && outsideResult.deliveryFee === 0, 'Outside destination is strictly rejected (isSupported: false, deliveryFee: 0)');
 
   // --- SECTION 5: TIERED SERVICE FEE PROGRESSION ---
   console.log('\n--- 5. TIERED SERVICE FEE PROGRESSION ---');

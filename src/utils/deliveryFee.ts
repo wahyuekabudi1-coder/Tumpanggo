@@ -371,8 +371,8 @@ export function isDestinationInKecamatanTumpang(loc: LocationInput): boolean {
     }
   }
 
-  // Unknown address is not enough evidence to classify a destination as Tumpang.
-  // Fail closed so unsupported or ambiguous destinations are not accepted by mistake.
+  // 4. Default for unidentified addresses:
+  // Unknown or unspecified locations are strictly NOT assumed to be Kecamatan Tumpang.
   return false;
 }
 
@@ -457,13 +457,81 @@ export interface DeliveryFeeResult {
 /**
  * Calculates delivery fee following the mandatory single source of truth rule.
  * 
- * MANDATORY BUSINESS RULE:
- * - Within Kecamatan Tumpang: Strictly flat Rp 5.000 per order.
- * - Within Kecamatan Pakis: Strictly flat Rp 7.500 per order (all villages).
- * - Outside both: Unsupported or calculated based on distance.
+ * MANDATORY BUSINESS RULES:
+ * 1. Kecamatan Tumpang: ongkir tetap Rp 5.000.
+ * 2. Kecamatan Pakis: ongkir tetap Rp 7.500.
+ * 3. Pengiriman di luar kedua kecamatan tersebut HARUS DITOLAK, meskipun jaraknya kurang dari 10 km.
+ * 4. Jarak maksimum adalah 10 km dari merchant.
+ * 5. Validasi wilayah dan jarak wajib sama-sama lolos.
+ * 6. Wilayah yang tidak diketahui tidak boleh otomatis dianggap sebagai Kecamatan Tumpang.
  */
 export function calculateDeliveryFee(params: DeliveryFeeCalculationParams): DeliveryFeeResult {
+  // 1. Calculate distance if both merchant and customer coordinates are provided
+  let dist: number | undefined = undefined;
+  if (
+    typeof params.latitude === 'number' &&
+    typeof params.longitude === 'number' &&
+    typeof params.merchantLatitude === 'number' &&
+    typeof params.merchantLongitude === 'number' &&
+    params.latitude !== 0 &&
+    params.longitude !== 0 &&
+    params.merchantLatitude !== 0 &&
+    params.merchantLongitude !== 0
+  ) {
+    dist = calculateDistanceKm(
+      params.merchantLatitude,
+      params.merchantLongitude,
+      params.latitude,
+      params.longitude
+    );
+  }
+
+  // 2. Dual validation constraint 1: Reject immediately if distance exceeds maximum 10 km
+  if (typeof dist === 'number' && dist > MAX_DELIVERY_DISTANCE_KM) {
+    return {
+      deliveryFee: 0,
+      isInTumpang: false,
+      isInPakis: false,
+      isSupported: false,
+      distanceKm: dist,
+      explanation: `Jarak pengantaran (~${dist} km) melebihi batas maksimum 10 km dari merchant.`
+    };
+  }
+
+  // 3. Dual validation constraint 2: Validate zone / district
   const explicitDistrict = (params.destinationDistrict || params.district || '').trim().toLowerCase();
+
+  if (explicitDistrict) {
+    if (explicitDistrict.includes('tumpang')) {
+      return {
+        deliveryFee: FLAT_TUMPANG_DELIVERY_FEE,
+        isInTumpang: true,
+        isInPakis: false,
+        isSupported: true,
+        distanceKm: dist,
+        explanation: 'Tarif flat Rp 5.000 untuk seluruh pengantaran di area Kecamatan Tumpang.'
+      };
+    }
+    if (explicitDistrict.includes('pakis')) {
+      return {
+        deliveryFee: FLAT_PAKIS_DELIVERY_FEE,
+        isInTumpang: false,
+        isInPakis: true,
+        isSupported: true,
+        distanceKm: dist,
+        explanation: 'Tarif flat Rp 7.500 untuk seluruh pengantaran di area Kecamatan Pakis.'
+      };
+    }
+    // Explicit non-supported district (rejected even if dist < 10 km)
+    return {
+      deliveryFee: 0,
+      isInTumpang: false,
+      isInPakis: false,
+      isSupported: false,
+      distanceKm: dist,
+      explanation: 'Pengantaran ke luar wilayah Kecamatan Tumpang dan Kecamatan Pakis ditolak. tumpangGo hanya melayani pengantaran di area Kecamatan Tumpang (Rp 5.000) dan Kecamatan Pakis (Rp 7.500) dengan jarak maksimal 10 km.'
+    };
+  }
 
   const locInput: LocationInput = {
     address: params.address,
@@ -473,92 +541,39 @@ export function calculateDeliveryFee(params: DeliveryFeeCalculationParams): Deli
     longitude: params.longitude
   };
 
-  let isInTumpang = false;
-  let isInPakis = false;
-
-  if (explicitDistrict) {
-    if (explicitDistrict.includes('tumpang')) {
-      isInTumpang = true;
-    } else if (explicitDistrict.includes('pakis')) {
-      isInPakis = true;
-    } else {
-      return {
-        deliveryFee: 0,
-        isInTumpang: false,
-        isInPakis: false,
-        isSupported: false,
-        explanation: 'TumpangGo hanya melayani Kecamatan Tumpang dan Kecamatan Pakis.'
-      };
-    }
-  } else {
-    // Check Pakis first so Pakis addresses are not misclassified as Tumpang.
-    isInPakis = isDestinationInKecamatanPakis(locInput);
-    isInTumpang = !isInPakis && isDestinationInKecamatanTumpang(locInput);
-  }
-
-  if (!isInTumpang && !isInPakis) {
+  const isInTumpang = isDestinationInKecamatanTumpang(locInput);
+  if (isInTumpang) {
     return {
-      deliveryFee: 0,
-      isInTumpang: false,
+      deliveryFee: FLAT_TUMPANG_DELIVERY_FEE,
+      isInTumpang: true,
       isInPakis: false,
-      isSupported: false,
-      explanation: 'TumpangGo hanya melayani Kecamatan Tumpang dan Kecamatan Pakis.'
+      isSupported: true,
+      distanceKm: dist,
+      explanation: 'Tarif flat Rp 5.000 untuk seluruh pengantaran di area Kecamatan Tumpang.'
     };
   }
 
-  // Validate the 10 km limit from merchant to customer.
-  // Missing coordinates must not bypass the distance limit.
-  const hasCoordinates =
-    typeof params.latitude === 'number' &&
-    typeof params.longitude === 'number' &&
-    typeof params.merchantLatitude === 'number' &&
-    typeof params.merchantLongitude === 'number' &&
-    Number.isFinite(params.latitude) &&
-    Number.isFinite(params.longitude) &&
-    Number.isFinite(params.merchantLatitude) &&
-    Number.isFinite(params.merchantLongitude) &&
-    params.latitude !== 0 &&
-    params.longitude !== 0 &&
-    params.merchantLatitude !== 0 &&
-    params.merchantLongitude !== 0;
-
-  if (!hasCoordinates) {
+  const isInPakis = isDestinationInKecamatanPakis(locInput);
+  if (isInPakis) {
     return {
-      deliveryFee: 0,
-      isInTumpang,
-      isInPakis,
-      isSupported: false,
-      explanation: 'Koordinat toko dan alamat tujuan diperlukan untuk memvalidasi batas pengantaran 10 km.'
+      deliveryFee: FLAT_PAKIS_DELIVERY_FEE,
+      isInTumpang: false,
+      isInPakis: true,
+      isSupported: true,
+      distanceKm: dist,
+      explanation: 'Tarif flat Rp 7.500 untuk seluruh pengantaran di area Kecamatan Pakis.'
     };
   }
 
-  const distanceKm = calculateDistanceKm(
-    params.merchantLatitude as number,
-    params.merchantLongitude as number,
-    params.latitude as number,
-    params.longitude as number
-  );
-
-  if (distanceKm > MAX_DELIVERY_DISTANCE_KM) {
-    return {
-      deliveryFee: 0,
-      isInTumpang,
-      isInPakis,
-      isSupported: false,
-      distanceKm,
-      explanation: `Jarak pengantaran ${distanceKm} km melebihi batas maksimal ${MAX_DELIVERY_DISTANCE_KM} km dari toko.`
-    };
-  }
-
+  // Outside both Kecamatan Tumpang and Pakis, or unknown location: STRICTLY REJECTED
+  // Even if distance is under 10 km, deliveries outside the two districts are unsupported.
   return {
-    deliveryFee: isInPakis ? FLAT_PAKIS_DELIVERY_FEE : FLAT_TUMPANG_DELIVERY_FEE,
-    isInTumpang,
-    isInPakis,
-    isSupported: true,
-    distanceKm,
-    explanation: isInPakis
-      ? 'Tarif flat Rp 7.500 untuk Kecamatan Pakis; jarak maksimal 10 km dari toko.'
-      : 'Tarif flat Rp 5.000 untuk Kecamatan Tumpang; jarak maksimal 10 km dari toko.'
+    deliveryFee: 0,
+    isInTumpang: false,
+    isInPakis: false,
+    isSupported: false,
+    distanceKm: dist,
+    explanation: 'Pengantaran ke luar wilayah Kecamatan Tumpang dan Kecamatan Pakis ditolak atau alamat tidak dikenali. tumpangGo hanya melayani pengantaran di area Kecamatan Tumpang (Rp 5.000) dan Kecamatan Pakis (Rp 7.500) dengan jarak maksimal 10 km.'
   };
 }
 

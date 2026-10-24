@@ -94,7 +94,7 @@ async function runTests() {
   const pakisLandmarkCalc = calculateDeliveryFee({ address: 'Dekat Pemandian Wendit, Malang' });
   assert(pakisLandmarkCalc.deliveryFee === FLAT_PAKIS_DELIVERY_FEE && pakisLandmarkCalc.isInPakis === true, 'Pakis landmark (Wendit) is flat Rp 7.500');
 
-  // Test outside both (e.g., Lowokwaru Kota Malang)
+  // Test outside both (e.g., Lowokwaru Kota Malang) - MUST BE REJECTED even if distance < 10 km
   const outsideCalc = calculateDeliveryFee({
     address: 'Jl. Soekarno Hatta, Lowokwaru, Kota Malang',
     merchantLatitude: -7.9463,
@@ -103,7 +103,23 @@ async function runTests() {
     longitude: 112.6150
   });
   assert(outsideCalc.isInTumpang === false && outsideCalc.isInPakis === false, 'Outside destination correctly detected as neither Tumpang nor Pakis');
-  assert(outsideCalc.deliveryFee > 7500, `Outside destination calculates distance-based rate (Calculated: Rp ${outsideCalc.deliveryFee})`);
+  assert(outsideCalc.isSupported === false && outsideCalc.deliveryFee === 0, 'Outside destination is strictly REJECTED (isSupported: false, deliveryFee: 0)');
+
+  // Test maximum distance limit (> 10 km from merchant)
+  const tooFarCalc = calculateDeliveryFee({
+    address: 'Jl. Raya Tumpang, Malang',
+    merchantLatitude: -7.9463,
+    merchantLongitude: 112.7602,
+    latitude: -8.1500, // ~23 km away
+    longitude: 112.7600
+  });
+  assert(tooFarCalc.isSupported === false && tooFarCalc.deliveryFee === 0, 'Destination exceeding 10 km limit is strictly REJECTED (isSupported: false)');
+
+  // Test unknown / unspecified destination without coordinates
+  const unknownCalc = calculateDeliveryFee({
+    address: 'Jl. Random Tanpa Kecamatan No. 99'
+  });
+  assert(unknownCalc.isSupported === false && unknownCalc.deliveryFee === 0, 'Unknown destination without region is strictly REJECTED (not assumed to be Tumpang)');
 
   // Test normalization
   const sampleOrderTumpang: any = {

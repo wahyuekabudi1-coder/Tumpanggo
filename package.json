@@ -9,6 +9,10 @@
     "start": "node server.ts",
     "clean": "rm -rf dist server.cjs api/_app.cjs api/_app.cjs.map",
     "master:recover": "tsx scripts/recover_master_password.ts",
+    "test": "tsx tests/fee_and_db.test.ts && tsx tests/firestore_integration_verification.test.ts",
+    "test:integration": "tsx tests/firestore_integration_verification.test.ts",
+    "test:e2e": "tsx scripts/verify_audit_remediation_suite.ts",
+    "test:vercel": "tsx scripts/test_vercel_production_gatekeeper.ts",
     "lint": "tsc --noEmit"
   },
   "dependencies": {
