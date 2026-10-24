@@ -197,7 +197,7 @@ assert(customerContent.includes("usePWAInstall('CUSTOMER')"), 'CustomerView is w
 
 const merchantPath = path.resolve(process.cwd(), 'src/components/MerchantView.tsx');
 const merchantContent = fs.readFileSync(merchantPath, 'utf-8');
-assert(merchantContent.includes('<PWAInstallButton role="MERCHANT"'), 'MerchantView includes PWAInstallButton with role="MERCHANT"');
+assert(!merchantContent.includes('<PWAInstallButton role="MERCHANT"'), 'MerchantView does not include PWAInstallButton in dashboard');
 
 const driverPath = path.resolve(process.cwd(), 'src/components/DriverView.tsx');
 const driverContent = fs.readFileSync(driverPath, 'utf-8');
