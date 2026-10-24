@@ -52,6 +52,7 @@ export default function PortalLogin({ role, targetMerchantId, targetDriverId, in
   const [isActivationMode, setIsActivationMode] = useState(false);
   const [activationEmail, setActivationEmail] = useState('');
   const [activationStoreName, setActivationStoreName] = useState('');
+  const [activationToken, setActivationToken] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
 
@@ -115,6 +116,7 @@ export default function PortalLogin({ role, targetMerchantId, targetDriverId, in
       setIsActivationMode(true);
       setActivationEmail(params.get('email') || '');
       setActivationStoreName(params.get('storeName') || '');
+      setActivationToken(params.get('token') || params.get('activationToken') || '');
     }
     if (role === 'MERCHANT') {
       const saved = safeStorage.getItem('tumpang_remembered_merchant_login');
@@ -181,6 +183,7 @@ export default function PortalLogin({ role, targetMerchantId, targetDriverId, in
         body: JSON.stringify({
           email: activationEmail,
           password: newPassword,
+          activationToken: activationToken || undefined,
         }),
       });
 
@@ -1012,6 +1015,22 @@ export default function PortalLogin({ role, targetMerchantId, targetDriverId, in
                   className="w-full bg-slate-100 border border-slate-200 rounded-xl px-4 py-3 text-xs text-slate-500 font-medium"
                 />
               </div>
+
+              {!activationToken && (
+                <div className="flex flex-col gap-1">
+                  <label className="text-[11px] font-bold text-slate-700 uppercase tracking-wider block">Token Verifikasi Aktivasi</label>
+                  <input
+                    type="text"
+                    required
+                    disabled={loading}
+                    placeholder="Masukkan token aktivasi resmi dari Admin"
+                    value={activationToken}
+                    onChange={(e) => setActivationToken(e.target.value.trim())}
+                    className="w-full bg-slate-50/80 border border-slate-200 hover:border-slate-300 focus:border-rose-500 focus:bg-white rounded-xl px-4 py-3 text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-rose-500/20 transition-all font-mono"
+                  />
+                  <p className="text-[10px] text-slate-500">Token verifikasi resmi disertakan dalam tautan persetujuan pendaftaran toko Anda.</p>
+                </div>
+              )}
 
               <div className="flex flex-col gap-1">
                 <label className="text-[11px] font-bold text-slate-700 uppercase tracking-wider block">Buat Kata Sandi Baru</label>

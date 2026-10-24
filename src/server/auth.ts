@@ -165,6 +165,93 @@ export function verifyAuthToken(token: string): AuthUser | null {
 }
 
 /**
+ * Generate a cryptographically signed HMAC-SHA256 activation token for a merchant.
+ * Tied to the merchant's ID, registered email, and an expiration timestamp (default 48 hours).
+ */
+export function generateMerchantActivationToken(merchantId: string, email: string, expiresInHours = 48): string {
+  const secret = foodConfig.jwtSecret || (process.env.FOOD_AUTH_SECRET || '').trim();
+  if (!secret || secret.length < 32) {
+    throw new Error('Gagal menerbitkan token aktivasi: secret otentikasi belum dikonfigurasi.');
+  }
+
+  const cleanEmail = String(email || '').trim().toLowerCase();
+  const cleanMerchantId = String(merchantId || '').trim();
+  const header = Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'ACTIVATION' })).toString('base64url');
+  const payload = Buffer.from(
+    JSON.stringify({
+      typ: 'MERCHANT_ACTIVATION',
+      merchantId: cleanMerchantId,
+      email: cleanEmail,
+      exp: Math.floor(Date.now() / 1000) + expiresInHours * 3600
+    })
+  ).toString('base64url');
+
+  const signature = crypto
+    .createHmac('sha256', secret)
+    .update(`${header}.${payload}`)
+    .digest('base64url');
+
+  return `${header}.${payload}.${signature}`;
+}
+
+/**
+ * Verify a merchant activation token against the provided email.
+ * Ensures the token was signed by the server, is not expired, and matches the target merchant email.
+ */
+export function verifyMerchantActivationToken(token: string, email: string): { valid: boolean; merchantId?: string; error?: string } {
+  if (!token || typeof token !== 'string') {
+    return { valid: false, error: 'Token aktivasi wajib disertakan.' };
+  }
+
+  const secret = foodConfig.jwtSecret || (process.env.FOOD_AUTH_SECRET || '').trim();
+  if (!secret || secret.length < 32) {
+    return { valid: false, error: 'Secret otentikasi server belum valid.' };
+  }
+
+  try {
+    const parts = token.split('.');
+    if (parts.length !== 3) {
+      return { valid: false, error: 'Format token aktivasi tidak valid.' };
+    }
+
+    const [header, payload, signature] = parts;
+    const expectedSig = crypto
+      .createHmac('sha256', secret)
+      .update(`${header}.${payload}`)
+      .digest('base64url');
+
+    if (signature.length !== expectedSig.length) {
+      return { valid: false, error: 'Tanda tangan token aktivasi tidak cocok.' };
+    }
+
+    const isSigValid = crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expectedSig));
+    if (!isSigValid) {
+      return { valid: false, error: 'Tanda tangan token aktivasi tidak valid.' };
+    }
+
+    const data = JSON.parse(Buffer.from(payload, 'base64url').toString('utf-8'));
+    if (data.typ !== 'MERCHANT_ACTIVATION') {
+      return { valid: false, error: 'Tipe token bukan token aktivasi merchant yang sah.' };
+    }
+
+    if (data.exp && data.exp < Math.floor(Date.now() / 1000)) {
+      return { valid: false, error: 'Token aktivasi telah kedaluwarsa. Hubungi Administrator untuk tautan baru.' };
+    }
+
+    const cleanInputEmail = String(email || '').trim().toLowerCase();
+    const tokenEmail = String(data.email || '').trim().toLowerCase();
+    if (tokenEmail !== cleanInputEmail) {
+      return { valid: false, error: 'Email pada token aktivasi tidak cocok dengan email akun toko.' };
+    }
+
+    return { valid: true, merchantId: data.merchantId };
+  } catch (err: any) {
+    return { valid: false, error: 'Gagal memverifikasi token aktivasi.' };
+  }
+}
+
+
+/**
  * Express middleware to authenticate token from headers.
  */
 export function authenticateToken(req: Request, res: Response, next: NextFunction) {
@@ -187,11 +274,23 @@ export function authenticateToken(req: Request, res: Response, next: NextFunctio
 }
 
 /**
- * Check if an email has administrative privileges
+ * Check if an email has administrative privileges.
+ * Verifies against configured master/admin emails, owner email, or FOOD_ADMIN_ALLOWED_EMAILS env var.
  */
 export function isAdminEmail(email?: string): boolean {
   if (!email) return false;
   const e = email.trim().toLowerCase();
+
+  // 1. Explicit environment configured allowed emails
+  const envAllowed = (process.env.FOOD_ADMIN_ALLOWED_EMAILS || '')
+    .split(',')
+    .map(s => s.trim().toLowerCase())
+    .filter(Boolean);
+  if (envAllowed.includes(e)) {
+    return true;
+  }
+
+  // 2. Authoritative system admin accounts
   return (
     e === foodConfig.masterAccount.email ||
     e === foodConfig.adminEmail ||
@@ -200,8 +299,6 @@ export function isAdminEmail(email?: string): boolean {
     e === 'tumpanggo@gmail.com' ||
     e === 'tumpanggo' ||
     e === 'admin@tumpanggo.com' ||
-    e === 'sawahjayagroup@gmail.com' ||
-    e === 'sawahjayatrans@gmail.com' ||
     e === 'admin'
   );
 }

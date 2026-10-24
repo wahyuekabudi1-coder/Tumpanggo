@@ -13,15 +13,49 @@ import crypto from 'crypto';
 import { Router, Request, Response } from 'express';
 import { foodDb, OFFICIAL_MERCHANT_CATEGORIES } from '../db';
 import { foodConfig, updateRuntimeMasterPassword, isMasterAdminEmail, getMasterAccountCredentials } from '../config';
-import { createAuthToken, verifyPassword, hashPassword, isAdminEmail, requireRole } from '../auth';
+import { createAuthToken, verifyPassword, hashPassword, isAdminEmail, requireRole, verifyMerchantActivationToken } from '../auth';
+import { createRateLimiter } from '../middleware/rateLimiter';
 
 export const authRouter = Router();
+
+// Rate Limiters for Sensitive Endpoints
+const authLoginLimiter = createRateLimiter({
+  prefix: 'auth_login',
+  maxPerTarget: 5,
+  maxPerIp: 30,
+  windowSeconds: 900,
+  targetExtractor: (req) => req.body?.username || req.body?.email || req.body?.user
+});
+
+const forgotPasswordLimiter = createRateLimiter({
+  prefix: 'forgot_password',
+  maxPerTarget: 5,
+  maxPerIp: 20,
+  windowSeconds: 900,
+  targetExtractor: (req) => req.body?.emailOrPhone
+});
+
+const emergencyResetLimiter = createRateLimiter({
+  prefix: 'emergency_reset',
+  maxPerTarget: 3,
+  maxPerIp: 10,
+  windowSeconds: 900,
+  targetExtractor: (req) => (req.headers['x-master-recovery-key'] as string) || req.body?.newPassword
+});
+
+const merchantActivateLimiter = createRateLimiter({
+  prefix: 'merchant_activate',
+  maxPerTarget: 10,
+  maxPerIp: 30,
+  windowSeconds: 900,
+  targetExtractor: (req) => req.body?.email
+});
 
 /**
  * POST /api/login or /api/auth/login
  * Authenticates Admin, Merchant, or Driver credentials and issues a signed token.
  */
-authRouter.post(['/login', '/auth/login'], async (req: Request, res: Response) => {
+authRouter.post(['/login', '/auth/login'], authLoginLimiter, async (req: Request, res: Response) => {
   try {
     const rawUser = req.body?.username || req.body?.email || req.body?.user;
     const rawPass = req.body?.password;
@@ -510,7 +544,7 @@ authRouter.post('/merchants/register', async (req: Request, res: Response) => {
  * POST /api/merchants/forgot-password
  * Secure password reset initiation that does NOT reveal account existence.
  */
-authRouter.post('/merchants/forgot-password', async (req: Request, res: Response) => {
+authRouter.post('/merchants/forgot-password', forgotPasswordLimiter, async (req: Request, res: Response) => {
   const { emailOrPhone } = req.body;
   if (!emailOrPhone || typeof emailOrPhone !== 'string' || !emailOrPhone.trim()) {
     return res.status(400).json({ error: 'Mohon masukkan email atau nomor WhatsApp yang terdaftar.' });
@@ -549,22 +583,61 @@ authRouter.post('/merchants/forgot-password', async (req: Request, res: Response
 
 /**
  * POST /api/merchants/activate
+ * Secure merchant activation: strictly requires either:
+ * 1. An authorized Administrator session (req.user role ADMIN or MASTER_ADMIN), OR
+ * 2. A cryptographically verified HMAC activation token (activationToken / token from body, header, or query)
+ *    matching the target merchant email.
  */
-authRouter.post('/merchants/activate', async (req: Request, res: Response) => {
-  const { email, password } = req.body;
+authRouter.post('/merchants/activate', merchantActivateLimiter, async (req: Request, res: Response) => {
+  const { email, password, activationToken, token } = req.body || {};
   if (!email || !password) {
-    return res.status(400).json({ error: 'Email dan password wajib diisi.' });
+    return res.status(400).json({ error: 'Email dan kata sandi baru wajib diisi.' });
+  }
+
+  const cleanPass = String(password).trim();
+  if (cleanPass.length < 6) {
+    return res.status(400).json({ error: 'Kata sandi minimal harus 6 karakter demi keamanan akun Anda.' });
+  }
+
+  const cleanEmail = String(email).trim().toLowerCase();
+  const user = req.user;
+  const isAdmin = Boolean(user && (user.role === 'ADMIN' || user.role === 'MASTER_ADMIN' || user.isMasterAdmin));
+
+  // Determine token from body, headers, or query
+  const rawToken = String(activationToken || token || req.headers['x-activation-token'] || req.query.token || '').trim();
+
+  let isAuthorized = isAdmin;
+  let verifiedMerchantId: string | undefined = undefined;
+
+  if (!isAuthorized) {
+    if (!rawToken) {
+      return res.status(403).json({
+        error: 'Akses ditolak: Aktivasi toko memerlukan otentikasi Administrator atau token aktivasi resmi yang sah dari tautan persetujuan pendaftaran.',
+        code: 'ACTIVATION_TOKEN_REQUIRED'
+      });
+    }
+
+    const tokenCheck = verifyMerchantActivationToken(rawToken, cleanEmail);
+    if (!tokenCheck.valid) {
+      return res.status(403).json({
+        error: `Akses ditolak: ${tokenCheck.error || 'Token aktivasi tidak sah atau telah kedaluwarsa.'}`,
+        code: 'INVALID_ACTIVATION_TOKEN'
+      });
+    }
+
+    isAuthorized = true;
+    verifiedMerchantId = tokenCheck.merchantId;
   }
 
   try {
-    const result = await foodDb.activateMerchant(email, password);
+    const result = await foodDb.activateMerchant(cleanEmail, cleanPass, isAdmin, verifiedMerchantId);
     if (result.success) {
       res.json({ success: true, merchant: result.merchant });
     } else {
-      res.status(400).json({ error: result.error });
+      res.status(400).json({ error: result.error, code: result.code || 'ACTIVATION_FAILED' });
     }
   } catch (e: any) {
-    res.status(500).json({ error: e.message });
+    res.status(500).json({ error: e.message || 'Gagal memproses aktivasi toko.', code: 'SERVER_ERROR' });
   }
 });
 
@@ -643,7 +716,7 @@ authRouter.post(['/master/rotate-password', '/auth/master/rotate-password'], req
  * Single-use tokens are destroyed immediately upon successful verification.
  * Never logs credentials, hashes, or tokens.
  */
-authRouter.post(['/master/emergency-reset', '/auth/master/emergency-reset'], async (req: Request, res: Response) => {
+authRouter.post(['/master/emergency-reset', '/auth/master/emergency-reset'], emergencyResetLimiter, async (req: Request, res: Response) => {
   const recoveryKey = String(req.headers['x-master-recovery-key'] || '').trim();
   let authBearer = '';
   const authHeader = req.headers['authorization'];

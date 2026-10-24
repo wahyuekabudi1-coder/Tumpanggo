@@ -14,7 +14,7 @@ import {
   Testimonial, AppRole, OrderReceipt
 } from '../types';
 import { foodConfig, getMasterAccountCredentials, validateProductionEnvironment } from './config';
-import { hashPassword, verifyPassword } from './auth';
+import { hashPassword, verifyPassword, generateMerchantActivationToken } from './auth';
 import { OrderService } from './services/orderService';
 import { isDestinationInKecamatanTumpang, FLAT_TUMPANG_DELIVERY_FEE, normalizeOrderDeliveryFee } from '../utils/deliveryFee';
 import {
@@ -1657,6 +1657,17 @@ export class FoodDatabase {
     if (index === -1) throw new Error('Merchant not found');
 
     const updatedData = { ...updates };
+    // Strict Defense-in-Depth: Non-admin callers cannot alter operational status or metrics
+    if (role !== 'ADMIN' && (role as any) !== 'MASTER_ADMIN' && (role as any) !== 'SYSTEM') {
+      delete updatedData.id;
+      delete updatedData.active;
+      delete updatedData.isActivated;
+      delete updatedData.rating;
+      delete (updatedData as any).menuCount;
+      delete (updatedData as any).createdAt;
+      delete updatedData.email;
+    }
+
     // Guard against clearing existing password when empty password is submitted
     if (!updatedData.password || (typeof updatedData.password === 'string' && updatedData.password.trim().length === 0)) {
       delete updatedData.password;
@@ -1686,7 +1697,8 @@ export class FoodDatabase {
     this.data.merchants[index] = nextMerchant;
     this.save();
     this.log(userId, `Updated merchant ${this.data.merchants[index].name}`, role);
-    return this.data.merchants[index];
+    const { password: _p, ...safeMerchant } = this.data.merchants[index];
+    return safeMerchant as Merchant;
   }
 
   public async deleteMerchant(userId: string, id: string): Promise<boolean> {
@@ -1720,41 +1732,141 @@ export class FoodDatabase {
     return true;
   }
 
-  public async activateMerchant(email: string, passwordPlain: string): Promise<{ success: boolean; merchant?: Merchant; error?: string }> {
+  private activationMutex: Promise<any> = Promise.resolve();
+
+  /**
+   * Serializes merchant activation operations across process memory, filesystem locks, and Firestore transactions.
+   */
+  public async runWithActivationLock<T>(fn: () => Promise<T> | T): Promise<T> {
+    let release: () => void;
+    const waitPromise = new Promise<void>(resolve => {
+      release = resolve;
+    });
+    const currentMutex = this.activationMutex;
+    this.activationMutex = currentMutex.then(() => waitPromise).catch(() => waitPromise);
+    await currentMutex;
+
+    // Cross-process filesystem atomic lock (guards separate local Node processes)
+    const lockPath = path.join(path.dirname(FOOD_DB_FILE), 'merchant_activation.lock');
+    let fileLockAcquired = false;
+    for (let attempts = 0; attempts < 30; attempts++) {
+      try {
+        const fd = fs.openSync(lockPath, 'wx');
+        fs.writeSync(fd, `${process.pid}:${Date.now()}`);
+        fs.closeSync(fd);
+        fileLockAcquired = true;
+        break;
+      } catch (err: any) {
+        if (err.code === 'EEXIST') {
+          try {
+            const stats = fs.statSync(lockPath);
+            if (Date.now() - stats.mtimeMs > 15000) {
+              fs.unlinkSync(lockPath);
+              continue;
+            }
+          } catch {}
+          await new Promise(r => setTimeout(r, 100));
+        } else {
+          break;
+        }
+      }
+    }
+
+    try {
+      return await fn();
+    } finally {
+      if (fileLockAcquired) {
+        try {
+          fs.unlinkSync(lockPath);
+        } catch {}
+      }
+      release!();
+    }
+  }
+
+  public async activateMerchant(
+    email: string,
+    passwordPlain: string,
+    isAdmin = false,
+    expectedMerchantId?: string
+  ): Promise<{ success: boolean; merchant?: Merchant; error?: string; code?: string }> {
     await this.ensureProductionCloudReady('Aktivasi Toko Merchant');
     const cleanEmail = email.trim().toLowerCase();
-    const merchant = this.data.merchants.find(m => m.email?.trim().toLowerCase() === cleanEmail);
-    if (!merchant) {
-      return { success: false, error: 'Merchant dengan email tersebut tidak ditemukan.' };
-    }
 
-    const prevMerchant = { ...merchant };
-    merchant.active = true;
-    merchant.isActivated = true;
-    merchant.password = hashPassword(passwordPlain);
-    merchant.updatedAt = new Date().toISOString();
-
-    if (foodConfig.isProduction) {
-      const persisted = await safeFirestoreSetDoc('merchants', merchant.id, merchant);
-      if (!persisted) {
-        Object.assign(merchant, prevMerchant);
-        throw new Error('[Produksi] Gagal mengaktifkan merchant pada cloud Firestore. Operasi dibatalkan.');
+    return this.runWithActivationLock(async () => {
+      this.reloadFromDiskIfNeeded();
+      const merchant = this.data.merchants.find(m => m.email?.trim().toLowerCase() === cleanEmail);
+      if (!merchant) {
+        return { success: false, error: 'Merchant dengan email tersebut tidak ditemukan.', code: 'MERCHANT_NOT_FOUND' };
       }
-    } else {
-      safeFirestoreSetDoc('merchants', merchant.id, merchant);
-    }
 
-    if (this.data.partnerRegistrations) {
-      const reg = this.data.partnerRegistrations.find(r => r.email?.trim().toLowerCase() === cleanEmail && r.type === 'MERCHANT');
-      if (reg) {
-        reg.status = 'ACTIVATED';
-        safeFirestoreSetDoc('partnerRegistrations', reg.id, reg);
+      if (expectedMerchantId && merchant.id !== expectedMerchantId) {
+        return { success: false, error: 'Identitas merchant tidak cocok dengan token aktivasi.', code: 'MERCHANT_MISMATCH' };
       }
-    }
 
-    this.save();
-    this.log(merchant.id, `Activated merchant store ${merchant.name}`, 'MERCHANT');
-    return { success: true, merchant };
+      // Safety guard: An already activated & active merchant cannot be overwritten via token activation
+      if (merchant.isActivated && merchant.active && !isAdmin) {
+        return { success: false, error: 'Akun toko ini sudah aktif. Silakan masuk melalui portal login toko.', code: 'ALREADY_ACTIVATED' };
+      }
+
+      // If Cloud Firestore Admin is configured, perform cross-serverless atomic transaction
+      if (isFirestoreAdminConfigured()) {
+        const adminDb = getAdminDb();
+        if (adminDb) {
+          const merchantDocRef = adminDb.collection('merchants').doc(merchant.id);
+          try {
+            await adminDb.runTransaction(async (transaction) => {
+              const snap = await transaction.get(merchantDocRef);
+              if (snap.exists) {
+                const remoteData = snap.data();
+                if (remoteData?.isActivated && remoteData?.active && !isAdmin) {
+                  const err: any = new Error('ALREADY_ACTIVATED');
+                  err.code = 'ALREADY_ACTIVATED';
+                  throw err;
+                }
+              }
+              transaction.set(merchantDocRef, {
+                ...merchant,
+                active: true,
+                isActivated: true,
+                password: hashPassword(passwordPlain),
+                updatedAt: new Date().toISOString()
+              }, { merge: true });
+            });
+          } catch (txErr: any) {
+            if (txErr.code === 'ALREADY_ACTIVATED' || txErr.message?.includes('ALREADY_ACTIVATED') || txErr.message?.includes('sudah aktif')) {
+              return { success: false, error: 'Akun toko ini sudah aktif. Silakan masuk melalui portal login toko.', code: 'ALREADY_ACTIVATED' };
+            }
+            if (foodConfig.isProduction) {
+              throw txErr;
+            }
+          }
+        }
+      }
+
+      const prevMerchant = { ...merchant };
+      merchant.active = true;
+      merchant.isActivated = true;
+      merchant.password = hashPassword(passwordPlain);
+      merchant.updatedAt = new Date().toISOString();
+
+      if (!isFirestoreAdminConfigured()) {
+        safeFirestoreSetDoc('merchants', merchant.id, merchant);
+      }
+
+      if (this.data.partnerRegistrations) {
+        const reg = this.data.partnerRegistrations.find(r => r.email?.trim().toLowerCase() === cleanEmail && r.type === 'MERCHANT');
+        if (reg) {
+          reg.status = 'ACTIVATED';
+          safeFirestoreSetDoc('partnerRegistrations', reg.id, reg);
+        }
+      }
+
+      this.save();
+      this.log(merchant.id, `Activated merchant store ${merchant.name}`, 'MERCHANT');
+      const { password: _p, ...safeMerchant } = merchant;
+      return { success: true, merchant: safeMerchant as Merchant };
+    });
   }
 
   // --- CATEGORIES ---
@@ -1995,10 +2107,27 @@ export class FoodDatabase {
     const index = this.data.drivers.findIndex(d => d.id === id);
     if (index === -1) throw new Error('Driver not found');
 
+    const sanitizedUpdates = { ...updates };
+
+    // Strict Defense-in-Depth: Non-admin drivers cannot modify administrative status, rating, or credentials
+    if (role !== 'ADMIN' && (role as any) !== 'MASTER_ADMIN' && (role as any) !== 'SYSTEM') {
+      delete sanitizedUpdates.id;
+      delete sanitizedUpdates.active;
+      delete (sanitizedUpdates as any).rating;
+      delete (sanitizedUpdates as any).createdAt;
+      delete (sanitizedUpdates as any).email;
+      delete (sanitizedUpdates as any).password;
+
+      // Disallow turning online if driver is inactive/suspended
+      if (sanitizedUpdates.online && !this.data.drivers[index].active) {
+        throw new Error('Akun kurir Anda belum disetujui atau dinonaktifkan oleh administrator. Status Online tidak dapat diaktifkan.');
+      }
+    }
+
     const prevDriver = { ...this.data.drivers[index] };
     const nextDriver = {
       ...this.data.drivers[index],
-      ...updates,
+      ...sanitizedUpdates,
       updatedAt: new Date().toISOString()
     };
 
@@ -2014,7 +2143,8 @@ export class FoodDatabase {
     this.data.drivers[index] = nextDriver;
     this.save();
     this.log(userId, `Updated driver ${this.data.drivers[index].name}`, role);
-    return this.data.drivers[index];
+    const { password: _p, ...safeDriver } = this.data.drivers[index] as any;
+    return safeDriver as Driver;
   }
 
   public async deleteDriver(userId: string, id: string): Promise<boolean> {
@@ -3290,6 +3420,13 @@ export class FoodDatabase {
         (reg as any).approvedAt = new Date().toISOString();
         (reg as any).approvedBy = userId;
 
+        const activationToken = reg.type === 'MERCHANT' && reg.storeId && reg.email
+          ? generateMerchantActivationToken(reg.storeId, reg.email)
+          : undefined;
+        if (activationToken) {
+          (reg as any).activationToken = activationToken;
+        }
+
         if (isFirestoreAdminConfigured()) {
           const persisted = await safeAdminSetDocDetailed('partnerRegistrations', reg.id, reg);
           if (!persisted.success && foodConfig.isProduction) {
@@ -3302,7 +3439,7 @@ export class FoodDatabase {
 
         this.save();
         this.log(userId, `Approved partner registration ${reg.id} (${reg.name})`, 'ADMIN');
-        return { success: true, registration: reg };
+        return { success: true, registration: reg, activationToken };
 
       } catch (err: any) {
         // ATOMIC ROLLBACK: Revert registration status to previous state (PENDING)

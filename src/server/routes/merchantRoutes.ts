@@ -135,11 +135,25 @@ merchantRouter.post('/', requireRole(['ADMIN']), async (req: Request, res: Respo
 
 merchantRouter.put('/:id', requireMerchantOwner('id'), async (req: Request, res: Response) => {
   const updates = { ...req.body };
-  // Do not allow changing store ID
+  // Canonical identifiers and system keys are strictly immutable
   delete updates.id;
+
+  const isAdmin = Boolean(req.user?.role === 'ADMIN' || req.user?.role === 'MASTER_ADMIN' || req.user?.isMasterAdmin);
+  const actorRole = (isAdmin ? 'ADMIN' : 'MERCHANT') as 'ADMIN' | 'MERCHANT';
+
+  // Strict Privilege Separation: Non-admin merchants cannot alter operational status, metrics, or identity
+  if (!isAdmin) {
+    delete updates.active;
+    delete updates.isActivated;
+    delete updates.rating;
+    delete updates.menuCount;
+    delete updates.createdAt;
+    delete updates.password;
+    delete updates.email;
+  }
+
   try {
     const actorId = req.user?.userId || req.user?.entityId || req.params.id;
-    const actorRole = (req.user?.role === 'ADMIN' || req.user?.role === 'MASTER_ADMIN' || req.user?.isMasterAdmin ? 'ADMIN' : 'MERCHANT') as 'ADMIN' | 'MERCHANT';
     const updated = await foodDb.updateMerchant(actorId, req.params.id, updates, actorRole);
     res.json(updated);
   } catch (e: any) {

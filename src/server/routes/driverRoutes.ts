@@ -43,13 +43,42 @@ driverRouter.post('/', requireRole(['ADMIN']), async (req: Request, res: Respons
 });
 
 driverRouter.put('/:id', requireDriverSelf('id'), async (req: Request, res: Response) => {
-  const { userId, role, ...updates } = req.body;
+  const { userId, role, ...rawUpdates } = req.body || {};
+  const updates: any = { ...rawUpdates };
+
+  // Canonical identifiers and system keys are strictly immutable
+  delete updates.id;
+
+  const isAdmin = Boolean(req.user?.role === 'ADMIN' || req.user?.role === 'MASTER_ADMIN' || req.user?.isMasterAdmin);
+  const effectiveRole = (isAdmin ? 'ADMIN' : 'DRIVER') as 'ADMIN' | 'DRIVER';
+
+  // Strict Privilege Separation: Non-admin drivers cannot alter account status, metrics, or identity
+  if (!isAdmin) {
+    delete updates.active;
+    delete updates.rating;
+    delete updates.createdAt;
+    delete updates.email;
+    delete updates.password;
+
+    // A deactivated or pending driver cannot toggle status online
+    if (updates.online !== undefined && Boolean(updates.online)) {
+      const currentDriver = foodDb.getDriverById(req.params.id);
+      if (currentDriver && !currentDriver.active) {
+        return res.status(403).json({
+          error: 'Akun kurir Anda belum disetujui atau dinonaktifkan oleh Administrator. Status Online tidak dapat diaktifkan.',
+          code: 'DRIVER_INACTIVE'
+        });
+      }
+    }
+  }
+
   try {
+    const actorId = req.user?.userId || req.user?.entityId || req.params.id;
     const updated = await foodDb.updateDriver(
-      req.user?.userId || userId || req.params.id,
+      actorId,
       req.params.id,
       updates,
-      req.user?.role || role || 'DRIVER'
+      effectiveRole
     );
     res.json(updated);
   } catch (e: any) {
