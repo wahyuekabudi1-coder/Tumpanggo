@@ -64,20 +64,83 @@ function notifyListeners() {
   });
 }
 
+export function getHostPWARole(): PWARole | null {
+  if (typeof window === 'undefined') return null;
+  const isStandalone = Boolean(
+    window.matchMedia('(display-mode: standalone)').matches ||
+    (window.navigator as any).standalone === true ||
+    document.referrer.includes('android-app://') ||
+    (new URLSearchParams(window.location.search).get('source') || '').includes('pwa')
+  );
+  if (!isStandalone) return null;
+
+  try {
+    const sessionHost = window.sessionStorage?.getItem('tumpang_standalone_host_role') as PWARole;
+    if (sessionHost && ['CUSTOMER', 'MERCHANT', 'DRIVER', 'ADMIN'].includes(sessionHost)) {
+      return sessionHost;
+    }
+  } catch {}
+
+  const path = window.location.pathname.toLowerCase();
+  let hostRole: PWARole = 'CUSTOMER';
+  if (path === '/merchant' || path.startsWith('/merchant/')) {
+    hostRole = 'MERCHANT';
+  } else if (path === '/driver' || path.startsWith('/driver/')) {
+    hostRole = 'DRIVER';
+  } else if (path === '/admin' || path.startsWith('/admin/')) {
+    hostRole = 'ADMIN';
+  }
+
+  try {
+    window.sessionStorage?.setItem('tumpang_standalone_host_role', hostRole);
+  } catch {}
+  return hostRole;
+}
+
 export function checkIsStandalone(targetRole?: PWARole): boolean {
   if (typeof window === 'undefined') return false;
   const isStandalone = Boolean(
     window.matchMedia('(display-mode: standalone)').matches ||
     (window.navigator as any).standalone === true ||
     document.referrer.includes('android-app://') ||
-    new URLSearchParams(window.location.search).get('source') === 'pwa'
+    (new URLSearchParams(window.location.search).get('source') || '').includes('pwa')
   );
 
   if (!isStandalone) return false;
   if (!targetRole) return true;
 
-  const currentRole = detectCurrentPWARole();
-  return currentRole === targetRole;
+  const hostRole = getHostPWARole();
+  return hostRole === targetRole;
+}
+
+export function checkIsRunningInOtherPWA(targetRole?: PWARole): boolean {
+  if (typeof window === 'undefined') return false;
+  const hostRole = getHostPWARole();
+  if (!hostRole) return false;
+  if (!targetRole) return false;
+  return hostRole !== targetRole;
+}
+
+const STORAGE_PREFIX = 'tumpang_pwa_installed_';
+
+export function getRoleInstalledFromStorage(role: PWARole): boolean {
+  if (typeof window === 'undefined') return false;
+  try {
+    return localStorage.getItem(STORAGE_PREFIX + role) === 'true';
+  } catch {
+    return false;
+  }
+}
+
+export function setRoleInstalledToStorage(role: PWARole, installed: boolean) {
+  if (typeof window === 'undefined') return;
+  try {
+    if (installed) {
+      localStorage.setItem(STORAGE_PREFIX + role, 'true');
+    } else {
+      localStorage.removeItem(STORAGE_PREFIX + role);
+    }
+  } catch {}
 }
 
 export function checkIsIOS(): boolean {
@@ -175,6 +238,7 @@ if (typeof window !== 'undefined') {
     }
     if ((window as any).__tumpang_app_installed) {
       roleInstalledMap[targetRole] = true;
+      setRoleInstalledToStorage(targetRole, true);
       globalIsInstalled = true;
       rolePrompts[targetRole] = null;
       globalDeferredPrompt = null;
@@ -195,9 +259,10 @@ if (typeof window !== 'undefined') {
     notifyListeners();
   });
 
-  window.addEventListener('appinstalled', () => {
-    const installedRole = detectCurrentPWARole();
+  window.addEventListener('appinstalled', (e: any) => {
+    const installedRole = e?.__tumpang_role || detectCurrentPWARole();
     roleInstalledMap[installedRole] = true;
+    setRoleInstalledToStorage(installedRole, true);
     globalIsInstalled = true;
     rolePrompts[installedRole] = null;
     globalDeferredPrompt = null;
@@ -205,7 +270,7 @@ if (typeof window !== 'undefined') {
       (window as any).__tumpang_prompts[installedRole] = null;
     }
     (window as any).__tumpang_install_prompt = null;
-    (window as any).__tumpang_app_installed = true;
+    (window as any).__tumpang_app_installed_role = installedRole;
     notifyListeners();
   });
 
@@ -216,6 +281,7 @@ if (typeof window !== 'undefined') {
       if (e.matches) {
         const curRole = detectCurrentPWARole();
         roleInstalledMap[curRole] = true;
+        setRoleInstalledToStorage(curRole, true);
         globalIsInstalled = true;
         rolePrompts[curRole] = null;
         globalDeferredPrompt = null;
@@ -237,7 +303,7 @@ export function usePWAInstall(role?: PWARole) {
       return (
         checkIsStandalone(targetRole) ||
         roleInstalledMap[targetRole] ||
-        (targetRole === 'CUSTOMER' && Boolean((window as any).__tumpang_app_installed))
+        getRoleInstalledFromStorage(targetRole)
       );
     }
     return false;
@@ -260,7 +326,7 @@ export function usePWAInstall(role?: PWARole) {
       const installed =
         checkIsStandalone(targetRole) ||
         roleInstalledMap[targetRole] ||
-        (targetRole === 'CUSTOMER' && Boolean((window as any).__tumpang_app_installed));
+        getRoleInstalledFromStorage(targetRole);
       setIsInstalled(installed);
     };
 
@@ -348,6 +414,8 @@ export function usePWAInstall(role?: PWARole) {
     isInstalled,
     isIOS,
     isDirectRoute,
+    isRunningInOtherPWA: checkIsRunningInOtherPWA(targetRole),
+    hostRole: getHostPWARole(),
     targetRole,
     install,
     openDirectPortalRoute,

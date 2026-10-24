@@ -547,6 +547,46 @@ assert(resolvePortalRoleFromUrl('https://example.com/driver') === 'DRIVER', 'Sta
 assert(resolvePortalRoleFromUrl('https://example.com/admin') === 'ADMIN', 'Start URL /admin strictly maps to ADMIN portal');
 assert(resolvePortalRoleFromUrl('https://example.com/') === 'CUSTOMER', 'Start URL / strictly maps to CUSTOMER portal');
 
+// -----------------------------------------------------------------------------
+// 9. THREE INDEPENDENT PWAS ISOLATION & DEDICATED BRANDING AUDIT
+// -----------------------------------------------------------------------------
+console.log('\n--- 9. THREE INDEPENDENT PWAS ISOLATION & DEDICATED BRANDING AUDIT ---');
+
+// Audit distinct icons
+const merchantRaw = JSON.parse(fs.readFileSync(path.resolve(process.cwd(), 'public/manifest-merchant.json'), 'utf-8'));
+const driverRaw = JSON.parse(fs.readFileSync(path.resolve(process.cwd(), 'public/manifest-driver.json'), 'utf-8'));
+const customerRaw = JSON.parse(fs.readFileSync(path.resolve(process.cwd(), 'public/manifest.json'), 'utf-8'));
+
+assert(merchantRaw.icons.some((i: any) => i.src.includes('merchant')), 'Merchant manifest uses dedicated Merchant icons (pwa-merchant-*.png)');
+assert(!merchantRaw.icons.some((i: any) => i.src === '/pwa-192x192.png'), 'Merchant manifest does NOT share standard Customer 192 icon');
+
+assert(driverRaw.icons.some((i: any) => i.src.includes('driver')), 'Driver manifest uses dedicated Driver icons (pwa-driver-*.png)');
+assert(!driverRaw.icons.some((i: any) => i.src === '/pwa-192x192.png'), 'Driver manifest does NOT share standard Customer 192 icon');
+
+// Check physical existence of generated assets
+const requiredIconAssets = [
+  'public/pwa-merchant-192x192.png',
+  'public/pwa-merchant-512x512.png',
+  'public/pwa-merchant-maskable-512x512.png',
+  'public/apple-touch-icon-merchant.png',
+  'public/pwa-driver-192x192.png',
+  'public/pwa-driver-512x512.png',
+  'public/pwa-driver-maskable-512x512.png',
+  'public/apple-touch-icon-driver.png'
+];
+
+for (const iconAsset of requiredIconAssets) {
+  const aPath = path.resolve(process.cwd(), iconAsset);
+  const exists = fs.existsSync(aPath);
+  const size = exists ? fs.statSync(aPath).size : 0;
+  assert(exists && size > 100, `Physical icon asset exists and valid: ${iconAsset} (${size} bytes)`);
+}
+
+// Test Cross-PWA Standalone Detection Logic
+assert(hookContent.includes('getHostPWARole'), 'usePWAInstall implements getHostPWARole to detect host PWA identity');
+assert(hookContent.includes('checkIsRunningInOtherPWA'), 'usePWAInstall implements checkIsRunningInOtherPWA');
+assert(hookContent.includes('getRoleInstalledFromStorage'), 'usePWAInstall implements getRoleInstalledFromStorage per-role storage');
+
 console.log('\n================================================================================');
 console.log(`📊 PWA INSTALLATION VERIFICATION: ${passed} PASSED, ${failed} FAILED`);
 console.log('================================================================================');

@@ -634,7 +634,8 @@ authRouter.post('/merchants/activate', merchantActivateLimiter, async (req: Requ
     if (result.success) {
       res.json({ success: true, merchant: result.merchant });
     } else {
-      res.status(400).json({ error: result.error, code: result.code || 'ACTIVATION_FAILED' });
+      const statusCode = result.code === 'DATABASE_ERROR' ? 503 : 400;
+      res.status(statusCode).json({ error: result.error, code: result.code || 'ACTIVATION_FAILED' });
     }
   } catch (e: any) {
     res.status(500).json({ error: e.message || 'Gagal memproses aktivasi toko.', code: 'SERVER_ERROR' });

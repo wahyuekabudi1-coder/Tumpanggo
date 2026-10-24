@@ -25,17 +25,26 @@ export function generatePwaFallbacks() {
     {
       dir: 'merchant',
       manifest: '/manifest-merchant.json',
-      title: 'TumpangGo Merchant – Portal Mitra Toko & Dapur'
+      title: 'TumpangGo Merchant – Portal Mitra Toko & Dapur',
+      appTitle: 'TG Merchant',
+      appleTouchIcon: '/apple-touch-icon-merchant.png',
+      themeColor: '#047857'
     },
     {
       dir: 'driver',
       manifest: '/manifest-driver.json',
-      title: 'TumpangGo Driver – Portal Operasional Kurir'
+      title: 'TumpangGo Driver – Portal Operasional Kurir',
+      appTitle: 'TG Driver',
+      appleTouchIcon: '/apple-touch-icon-driver.png',
+      themeColor: '#0F172A'
     },
     {
       dir: 'admin',
       manifest: '/manifest-admin.json',
-      title: 'TumpangGo Admin – Dashboard Manajemen'
+      title: 'TumpangGo Admin – Dashboard Manajemen',
+      appTitle: 'TG Admin',
+      appleTouchIcon: '/apple-touch-icon.png',
+      themeColor: '#0F172A'
     }
   ];
 
@@ -56,6 +65,30 @@ export function generatePwaFallbacks() {
       /<title>[^<]*<\/title>/i,
       `<title>${portal.title}</title>`
     );
+
+    // Replace apple-touch-icon
+    if (portal.appleTouchIcon) {
+      portalHtml = portalHtml.replace(
+        /<link rel="apple-touch-icon"[^>]*>/gi,
+        `<link rel="apple-touch-icon" href="${portal.appleTouchIcon}" />`
+      );
+    }
+
+    // Replace apple-mobile-web-app-title
+    if (portal.appTitle) {
+      portalHtml = portalHtml.replace(
+        /<meta name="apple-mobile-web-app-title"[^>]*>/i,
+        `<meta name="apple-mobile-web-app-title" content="${portal.appTitle}" />`
+      );
+    }
+
+    // Replace theme-color
+    if (portal.themeColor) {
+      portalHtml = portalHtml.replace(
+        /<meta name="theme-color"[^>]*>/i,
+        `<meta name="theme-color" content="${portal.themeColor}" />`
+      );
+    }
 
     // Write folder-based fallback (dist/merchant/index.html)
     const outPath = path.join(portalDir, 'index.html');

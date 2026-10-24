@@ -1795,7 +1795,51 @@ export class FoodDatabase {
 
     return this.runWithActivationLock(async () => {
       this.reloadFromDiskIfNeeded();
-      const merchant = this.data.merchants.find(m => m.email?.trim().toLowerCase() === cleanEmail);
+
+      // 1. Initial search in local cache
+      let merchant = this.data.merchants.find(m => m.email?.trim().toLowerCase() === cleanEmail);
+      if (expectedMerchantId && merchant && merchant.id !== expectedMerchantId) {
+        merchant = undefined;
+      }
+      if (!merchant && expectedMerchantId) {
+        merchant = this.data.merchants.find(m => m.id === expectedMerchantId);
+      }
+
+      // 2. Authoritative query from Cloud Firestore if not found in local cache (Serverless consistency)
+      if (!merchant && isFirestoreAdminConfigured()) {
+        const adminDb = getAdminDb();
+        if (adminDb) {
+          try {
+            if (expectedMerchantId) {
+              const docSnap = await adminDb.collection('merchants').doc(expectedMerchantId).get();
+              if (docSnap.exists) {
+                const cloudData = docSnap.data() as Merchant;
+                if (cloudData.email?.trim().toLowerCase() === cleanEmail) {
+                  merchant = cloudData;
+                }
+              }
+            }
+            if (!merchant) {
+              const emailSnap = await adminDb.collection('merchants')
+                .where('email', '==', cleanEmail)
+                .limit(1)
+                .get();
+              if (!emailSnap.empty) {
+                merchant = emailSnap.docs[0].data() as Merchant;
+              }
+            }
+          } catch (dbErr: any) {
+            console.error('[TumpangFood DB] Error querying merchant authoritative state from Firestore:', dbErr);
+            // Fail safely on database communication error; do not treat database failure as missing account
+            return {
+              success: false,
+              error: 'Layanan verifikasi data toko sementara tidak tersedia. Silakan coba kembali beberapa saat lagi.',
+              code: 'DATABASE_ERROR'
+            };
+          }
+        }
+      }
+
       if (!merchant) {
         return { success: false, error: 'Merchant dengan email tersebut tidak ditemukan.', code: 'MERCHANT_NOT_FOUND' };
       }
@@ -1809,62 +1853,131 @@ export class FoodDatabase {
         return { success: false, error: 'Akun toko ini sudah aktif. Silakan masuk melalui portal login toko.', code: 'ALREADY_ACTIVATED' };
       }
 
-      // If Cloud Firestore Admin is configured, perform cross-serverless atomic transaction
+      // 3. Locate corresponding partnerRegistration ID for unified atomic update
+      let partnerReg = this.data.partnerRegistrations?.find(r => 
+        (r.storeId === merchant!.id || (r.email?.trim().toLowerCase() === cleanEmail && r.type === 'MERCHANT'))
+      );
+      let partnerRegId = partnerReg?.id;
+
+      if (!partnerRegId && isFirestoreAdminConfigured()) {
+        const adminDb = getAdminDb();
+        if (adminDb) {
+          try {
+            const snapStore = await adminDb.collection('partnerRegistrations')
+              .where('storeId', '==', merchant.id)
+              .limit(1)
+              .get();
+            if (!snapStore.empty) {
+              partnerRegId = snapStore.docs[0].id;
+            } else {
+              const snapEmail = await adminDb.collection('partnerRegistrations')
+                .where('email', '==', cleanEmail)
+                .limit(5)
+                .get();
+              if (!snapEmail.empty) {
+                const matched = snapEmail.docs.find(d => (d.data() as any)?.type === 'MERCHANT');
+                if (matched) {
+                  partnerRegId = matched.id;
+                }
+              }
+            }
+          } catch (regErr) {
+            console.warn('[TumpangFood DB] Non-fatal error querying partner registration:', regErr);
+          }
+        }
+      }
+
+      // 4. Unified atomic transaction in Cloud Firestore for merchants & partnerRegistrations
       if (isFirestoreAdminConfigured()) {
         const adminDb = getAdminDb();
         if (adminDb) {
           const merchantDocRef = adminDb.collection('merchants').doc(merchant.id);
+          const partnerRegDocRef = partnerRegId ? adminDb.collection('partnerRegistrations').doc(partnerRegId) : null;
+
           try {
             await adminDb.runTransaction(async (transaction) => {
-              const snap = await transaction.get(merchantDocRef);
-              if (snap.exists) {
-                const remoteData = snap.data();
-                if (remoteData?.isActivated && remoteData?.active && !isAdmin) {
+              // --- READ PHASE: All reads must occur before any writes ---
+              const merchantSnap = await transaction.get(merchantDocRef);
+              const regSnap = partnerRegDocRef ? await transaction.get(partnerRegDocRef) : null;
+
+              let latestMerchantData: any = merchant;
+              if (merchantSnap.exists) {
+                latestMerchantData = merchantSnap.data();
+                if (latestMerchantData?.isActivated && latestMerchantData?.active && !isAdmin) {
                   const err: any = new Error('ALREADY_ACTIVATED');
                   err.code = 'ALREADY_ACTIVATED';
                   throw err;
                 }
               }
-              transaction.set(merchantDocRef, {
-                ...merchant,
+
+              // --- WRITE PHASE: All writes occur after reads ---
+              const nowIso = new Date().toISOString();
+              const updatedMerchantFields = {
+                ...latestMerchantData,
                 active: true,
                 isActivated: true,
                 password: hashPassword(passwordPlain),
-                updatedAt: new Date().toISOString()
-              }, { merge: true });
+                updatedAt: nowIso
+              };
+
+              transaction.set(merchantDocRef, updatedMerchantFields, { merge: true });
+
+              if (partnerRegDocRef && regSnap?.exists) {
+                transaction.set(partnerRegDocRef, {
+                  status: 'ACTIVATED',
+                  activatedAt: nowIso,
+                  updatedAt: nowIso
+                }, { merge: true });
+              }
             });
           } catch (txErr: any) {
             if (txErr.code === 'ALREADY_ACTIVATED' || txErr.message?.includes('ALREADY_ACTIVATED') || txErr.message?.includes('sudah aktif')) {
               return { success: false, error: 'Akun toko ini sudah aktif. Silakan masuk melalui portal login toko.', code: 'ALREADY_ACTIVATED' };
             }
+            console.error('[TumpangFood DB] Error during merchant activation transaction:', txErr);
             if (foodConfig.isProduction) {
               throw txErr;
             }
+            return {
+              success: false,
+              error: 'Gagal memproses transaksi aktivasi toko.',
+              code: 'TRANSACTION_FAILED'
+            };
           }
         }
       }
 
-      const prevMerchant = { ...merchant };
-      merchant.active = true;
-      merchant.isActivated = true;
-      merchant.password = hashPassword(passwordPlain);
-      merchant.updatedAt = new Date().toISOString();
+      // 5. Synchronize local cache
+      const nowIso = new Date().toISOString();
+      const updatedMerchant: Merchant = {
+        ...merchant,
+        active: true,
+        isActivated: true,
+        password: hashPassword(passwordPlain),
+        updatedAt: nowIso
+      };
 
-      if (!isFirestoreAdminConfigured()) {
-        safeFirestoreSetDoc('merchants', merchant.id, merchant);
+      const existingIdx = this.data.merchants.findIndex(m => m.id === merchant!.id);
+      if (existingIdx >= 0) {
+        this.data.merchants[existingIdx] = updatedMerchant;
+      } else {
+        this.data.merchants.push(updatedMerchant);
       }
 
       if (this.data.partnerRegistrations) {
-        const reg = this.data.partnerRegistrations.find(r => r.email?.trim().toLowerCase() === cleanEmail && r.type === 'MERCHANT');
-        if (reg) {
-          reg.status = 'ACTIVATED';
-          safeFirestoreSetDoc('partnerRegistrations', reg.id, reg);
+        const regToUpdate = this.data.partnerRegistrations.find(r => 
+          (partnerRegId && r.id === partnerRegId) || 
+          (r.storeId === merchant!.id || (r.email?.trim().toLowerCase() === cleanEmail && r.type === 'MERCHANT'))
+        );
+        if (regToUpdate) {
+          regToUpdate.status = 'ACTIVATED';
+          (regToUpdate as any).activatedAt = nowIso;
         }
       }
 
       this.save();
       this.log(merchant.id, `Activated merchant store ${merchant.name}`, 'MERCHANT');
-      const { password: _p, ...safeMerchant } = merchant;
+      const { password: _p, ...safeMerchant } = updatedMerchant;
       return { success: true, merchant: safeMerchant as Merchant };
     });
   }

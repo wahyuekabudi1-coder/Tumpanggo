@@ -15,14 +15,24 @@
 import { Request, Response, NextFunction } from 'express';
 import crypto from 'crypto';
 import { isFirestoreAdminConfigured, getAdminDb } from '../firebaseAdmin';
+import { foodConfig } from '../config';
 
 interface RateLimitEntry {
   count: number;
   resetAt: number; // Unix timestamp in ms
 }
 
-// In-memory fallback cache (used in local dev or if Firestore is unreachable)
+// In-memory fallback cache (used strictly in non-production environments)
 const memoryStore = new Map<string, RateLimitEntry>();
+
+export class RateLimiterStorageError extends Error {
+  readonly code = 'RATE_LIMITER_UNAVAILABLE';
+  readonly isRateLimiterUnavailable = true;
+  constructor(message = 'Rate limiter storage unavailable') {
+    super(message);
+    this.name = 'RateLimiterStorageError';
+  }
+}
 
 // Clean up expired in-memory entries periodically to prevent memory leaks
 setInterval(() => {
@@ -101,7 +111,9 @@ export interface RateLimiterOptions {
 
 /**
  * Atomically check and increment a rate limit key.
- * Uses Cloud Firestore when configured, with local in-memory fallback.
+ * Uses Cloud Firestore with atomic transactions.
+ * Strict fail-closed policy in production: throws RateLimiterStorageError if storage fails.
+ * In-memory store fallback is strictly restricted to non-production environments.
  */
 async function recordAndCheckLimit(
   key: string,
@@ -111,7 +123,44 @@ async function recordAndCheckLimit(
   const now = Date.now();
   const windowMs = windowSeconds * 1000;
 
-  // 1. Try Firestore Shared Store for cross-serverless synchronization
+  // 1. Production Mode: Firestore is mandatory; strictly fail-closed on any failure
+  if (foodConfig.isProduction) {
+    if (!isFirestoreAdminConfigured()) {
+      throw new RateLimiterStorageError('Rate limiter requires Firestore in production');
+    }
+    const adminDb = getAdminDb();
+    if (!adminDb) {
+      throw new RateLimiterStorageError('Firestore Admin instance not ready');
+    }
+
+    try {
+      const docRef = adminDb.collection('_rateLimits').doc(key);
+      const result = await adminDb.runTransaction(async (transaction) => {
+        const docSnap = await transaction.get(docRef);
+        let count = 1;
+        let resetAt = now + windowMs;
+
+        if (docSnap.exists) {
+          const data = docSnap.data();
+          if (data && typeof data.resetAt === 'number' && data.resetAt > now) {
+            count = (Number(data.count) || 0) + 1;
+            resetAt = data.resetAt;
+          }
+        }
+
+        transaction.set(docRef, { count, resetAt, updatedAt: now }, { merge: true });
+        return { count, resetAt };
+      });
+
+      const allowed = result.count <= maxLimit;
+      return { allowed, currentCount: result.count, resetAt: result.resetAt };
+    } catch (err: any) {
+      console.error('[RateLimiter Production Gate] Firestore storage error:', err?.message || err);
+      throw new RateLimiterStorageError('Rate limiter storage failed in production');
+    }
+  }
+
+  // 2. Development / Test Mode: Try Firestore shared store if available
   if (isFirestoreAdminConfigured()) {
     const adminDb = getAdminDb();
     if (adminDb) {
@@ -137,12 +186,12 @@ async function recordAndCheckLimit(
         const allowed = result.count <= maxLimit;
         return { allowed, currentCount: result.count, resetAt: result.resetAt };
       } catch (err) {
-        // Fall back gracefully to memory store if Firestore operation fails
+        // Fall back gracefully to memory store in development or test mode
       }
     }
   }
 
-  // 2. Local In-Memory Store Fallback
+  // 3. Local In-Memory Store Fallback (Allowed ONLY in non-production)
   let entry = memoryStore.get(key);
   if (!entry || entry.resetAt <= now) {
     entry = {
@@ -174,40 +223,50 @@ export function createRateLimiter(options: RateLimiterOptions) {
     // Bypass OPTIONS preflight
     if (req.method === 'OPTIONS') return next();
 
-    const clientIp = getClientIp(req);
-    const targetIdentifier = targetExtractor ? targetExtractor(req) : undefined;
-    const targetHash = hashTarget(targetIdentifier);
+    try {
+      const clientIp = getClientIp(req);
+      const targetIdentifier = targetExtractor ? targetExtractor(req) : undefined;
+      const targetHash = hashTarget(targetIdentifier);
 
-    // 1. Check IP-level ceiling (guards against wide-scale credential spraying from single IP)
-    const ipKey = `${prefix}_ip_${clientIp}`;
-    const ipResult = await recordAndCheckLimit(ipKey, maxPerIp, windowSeconds);
+      // 1. Check IP-level ceiling (guards against wide-scale credential spraying from single IP)
+      const ipKey = `${prefix}_ip_${clientIp}`;
+      const ipResult = await recordAndCheckLimit(ipKey, maxPerIp, windowSeconds);
 
-    if (!ipResult.allowed) {
-      const retryAfterSeconds = Math.max(1, Math.ceil((ipResult.resetAt - Date.now()) / 1000));
-      res.setHeader('Retry-After', String(retryAfterSeconds));
-      return res.status(429).json({
-        error: 'Terlalu banyak percobaan dari jaringan Anda. Demi keamanan akun, silakan coba kembali setelah beberapa saat.',
-        code: 'TOO_MANY_REQUESTS',
-        retryAfterSeconds
-      });
-    }
-
-    // 2. Check Target-specific limiter (IP + Account Identifier)
-    if (targetIdentifier) {
-      const targetKey = `${prefix}_tgt_${clientIp}_${targetHash}`;
-      const targetResult = await recordAndCheckLimit(targetKey, maxPerTarget, windowSeconds);
-
-      if (!targetResult.allowed) {
-        const retryAfterSeconds = Math.max(1, Math.ceil((targetResult.resetAt - Date.now()) / 1000));
+      if (!ipResult.allowed) {
+        const retryAfterSeconds = Math.max(1, Math.ceil((ipResult.resetAt - Date.now()) / 1000));
         res.setHeader('Retry-After', String(retryAfterSeconds));
         return res.status(429).json({
-          error: 'Terlalu banyak percobaan untuk akun ini. Demi keamanan, silakan tunggu beberapa menit sebelum mencoba kembali.',
+          error: 'Terlalu banyak percobaan dari jaringan Anda. Demi keamanan akun, silakan coba kembali setelah beberapa saat.',
           code: 'TOO_MANY_REQUESTS',
           retryAfterSeconds
         });
       }
-    }
 
-    next();
+      // 2. Check Target-specific limiter (IP + Account Identifier)
+      if (targetIdentifier) {
+        const targetKey = `${prefix}_tgt_${clientIp}_${targetHash}`;
+        const targetResult = await recordAndCheckLimit(targetKey, maxPerTarget, windowSeconds);
+
+        if (!targetResult.allowed) {
+          const retryAfterSeconds = Math.max(1, Math.ceil((targetResult.resetAt - Date.now()) / 1000));
+          res.setHeader('Retry-After', String(retryAfterSeconds));
+          return res.status(429).json({
+            error: 'Terlalu banyak percobaan untuk akun ini. Demi keamanan, silakan tunggu beberapa menit sebelum mencoba kembali.',
+            code: 'TOO_MANY_REQUESTS',
+            retryAfterSeconds
+          });
+        }
+      }
+
+      next();
+    } catch (err: any) {
+      if (err instanceof RateLimiterStorageError || err?.isRateLimiterUnavailable || err?.code === 'RATE_LIMITER_UNAVAILABLE') {
+        return res.status(503).json({
+          error: 'Layanan verifikasi keamanan sementara tidak tersedia. Silakan coba kembali beberapa saat lagi.',
+          code: 'RATE_LIMITER_UNAVAILABLE'
+        });
+      }
+      next(err);
+    }
   };
 }

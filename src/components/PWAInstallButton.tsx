@@ -22,18 +22,30 @@ export const PWAInstallButton: React.FC<PWAInstallButtonProps> = ({
   compact = false,
   className = ''
 }) => {
-  const { isInstallable, isInstalled, isIOS, isDirectRoute, install, openDirectPortalRoute } = usePWAInstall(role);
+  const { 
+    isInstallable, 
+    isInstalled, 
+    isIOS, 
+    isDirectRoute, 
+    isRunningInOtherPWA,
+    hostRole,
+    install, 
+    openDirectPortalRoute 
+  } = usePWAInstall(role);
   const [showIOSGuide, setShowIOSGuide] = useState(false);
   const [showManualGuide, setShowManualGuide] = useState(false);
+  const [showOtherPWAGuide, setShowOtherPWAGuide] = useState(false);
   const [isInstalling, setIsInstalling] = useState(false);
 
-  // If already running inside standalone PWA mode, hide the install button
+  // If already running inside standalone PWA mode for this specific role, hide the install button
   if (isInstalled) {
     return null;
   }
 
   const handleInstallClick = async () => {
-    if (isInstallable) {
+    if (isRunningInOtherPWA) {
+      setShowOtherPWAGuide(true);
+    } else if (isInstallable) {
       setIsInstalling(true);
       try {
         await install();
@@ -119,6 +131,7 @@ export const PWAInstallButton: React.FC<PWAInstallButtonProps> = ({
 
         {showIOSGuide && renderIOSGuideModal()}
         {showManualGuide && renderManualGuideModal()}
+        {showOtherPWAGuide && renderOtherPWAGuideModal()}
       </>
     );
   }
@@ -132,12 +145,16 @@ export const PWAInstallButton: React.FC<PWAInstallButtonProps> = ({
           </div>
           <div className="flex flex-col min-w-0">
             <div className="flex items-center gap-1.5 flex-wrap">
-              <span className="text-xs font-extrabold tracking-tight">{cfg.title}</span>
+              <span className="text-xs font-extrabold tracking-tight">
+                {isRunningInOtherPWA ? `Pasang ${cfg.title} Terpisah` : cfg.title}
+              </span>
               <span className="text-[9px] font-extrabold uppercase px-1.5 py-0.5 rounded-md bg-white/20 text-white">
                 {cfg.badgeText}
               </span>
             </div>
-            <span className="text-[11px] text-white/80 line-clamp-1 mt-0.5">{cfg.desc}</span>
+            <span className="text-[11px] text-white/80 line-clamp-1 mt-0.5">
+              {isRunningInOtherPWA ? `Pasang aplikasi mandiri terpisah di luar aplikasi ${hostRole || 'utama'}.` : cfg.desc}
+            </span>
           </div>
         </div>
 
@@ -147,12 +164,13 @@ export const PWAInstallButton: React.FC<PWAInstallButtonProps> = ({
           className={`flex-shrink-0 px-4 py-2 rounded-xl text-xs font-bold active:scale-95 shadow-xs transition-all flex items-center gap-1.5 cursor-pointer ${cfg.btnBg}`}
         >
           <Download className="w-4 h-4" />
-          <span>{isInstalling ? 'Memasang...' : cfg.title}</span>
+          <span>{isInstalling ? 'Memasang...' : isRunningInOtherPWA ? 'Pasang Terpisah' : cfg.title}</span>
         </button>
       </div>
 
       {showIOSGuide && renderIOSGuideModal()}
       {showManualGuide && renderManualGuideModal()}
+      {showOtherPWAGuide && renderOtherPWAGuideModal()}
     </>
   );
 
@@ -202,6 +220,69 @@ export const PWAInstallButton: React.FC<PWAInstallButtonProps> = ({
           >
             Mengerti
           </button>
+        </div>
+      </div>
+    );
+  }
+
+  function renderOtherPWAGuideModal() {
+    const portalPath = role === 'MERCHANT' ? '/merchant' : role === 'DRIVER' ? '/driver' : role === 'ADMIN' ? '/admin' : '/';
+    const portalUrl = typeof window !== 'undefined' ? `${window.location.origin}${portalPath}` : portalPath;
+
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4">
+        <div className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-2xl relative animate-in fade-in zoom-in-95 duration-200">
+          <button 
+            onClick={() => setShowOtherPWAGuide(false)}
+            className="absolute top-4 right-4 text-slate-400 hover:text-slate-600 p-1 cursor-pointer"
+          >
+            <X className="w-5 h-5" />
+          </button>
+
+          <div className="flex items-center gap-2 mb-3">
+            <div className="p-2 rounded-xl bg-amber-100 text-amber-800">
+              <IconComponent className="w-5 h-5" />
+            </div>
+            <div>
+              <h3 className="text-sm font-bold text-slate-900">Pasang Aplikasi {cfg.title} Terpisah</h3>
+              <p className="text-[11px] text-slate-500">Dibuka dari dalam aplikasi {hostRole || 'Customer'}</p>
+            </div>
+          </div>
+
+          <div className="space-y-3 text-xs text-slate-700 bg-amber-50/70 p-3.5 rounded-xl border border-amber-200">
+            <p className="leading-relaxed">
+              Anda saat ini sedang membuka portal <strong>{cfg.title}</strong> dari dalam jendela aplikasi terpasang (<strong>{hostRole || 'Customer'}</strong>).
+            </p>
+            <p className="leading-relaxed text-slate-600">
+              Kebijakan keamanan sistem operasi (Android/iOS) tidak mengizinkan pemasangan aplikasi baru dari dalam PWA yang sedang berjalan.
+            </p>
+            <p className="font-semibold text-slate-800">
+              Untuk memasang <strong>{cfg.title}</strong> sebagai ikon mandiri terpisah di layar utama HP Anda:
+            </p>
+            <ol className="list-decimal pl-4 space-y-1 text-[11px] text-slate-600">
+              <li>Buka rute portal ini langsung di browser <strong>Google Chrome</strong> atau <strong>Safari</strong>.</li>
+              <li>Ketuk menu titik tiga (⋮) atau tombol Share.</li>
+              <li>Pilih <strong>"Pasang aplikasi"</strong> atau <strong>"Tambah ke Layar Utama"</strong>.</li>
+            </ol>
+          </div>
+
+          <div className="mt-4 flex flex-col gap-2">
+            <a
+              href={portalUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="w-full py-2.5 px-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs transition flex items-center justify-center gap-1.5 shadow-sm text-center"
+            >
+              <ExternalLink className="w-3.5 h-3.5" />
+              <span>Buka di Browser Eksternal</span>
+            </a>
+            <button
+              onClick={() => setShowOtherPWAGuide(false)}
+              className="w-full py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold rounded-xl text-xs transition cursor-pointer text-center"
+            >
+              Tutup
+            </button>
+          </div>
         </div>
       </div>
     );

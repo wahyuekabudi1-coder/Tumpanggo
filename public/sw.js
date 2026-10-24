@@ -8,7 +8,7 @@
  * Strictly bypasses API requests, authentication, and QRIS endpoints to prevent stale data.
  */
 
-const CACHE_NAME = 'tumpanggo-pwa-v16';
+const CACHE_NAME = 'tumpanggo-pwa-v17';
 const STATIC_ASSETS = [
   '/',
   '/index.html',
@@ -26,6 +26,14 @@ const STATIC_ASSETS = [
   '/pwa-512x512.png',
   '/pwa-maskable-512x512.png',
   '/apple-touch-icon.png',
+  '/pwa-merchant-192x192.png',
+  '/pwa-merchant-512x512.png',
+  '/pwa-merchant-maskable-512x512.png',
+  '/apple-touch-icon-merchant.png',
+  '/pwa-driver-192x192.png',
+  '/pwa-driver-512x512.png',
+  '/pwa-driver-maskable-512x512.png',
+  '/apple-touch-icon-driver.png',
   '/favicon.svg'
 ];
 

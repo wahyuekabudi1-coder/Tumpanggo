@@ -99,7 +99,26 @@ export async function startServer() {
             : isAdmin 
               ? '/manifest-admin.json' 
               : '/manifest.json';
-        template = template.replace(/<link rel="manifest" href="[^"]*"/, `<link rel="manifest" href="${manifestHref}"`);
+        const roleTitle = isMerchant
+          ? 'TumpangGo Merchant – Portal Mitra Toko & Dapur'
+          : isDriver
+            ? 'TumpangGo Driver – Portal Operasional Kurir'
+            : isAdmin
+              ? 'TumpangGo Admin – Dashboard Manajemen'
+              : 'TumpangGo – Saatnya Usaha Lokal Naik Kelas | Kuliner & Layanan Digital Tumpang Malang';
+        const appleIcon = isMerchant
+          ? '/apple-touch-icon-merchant.png'
+          : isDriver
+            ? '/apple-touch-icon-driver.png'
+            : '/apple-touch-icon.png';
+        const appTitle = isMerchant ? 'TG Merchant' : isDriver ? 'TG Driver' : isAdmin ? 'TG Admin' : 'TumpangGo';
+        const themeColor = isMerchant ? '#047857' : isDriver ? '#0F172A' : '#15803D';
+
+        template = template.replace(/<link\s+rel="manifest"[^>]*>/i, `<link rel="manifest" id="pwa-manifest-link" href="${manifestHref}" />`);
+        template = template.replace(/<title>[^<]*<\/title>/i, `<title>${roleTitle}</title>`);
+        template = template.replace(/<link\s+rel="apple-touch-icon"[^>]*>/gi, `<link rel="apple-touch-icon" href="${appleIcon}" />`);
+        template = template.replace(/<meta\s+name="apple-mobile-web-app-title"[^>]*>/i, `<meta name="apple-mobile-web-app-title" content="${appTitle}" />`);
+        template = template.replace(/<meta\s+name="theme-color"[^>]*>/i, `<meta name="theme-color" content="${themeColor}" />`);
 
         res.status(200).set({ 'Content-Type': 'text/html; charset=utf-8' }).end(template);
       } catch (e: any) {
@@ -137,7 +156,26 @@ export async function startServer() {
             : isAdmin 
               ? '/manifest-admin.json' 
               : '/manifest.json';
-        template = template.replace(/<link rel="manifest" href="[^"]*"/, `<link rel="manifest" href="${manifestHref}"`);
+        const roleTitle = isMerchant
+          ? 'TumpangGo Merchant – Portal Mitra Toko & Dapur'
+          : isDriver
+            ? 'TumpangGo Driver – Portal Operasional Kurir'
+            : isAdmin
+              ? 'TumpangGo Admin – Dashboard Manajemen'
+              : 'TumpangGo – Saatnya Usaha Lokal Naik Kelas | Kuliner & Layanan Digital Tumpang Malang';
+        const appleIcon = isMerchant
+          ? '/apple-touch-icon-merchant.png'
+          : isDriver
+            ? '/apple-touch-icon-driver.png'
+            : '/apple-touch-icon.png';
+        const appTitle = isMerchant ? 'TG Merchant' : isDriver ? 'TG Driver' : isAdmin ? 'TG Admin' : 'TumpangGo';
+        const themeColor = isMerchant ? '#047857' : isDriver ? '#0F172A' : '#15803D';
+
+        template = template.replace(/<link\s+rel="manifest"[^>]*>/i, `<link rel="manifest" id="pwa-manifest-link" href="${manifestHref}" />`);
+        template = template.replace(/<title>[^<]*<\/title>/i, `<title>${roleTitle}</title>`);
+        template = template.replace(/<link\s+rel="apple-touch-icon"[^>]*>/gi, `<link rel="apple-touch-icon" href="${appleIcon}" />`);
+        template = template.replace(/<meta\s+name="apple-mobile-web-app-title"[^>]*>/i, `<meta name="apple-mobile-web-app-title" content="${appTitle}" />`);
+        template = template.replace(/<meta\s+name="theme-color"[^>]*>/i, `<meta name="theme-color" content="${themeColor}" />`);
 
         res.status(200).set({ 'Content-Type': 'text/html; charset=utf-8' }).end(template);
       } catch {
