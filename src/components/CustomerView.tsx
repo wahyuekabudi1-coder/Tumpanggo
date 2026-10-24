@@ -40,6 +40,7 @@ interface CustomerViewProps {
   onInstantDashboard?: (role: 'ADMIN' | 'MERCHANT' | 'DRIVER') => void;
   initialTab?: string;
   onOpenRegisterPage?: () => void;
+  onOpenMerchantPortal?: () => void;
 }
 
 export const CULINARY_CATEGORIES = [
@@ -58,18 +59,23 @@ export default function CustomerView({
   onSelectRole, 
   onInstantDashboard, 
   initialTab,
-  onOpenRegisterPage
+  onOpenRegisterPage,
+  onOpenMerchantPortal
 }: CustomerViewProps) {
-  const handleNavigateToMerchantRegister = () => {
-    if (onOpenRegisterPage) {
-      onOpenRegisterPage();
+  const handleNavigateToMerchantPortal = () => {
+    if (onOpenMerchantPortal) {
+      onOpenMerchantPortal();
     } else {
       setActiveTab('partner-register');
       if (typeof window !== 'undefined') {
-        window.history.pushState(null, '', '/?page=merchant-register');
+        window.history.pushState(null, '', '/?page=merchant-portal');
         window.scrollTo({ top: 0, behavior: 'smooth' });
       }
     }
+  };
+
+  const handleNavigateToMerchantRegister = () => {
+    handleNavigateToMerchantPortal();
   };
 
   // Navigation / Tab state: 'home' | 'merchant-detail' | 'cart' | 'checkout' | 'payment' | 'tracking' | 'history' | 'partner-register' | 'edukasi' | 'help'
@@ -1558,13 +1564,17 @@ export default function CustomerView({
   const headerTheme = getHeaderTheme();
 
   const renderFooter = (idSuffix: string = '') => (
-    <footer className="w-full mt-5 text-slate-700 relative overflow-hidden rounded-2xl border border-slate-100 shadow-xs">
-      {/* Top White Section with Logo & Social Media */}
-      <div className="py-3 px-4 flex flex-col items-center justify-center text-center bg-white gap-2">
-        <Logo size={96} />
+    <footer className="w-full mt-4 text-slate-700 relative overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-xs">
+      <div className="py-4 px-4 flex flex-col items-center justify-center text-center gap-1.5">
+        <h3 className="font-display font-black text-base text-slate-900 tracking-tight">
+          TumpangGo
+        </h3>
+        <p className="text-xs text-slate-600 font-medium max-w-sm">
+          Super App lokal Kecamatan Tumpang.
+        </p>
 
-        {/* Pusat Bantuan Quick Navigation */}
-        <div className="flex flex-col items-center gap-2 mt-1 w-full max-w-sm">
+        {/* Ringkas: Link Pusat Bantuan & Media Sosial */}
+        <div className="flex items-center gap-3 my-0.5 text-xs text-slate-500">
           <button
             type="button"
             onClick={() => {
@@ -1573,33 +1583,21 @@ export default function CustomerView({
                 window.scrollTo({ top: 0, behavior: 'smooth' });
               }
             }}
-            className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-xs font-semibold border border-emerald-200 transition-colors shadow-2xs cursor-pointer"
+            className="hover:text-emerald-800 font-semibold transition-colors cursor-pointer flex items-center gap-1"
           >
             <HelpCircle className="w-3.5 h-3.5 text-emerald-600" />
-            <span>Pusat Bantuan TumpangGo</span>
+            <span>Pusat Bantuan</span>
           </button>
-          
-          <div className="pt-0.5">
-            <SocialMediaButtons variant="compact" />
-          </div>
+          <span>•</span>
+          <SocialMediaButtons variant="compact" />
         </div>
-      </div>
 
-      {/* Green Divider Line */}
-      <div className="w-full h-[1px] bg-[#224B33]/20"></div>
-
-      {/* Bottom Green Section - Hijau Adventure */}
-      <div className="bg-[#224B33] text-white py-3 px-4 flex flex-col items-center justify-center text-center">
-        <p className="text-xs text-emerald-50 font-medium max-w-sm leading-snug">
-          Super-App lokal Kecamatan Tumpang untuk UMKM, kurir instan, dan layanan digital.
-        </p>
-
-        {/* Plain Copyright text - completely normal, no hover effects or glow */}
+        {/* Plain Copyright text - completely normal, preserving handleCopyrightClick for secret portal trigger */}
         <p 
           onClick={handleCopyrightClick}
-          className="text-[10px] text-emerald-200/70 font-normal mt-1.5 select-none cursor-default"
+          className="text-[11px] text-slate-400 font-medium select-none cursor-default"
         >
-          © 2026 tumpang go. All rights reserved.
+          © 2026 TumpangGo
         </p>
 
         {/* Portal Login & Akses Dashboard (Secret - Unlocked strictly between 10 to 13 clicks on copyright) */}
@@ -1642,7 +1640,7 @@ export default function CustomerView({
               <button 
                 onClick={handleInstallClick}
                 className={`text-[10px] px-2.5 py-1.5 rounded-full font-extrabold flex items-center gap-1 cursor-pointer transition-all active:scale-95 ${headerTheme.installBtnClass}`}
-                title="Install Aplikasi Tumpanku di Layar Utama"
+                title="Install Aplikasi TumpangGo di Layar Utama"
               >
                 <Download className="w-3 h-3 animate-bounce" />
                 <span>Install TumpangGo</span>
@@ -1846,7 +1844,7 @@ export default function CustomerView({
                 </button>
               </div>
               
-              <h4 className="font-display font-bold text-base text-slate-800 mt-4">Cara Memasang Aplikasi Tumpang Go</h4>
+              <h4 className="font-display font-bold text-base text-slate-800 mt-4">Cara Memasang Aplikasi TumpangGo</h4>
               <p className="text-slate-500 text-xs mt-1.5 leading-relaxed">
                 Nikmati kemudahan pesan kuliner lokal langsung dari layar ponsel Anda dengan aplikasi yang sangat ringan dan cepat dibuka.
               </p>
@@ -1866,7 +1864,7 @@ export default function CustomerView({
                     📱 Langsung di Layar Utama HP
                   </h5>
                   <p className="text-[11px] text-slate-500 mt-0.5 leading-relaxed">
-                    Tumpang Go akan memiliki ikon di layar utama ponsel Anda, dapat dibuka sekali ketuk tanpa repot membuka browser atau mengetik alamat web.
+                    TumpangGo akan memiliki ikon di layar utama ponsel Anda, dapat dibuka sekali ketuk tanpa repot membuka browser atau mengetik alamat web.
                   </p>
                 </div>
 
@@ -1905,7 +1903,7 @@ export default function CustomerView({
                       </div>
                       <div className="min-w-0">
                         <p className="text-xs font-bold text-slate-800 truncate leading-tight">
-                          Install Aplikasi Tumpang Go
+                          Install Aplikasi TumpangGo
                         </p>
                         <p className="text-[10px] text-slate-500 truncate hidden sm:block">
                           Akses cepat langsung dari layar HP Anda
@@ -2202,20 +2200,15 @@ export default function CustomerView({
                 )}
 
                 {/* Section Edukasi Customer TumpangGo (Ringkas & Responsif) */}
-                <section aria-labelledby="section-edukasi-title" className="bg-white rounded-3xl border border-slate-100 p-4 sm:p-5 shadow-xs flex flex-col gap-3.5 my-2">
+                <section aria-labelledby="section-edukasi-title" className="bg-white rounded-2xl sm:rounded-3xl border border-slate-100 p-3.5 sm:p-4 shadow-xs flex flex-col gap-2.5 my-2">
                   <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2.5">
-                      <div className="w-9 h-9 rounded-full bg-emerald-100 text-emerald-800 flex items-center justify-center shrink-0">
+                    <div className="flex items-center gap-2">
+                      <div className="w-8 h-8 rounded-full bg-emerald-100 text-emerald-800 flex items-center justify-center shrink-0">
                         <BookOpen className="w-4 h-4 text-emerald-800" />
                       </div>
-                      <div>
-                        <h2 id="section-edukasi-title" className="font-display font-extrabold text-sm sm:text-base text-slate-900 leading-tight">
-                          Panduan Praktis
-                        </h2>
-                        <p className="text-[11px] sm:text-xs text-slate-500 font-medium">
-                          Pesan kuliner hemat &amp; dukung usaha lokal Tumpang
-                        </p>
-                      </div>
+                      <h2 id="section-edukasi-title" className="font-display font-extrabold text-sm sm:text-base text-slate-900 leading-tight">
+                        Panduan Praktis
+                      </h2>
                     </div>
                     <button
                       type="button"
@@ -2224,90 +2217,90 @@ export default function CustomerView({
                       aria-label="Lihat materi edukasi selengkapnya"
                     >
                       <span>Lihat selengkapnya</span>
-                      <ChevronRight className="w-4 h-4" />
+                      <ChevronRight className="w-3.5 h-3.5" />
                     </button>
                   </div>
 
-                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+                  {/* Ringkas: Hanya Judul & Ikon, Tanpa Deskripsi Panjang */}
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                     {/* Kartu 1: Cara Pesan */}
-                    <div 
+                    <button 
+                      type="button"
                       onClick={() => {
                         setHomeSubView('food');
                         setActiveTab('home');
                       }}
-                      className="bg-slate-50 hover:bg-emerald-50/40 border border-slate-100 hover:border-emerald-200/70 rounded-2xl p-3.5 flex flex-col gap-2 transition-all cursor-pointer group"
+                      className="bg-slate-50 hover:bg-emerald-50/60 border border-slate-100 hover:border-emerald-200/80 rounded-xl p-2.5 sm:p-3 flex items-center gap-2.5 transition-all cursor-pointer group text-left"
                     >
-                      <div className="w-8 h-8 rounded-xl bg-emerald-100 text-emerald-800 flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
-                        <ShoppingBag className="w-4 h-4 text-emerald-800" />
+                      <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-lg bg-emerald-100 text-emerald-800 flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
+                        <ShoppingBag className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-emerald-800" />
                       </div>
-                      <div>
-                        <h3 className="font-extrabold text-xs sm:text-sm text-slate-900 group-hover:text-emerald-800 transition-colors">
-                          Cara Pesan
-                        </h3>
-                        <p className="text-[11px] sm:text-xs text-slate-500 leading-relaxed mt-0.5">
-                          Pilih makanan favorit, masukkan ke keranjang, lalu selesaikan pesanan.
-                        </p>
-                      </div>
-                    </div>
+                      <span className="font-extrabold text-xs text-slate-800 group-hover:text-emerald-800 transition-colors leading-tight">
+                        Cara Pesan
+                      </span>
+                    </button>
 
-                    {/* Kartu 2: Pembayaran QRIS */}
-                    <div 
+                    {/* Kartu 2: Pembayaran */}
+                    <button 
+                      type="button"
                       onClick={() => setActiveTab('edukasi')}
-                      className="bg-slate-50 hover:bg-amber-50/40 border border-slate-100 hover:border-amber-200/70 rounded-2xl p-3.5 flex flex-col gap-2 transition-all cursor-pointer group"
+                      className="bg-slate-50 hover:bg-amber-50/60 border border-slate-100 hover:border-amber-200/80 rounded-xl p-2.5 sm:p-3 flex items-center gap-2.5 transition-all cursor-pointer group text-left"
                     >
-                      <div className="w-8 h-8 rounded-xl bg-amber-100 text-amber-800 flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
-                        <QrCode className="w-4 h-4 text-amber-800" />
+                      <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-lg bg-amber-100 text-amber-800 flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
+                        <QrCode className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-amber-800" />
                       </div>
-                      <div>
-                        <h3 className="font-extrabold text-xs sm:text-sm text-slate-900 group-hover:text-amber-800 transition-colors">
-                          Pembayaran QRIS
-                        </h3>
-                        <p className="text-[11px] sm:text-xs text-slate-500 leading-relaxed mt-0.5">
-                          Ikuti petunjuk pembayaran dan unggah bukti transfer untuk diverifikasi.
-                        </p>
-                      </div>
-                    </div>
+                      <span className="font-extrabold text-xs text-slate-800 group-hover:text-amber-800 transition-colors leading-tight">
+                        Pembayaran
+                      </span>
+                    </button>
 
-                    {/* Kartu 3: Dukung UMKM Lokal */}
-                    <div 
+                    {/* Kartu 3: Kirim / Ongkir Flat Rp 5.000 */}
+                    <button 
+                      type="button"
+                      onClick={() => setActiveTab('edukasi')}
+                      className="bg-slate-50 hover:bg-emerald-50/60 border border-slate-100 hover:border-emerald-200/80 rounded-xl p-2.5 sm:p-3 flex items-center gap-2.5 transition-all cursor-pointer group text-left"
+                    >
+                      <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-lg bg-emerald-100 text-emerald-800 flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
+                        <Bike className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-emerald-800" />
+                      </div>
+                      <span className="font-extrabold text-xs text-slate-800 group-hover:text-emerald-800 transition-colors leading-tight">
+                        Ongkir Hemat
+                      </span>
+                    </button>
+
+                    {/* Kartu 4: Dukung UMKM */}
+                    <button 
+                      type="button"
                       onClick={() => {
                         setHomeSubView('food');
                         setActiveTab('home');
                       }}
-                      className="bg-slate-50 hover:bg-emerald-50/40 border border-slate-100 hover:border-emerald-200/70 rounded-2xl p-3.5 flex flex-col gap-2 transition-all cursor-pointer group sm:col-span-2 md:col-span-1"
+                      className="bg-slate-50 hover:bg-emerald-50/60 border border-slate-100 hover:border-emerald-200/80 rounded-xl p-2.5 sm:p-3 flex items-center gap-2.5 transition-all cursor-pointer group text-left"
                     >
-                      <div className="w-8 h-8 rounded-xl bg-emerald-100 text-emerald-800 flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
-                        <Store className="w-4 h-4 text-emerald-800" />
+                      <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-lg bg-emerald-100 text-emerald-800 flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
+                        <Store className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-emerald-800" />
                       </div>
-                      <div>
-                        <h3 className="font-extrabold text-xs sm:text-sm text-slate-900 group-hover:text-emerald-800 transition-colors">
-                          Dukung UMKM Lokal
-                        </h3>
-                        <p className="text-[11px] sm:text-xs text-slate-500 leading-relaxed mt-0.5">
-                          Pesan dari warung sekitar dan bantu usaha lokal berkembang.
-                        </p>
-                      </div>
-                    </div>
+                      <span className="font-extrabold text-xs text-slate-800 group-hover:text-emerald-800 transition-colors leading-tight">
+                        Dukung UMKM
+                      </span>
+                    </button>
                   </div>
                 </section>
 
-                {/* Section Tanya Jawab / FAQ Seputar Tumpang Go */}
-                <section aria-labelledby="section-faq-title" className="bg-white rounded-3xl border border-slate-100 p-4 sm:p-5 shadow-xs flex flex-col gap-3.5 my-2">
+                {/* Section Tanya Jawab / FAQ Seputar TumpangGo */}
+                <section aria-labelledby="section-faq-title" className="bg-white rounded-2xl sm:rounded-3xl border border-slate-100 p-3.5 sm:p-4 shadow-xs flex flex-col gap-2.5 my-2">
                   <div className="flex items-center gap-2.5">
-                    <div className="w-9 h-9 rounded-full bg-amber-100 text-amber-800 flex items-center justify-center shrink-0">
+                    <div className="w-8 h-8 rounded-full bg-amber-100 text-amber-800 flex items-center justify-center shrink-0">
                       <HelpCircle className="w-4 h-4 text-amber-800" />
                     </div>
                     <div>
                       <h2 id="section-faq-title" className="font-display font-extrabold text-sm sm:text-base text-slate-900 leading-tight">
-                        Tanya Jawab Seputar Tumpang Go
+                        Tanya Jawab Seputar TumpangGo
                       </h2>
-                      <p className="text-[11px] sm:text-xs text-slate-500 font-medium">
-                        Informasi penting mengenai layanan, pemesanan, dan kemitraan
-                      </p>
                     </div>
                   </div>
 
-                  <div className="flex flex-col gap-2">
+                  <div className="flex flex-col gap-1.5">
                     {[
                       {
                         q: 'Apa itu platform TumpangGo?',
@@ -2319,7 +2312,7 @@ export default function CustomerView({
                       },
                       {
                         q: 'Bagaimana cara pelaku UMKM mendaftar menjadi mitra?',
-                        a: 'Pelaku usaha kuliner dan warung lokal di Kecamatan Tumpang dapat mendaftar langsung secara online melalui tombol "Mulai Kembangkan Usaha" atau menu "Menjadi Mitra UMKM" di halaman ini tanpa dipungut biaya pendaftaran.'
+                        a: 'Pelaku usaha kuliner dan warung lokal di Kecamatan Tumpang dapat mendaftar langsung secara online melalui menu "Menjadi Mitra UMKM" di halaman ini tanpa dipungut biaya pendaftaran.'
                       },
                       {
                         q: 'Apa saja metode pembayaran yang didukung?',
@@ -2330,7 +2323,7 @@ export default function CustomerView({
                       return (
                         <div
                           key={`faq-${idx}`}
-                          className="border border-slate-100 rounded-2xl overflow-hidden transition-all bg-white"
+                          className="border border-slate-100 rounded-xl overflow-hidden transition-all bg-white"
                         >
                           <button
                             type="button"
@@ -2338,41 +2331,37 @@ export default function CustomerView({
                             aria-expanded={isOpen}
                             aria-controls={`faq-answer-${idx}`}
                             onClick={() => setOpenFaqIndex(isOpen ? null : idx)}
-                            className="w-full text-left p-3.5 bg-slate-50 hover:bg-slate-100/80 transition-colors flex items-center justify-between gap-3 cursor-pointer group"
+                            className="w-full text-left p-3 bg-slate-50/80 hover:bg-slate-100/80 transition-colors flex items-center justify-between gap-3 cursor-pointer group"
                           >
                             <h3 className="font-extrabold text-xs text-slate-800 leading-snug group-hover:text-emerald-900 transition-colors">
                               {faq.q}
                             </h3>
                             <ChevronDown 
-                              className={`w-4 h-4 shrink-0 transition-transform duration-300 ease-in-out ${
+                              className={`w-4 h-4 shrink-0 transition-transform duration-200 ease-in-out ${
                                 isOpen ? 'rotate-180 text-emerald-700' : 'text-slate-400'
                               }`}
                               aria-hidden="true"
                             />
                           </button>
-                          <div 
-                            id={`faq-answer-${idx}`}
-                            role="region"
-                            aria-labelledby={`faq-btn-${idx}`}
-                            className={`grid transition-all duration-300 ease-in-out ${
-                              isOpen ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'
-                            }`}
-                          >
-                            <div className="overflow-hidden">
-                              <div className="p-3.5 bg-white text-[11px] sm:text-xs text-slate-600 leading-relaxed border-t border-slate-100">
-                                {faq.a}
-                              </div>
+                          {isOpen && (
+                            <div 
+                              id={`faq-answer-${idx}`}
+                              role="region"
+                              aria-labelledby={`faq-btn-${idx}`}
+                              className="p-3 bg-white text-[11px] sm:text-xs text-slate-600 leading-relaxed border-t border-slate-100"
+                            >
+                              {faq.a}
                             </div>
-                          </div>
+                          )}
                         </div>
                       );
                     })}
                   </div>
                 </section>
 
-                {/* 1. Section Menjadi Mitra UMKM */}
+                {/* 1. Section Menjadi Mitra UMKM - Mengarahkan ke Portal Merchant */}
                 <div 
-                  onClick={handleNavigateToMerchantRegister}
+                  onClick={handleNavigateToMerchantPortal}
                   className="bg-[#185338] text-white rounded-[24px] sm:rounded-3xl p-5 sm:p-6 shadow-md relative overflow-hidden cursor-pointer hover:bg-[#154a32] transition-colors group my-2"
                 >
                   <div className="flex items-center justify-between gap-3">
@@ -2385,7 +2374,7 @@ export default function CustomerView({
                           Menjadi Mitra UMKM
                         </h3>
                         <p className="text-xs sm:text-sm text-emerald-100/90 font-medium mt-0.5">
-                          Jualan online lebih mudah.
+                          Jualan online lebih mudah bersama TumpangGo.
                         </p>
                       </div>
                     </div>
@@ -2396,11 +2385,11 @@ export default function CustomerView({
                     id="btn-register-umkm"
                     onClick={(e) => {
                       e.stopPropagation();
-                      handleNavigateToMerchantRegister();
+                      handleNavigateToMerchantPortal();
                     }}
                     className="w-full bg-[#fbc043] hover:bg-[#f3b325] text-slate-950 font-extrabold text-xs sm:text-sm py-3 sm:py-3.5 px-4 rounded-xl sm:rounded-2xl transition-all shadow-sm flex items-center justify-center cursor-pointer active:scale-98 mt-4 sm:mt-5"
                   >
-                    Klik di sini
+                    Buka Portal Mitra UMKM
                   </button>
                 </div>
 
@@ -2907,9 +2896,9 @@ export default function CustomerView({
                 <Globe className="w-8 h-8 text-purple-600 animate-pulse" />
               </div>
               <div>
-                <h4 className="font-sans font-black text-slate-800 text-base uppercase tracking-tight">Menuju Web Portal Tumpang Go</h4>
+                <h4 className="font-sans font-black text-slate-800 text-base uppercase tracking-tight">Menuju Web Portal TumpangGo</h4>
                 <p className="text-xs text-slate-500 mt-1.5 max-w-sm leading-relaxed font-medium">
-                  Anda akan dialihkan ke portal transaksi resmi Tumpang Go di BuyLink untuk melakukan pembelian & top-up instan.
+                  Anda akan dialihkan ke portal transaksi resmi TumpangGo di BuyLink untuk melakukan pembelian & top-up instan.
                 </p>
               </div>
               
@@ -2919,7 +2908,7 @@ export default function CustomerView({
                 className="w-full bg-gradient-to-r from-purple-600 to-indigo-700 hover:from-purple-700 hover:to-indigo-800 text-white font-black py-4 px-6 rounded-2xl text-xs uppercase tracking-wider shadow-lg shadow-purple-500/10 transition-all cursor-pointer active:scale-95 flex items-center justify-center gap-2"
               >
                 <ExternalLink className="w-4 h-4" />
-                <span>Buka Portal Tumpang Go</span>
+                <span>Buka Portal TumpangGo</span>
               </button>
             </div>
           </div>
@@ -2940,7 +2929,7 @@ export default function CustomerView({
                       <X className="w-4 h-4" />
                     </button>
                     <span className="text-[9px] uppercase font-black bg-white/20 px-2.5 py-1 rounded-full tracking-wider">PROGRAM KEMITRAAN</span>
-                    <h3 className="font-sans font-black text-base mt-2">Daftar Mitra Driver Tumpang Go</h3>
+                    <h3 className="font-sans font-black text-base mt-2">Daftar Mitra Driver TumpangGo</h3>
                     <p className="text-[10px] text-white/80 mt-1">Gabung ojek/taksi lokal & raih penghasilan tambahan tanpa potongan aplikasi!</p>
                   </div>
 
@@ -3073,7 +3062,7 @@ export default function CustomerView({
                       </div>
 
                       <p className="text-[10px] text-slate-500 font-medium leading-relaxed px-2">
-                        Halo <strong className="text-slate-700">{driverName}</strong>, data Anda berhasil masuk ke database otonom Tumpang Go. Admin kami akan menghubungi Anda via WhatsApp di nomor <strong className="text-slate-700">{driverPhone}</strong> dalam waktu maksimal 1x24 jam untuk koordinasi verifikasi fisik kendaraan. Matur nuwun! 🙏
+                        Halo <strong className="text-slate-700">{driverName}</strong>, data Anda berhasil masuk ke database otonom TumpangGo. Admin kami akan menghubungi Anda via WhatsApp di nomor <strong className="text-slate-700">{driverPhone}</strong> dalam waktu maksimal 1x24 jam untuk koordinasi verifikasi fisik kendaraan. Matur nuwun! 🙏
                       </p>
 
                       <button 
@@ -3104,7 +3093,7 @@ export default function CustomerView({
                     <div className="flex items-center gap-3">
                       <Smartphone className="w-8 h-8 text-white animate-pulse" />
                       <div>
-                        <h4 className="font-sans font-black text-sm uppercase tracking-wider">Tumpang Go APK Installer</h4>
+                        <h4 className="font-sans font-black text-sm uppercase tracking-wider">TumpangGo APK Installer</h4>
                         <p className="text-[10px] text-white/90">Aplikasi Resmi Paguyuban Otonom</p>
                       </div>
                     </div>
@@ -3150,7 +3139,7 @@ export default function CustomerView({
                         </div>
                         <h5 className="font-sans font-black text-sm text-slate-800 uppercase tracking-tight">Unduhan Selesai!</h5>
                         <p className="text-[10px] text-slate-500 font-medium leading-relaxed max-w-xs mt-1.5">
-                          File APK resmi Tumpang Go berhasil diunduh ke penyimpanan internal HP Anda. Silakan pasang aplikasi untuk menikmati akses langsung yang lebih cepat.
+                          File APK resmi TumpangGo berhasil diunduh ke penyimpanan internal HP Anda. Silakan pasang aplikasi untuk menikmati akses langsung yang lebih cepat.
                         </p>
 
                         <div className="bg-slate-50 rounded-2xl p-4 my-4 border border-slate-100 flex flex-col gap-2.5 text-left text-xs font-bold text-slate-600">
@@ -3185,7 +3174,7 @@ export default function CustomerView({
                           </button>
                           <button 
                             onClick={() => {
-                              alert('Aplikasi Tumpang Go berhasil diinstal di smartphone Anda! Silakan cek menu utama HP Anda.');
+                              alert('Aplikasi TumpangGo berhasil diinstal di smartphone Anda! Silakan cek menu utama HP Anda.');
                               setIsApkModalOpen(false);
                               setApkDownloadProgress(0);
                               setIsApkDownloaded(false);
@@ -3211,7 +3200,7 @@ export default function CustomerView({
                     <div className="flex items-center gap-2.5">
                       <MapPin className="w-5 h-5 text-red-500 fill-red-500" />
                       <div>
-                        <h4 className="font-sans font-black text-xs uppercase tracking-wider">Kantor Pusat Tumpang Go</h4>
+                        <h4 className="font-sans font-black text-xs uppercase tracking-wider">Kantor Pusat TumpangGo</h4>
                         <p className="text-[9px] text-slate-400">Malang, Jawa Timur, Indonesia</p>
                       </div>
                     </div>
@@ -3272,7 +3261,7 @@ export default function CustomerView({
                         </div>
                         {/* Location Name Tooltip */}
                         <div className="mt-1 bg-slate-900 text-white text-[9px] font-black uppercase py-1 px-2.5 rounded-xl shadow-lg border border-slate-700 whitespace-nowrap animate-bounce flex items-center gap-1">
-                          🏢 KANTOR PUSAT TUMPANG GO
+                          🏢 KANTOR PUSAT TUMPANGGO
                         </div>
                       </div>
                     </div>
@@ -3299,7 +3288,7 @@ export default function CustomerView({
                       <button 
                         onClick={() => {
                           const routeUri = 'https://www.google.com/maps/dir/?api=1&destination=-7.9455,112.7595';
-                          alert('Membuka Google Maps untuk rute navigasi ke Kantor Tumpang Go...');
+                          alert('Membuka Google Maps untuk rute navigasi ke Kantor TumpangGo...');
                           window.open(routeUri, '_blank', 'noreferrer,noopener');
                         }}
                         className="w-full bg-slate-800 hover:bg-slate-900 text-white font-black py-3 rounded-xl text-xs uppercase tracking-wider transition-colors cursor-pointer text-center flex items-center justify-center gap-1.5 mt-2 shadow-sm"
@@ -5191,7 +5180,7 @@ export default function CustomerView({
             <span className="text-[10px] tracking-tight">
               Mitra TumpangGo
             </span>
-            <span className="sr-only">Mitra Tumpang Go</span>
+            <span className="sr-only">Mitra TumpangGo</span>
           </button>
 
           {/* 4. Pusat Bantuan Layanan Tumpang Food */}

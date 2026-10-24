@@ -36,19 +36,19 @@ if (typeof window !== 'undefined') {
   const statusEl = document.getElementById('startup-status');
   const subEl = document.getElementById('startup-sub');
   if (statusEl) statusEl.textContent = 'Menginisialisasi React...';
-  if (subEl) subEl.textContent = 'Merender komponen antarmuka tumpangGo...';
+  if (subEl) subEl.textContent = 'Merender komponen antarmuka TumpangGo...';
 }
 
 const rootElement = document.getElementById('root');
 if (rootElement) {
   createRoot(rootElement).render(
     <StrictMode>
-      <ErrorBoundary fallbackTitle="tumpangGo - Kendala Tampilan">
+      <ErrorBoundary fallbackTitle="TumpangGo - Kendala Tampilan">
         <App />
       </ErrorBoundary>
     </StrictMode>,
   );
-  console.log('[tumpangGo Boot] React createRoot.render executed.');
+  console.log('[TumpangGo Boot] React createRoot.render executed.');
 } else {
   console.error('Fatal: Failed to find #root element in document.');
 }

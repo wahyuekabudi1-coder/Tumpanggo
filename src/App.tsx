@@ -11,6 +11,7 @@ import AdminView from './components/AdminView.tsx';
 import AuthModal from './components/AuthModal.tsx';
 import PortalLogin from './components/PortalLogin.tsx';
 import MerchantRegisterPage from './components/MerchantRegisterPage.tsx';
+import MerchantPortalLanding from './components/MerchantPortalLanding.tsx';
 import ErrorBoundary from './components/ErrorBoundary.tsx';
 import MasterPortalBar from './components/MasterPortalBar.tsx';
 import EvaluationWorkspace from './components/EvaluationWorkspace.tsx';
@@ -102,8 +103,19 @@ export default function App() {
     return page === 'merchant-register' || page === 'partner-register' || page === 'register-merchant';
   };
 
+  const checkIsMerchantPortal = () => {
+    if (typeof window === 'undefined') return false;
+    const params = new URLSearchParams(window.location.search);
+    const page = params.get('page');
+    return page === 'merchant-portal' || page === 'portal-merchant';
+  };
+
   const [isRegisterPage, setIsRegisterPage] = useState<boolean>(() => {
     return checkIsRegisterPage();
+  });
+
+  const [isMerchantPortal, setIsMerchantPortal] = useState<boolean>(() => {
+    return checkIsMerchantPortal();
   });
 
   const [isEvaluationWorkspace, setIsEvaluationWorkspace] = useState<boolean>(() => {
@@ -113,7 +125,7 @@ export default function App() {
     return page === 'workspace' || page === 'evaluation' || ws === 'true' || ws === '1';
   });
 
-  // Check URL parameters on mount and handle ?page=merchant-register
+  // Check URL parameters on mount and handle ?page=merchant-portal / merchant-register
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const page = params.get('page');
@@ -121,8 +133,12 @@ export default function App() {
     if (page === 'workspace' || page === 'evaluation' || ws === 'true' || ws === '1') {
       setIsEvaluationWorkspace(true);
     }
-    if (page === 'merchant-register' || page === 'partner-register' || page === 'register-merchant') {
+    if (page === 'merchant-portal' || page === 'portal-merchant') {
+      setIsMerchantPortal(true);
+      setIsRegisterPage(false);
+    } else if (page === 'merchant-register' || page === 'partner-register' || page === 'register-merchant') {
       setIsRegisterPage(true);
+      setIsMerchantPortal(false);
       // Clean up /merchant if present in pathname to prevent 404 on refresh or sub-navigation
       if (typeof window !== 'undefined' && window.location.pathname !== '/') {
         window.history.replaceState(null, '', `/?page=${encodeURIComponent(page)}`);
@@ -153,6 +169,8 @@ export default function App() {
     const handlePopState = () => {
       const isReg = checkIsRegisterPage();
       setIsRegisterPage(isReg);
+      const isPortal = checkIsMerchantPortal();
+      setIsMerchantPortal(isPortal);
       const currentParams = new URLSearchParams(window.location.search);
       const curRole = currentParams.get('role')?.toUpperCase();
       if (curRole && ['CUSTOMER', 'MERCHANT', 'DRIVER', 'ADMIN'].includes(curRole)) {
@@ -422,13 +440,58 @@ export default function App() {
     handleRoleSelection(role);
   };
 
+  const handleOpenMerchantPortal = () => {
+    setIsMerchantPortal(true);
+    setIsRegisterPage(false);
+    if (typeof window !== 'undefined') {
+      window.history.pushState(null, '', '/?page=merchant-portal');
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+  };
+
   const handleOpenMerchantRegister = () => {
     setIsRegisterPage(true);
+    setIsMerchantPortal(false);
     if (typeof window !== 'undefined') {
       window.history.pushState(null, '', '/?page=merchant-register');
       window.scrollTo({ top: 0, behavior: 'smooth' });
     }
   };
+
+  // Dedicated Merchant Portal Landing Page
+  if (isMerchantPortal) {
+    return (
+      <MerchantPortalLanding 
+        onBackToHome={() => {
+          setIsMerchantPortal(false);
+          setIsRegisterPage(false);
+          setCurrentRole('CUSTOMER');
+          if (typeof window !== 'undefined') {
+            window.history.pushState(null, '', '/');
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+          }
+        }}
+        onGoToLogin={() => {
+          setIsMerchantPortal(false);
+          setIsRegisterPage(false);
+          setCurrentRole('MERCHANT');
+          setMerchantPortalTab('login');
+          if (typeof window !== 'undefined') {
+            window.history.pushState(null, '', '/?role=merchant');
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+          }
+        }}
+        onGoToRegister={() => {
+          setIsMerchantPortal(false);
+          setIsRegisterPage(true);
+          if (typeof window !== 'undefined') {
+            window.history.pushState(null, '', '/?page=merchant-register');
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+          }
+        }}
+      />
+    );
+  }
 
   // Dedicated registration page link
   if (isRegisterPage) {
@@ -436,17 +499,20 @@ export default function App() {
       <MerchantRegisterPage 
         onBackToHome={() => {
           setIsRegisterPage(false);
-          setCurrentRole('CUSTOMER');
+          setIsMerchantPortal(true);
           if (typeof window !== 'undefined') {
-            window.history.pushState(null, '', '/');
+            window.history.pushState(null, '', '/?page=merchant-portal');
+            window.scrollTo({ top: 0, behavior: 'smooth' });
           }
         }}
         onGoToLogin={() => {
           setIsRegisterPage(false);
+          setIsMerchantPortal(false);
           setCurrentRole('MERCHANT');
           setMerchantPortalTab('login');
           if (typeof window !== 'undefined') {
             window.history.pushState(null, '', '/?role=merchant');
+            window.scrollTo({ top: 0, behavior: 'smooth' });
           }
         }}
       />
@@ -518,7 +584,7 @@ export default function App() {
           </div>
           <h3 className="font-display font-extrabold text-base text-slate-800">Portal Pemilik Toko (Merchant)</h3>
           <p className="text-slate-500 text-xs mt-1.5 leading-relaxed">
-            Selamat datang di Portal Merchant tumpangGo. Silakan pilih toko Anda di bawah ini untuk mengelola menu dan pesanan pelanggan.
+            Selamat datang di Portal Merchant TumpangGo. Silakan pilih toko Anda di bawah ini untuk mengelola menu dan pesanan pelanggan.
           </p>
 
           <div className="mt-6 flex flex-col gap-2 max-h-[280px] overflow-y-auto pr-1">
@@ -582,7 +648,7 @@ export default function App() {
           </div>
           <h3 className="font-display font-extrabold text-base text-slate-800">Portal Kurir Internal</h3>
           <p className="text-slate-500 text-xs mt-1.5 leading-relaxed">
-            Selamat datang di Portal Kurir tumpangGo. Silakan pilih nama Anda untuk melihat tugas pengantaran makanan hari ini.
+            Selamat datang di Portal Kurir TumpangGo. Silakan pilih nama Anda untuk melihat tugas pengantaran makanan hari ini.
           </p>
 
           <div className="mt-6 flex flex-col gap-2 max-h-[280px] overflow-y-auto pr-1">
@@ -679,7 +745,8 @@ export default function App() {
               onOpenAuthModal={() => setShowAuthModal(true)}
               onSelectRole={handleRoleSelection}
               onInstantDashboard={handleInstantDashboardAccess}
-              onOpenRegisterPage={handleOpenMerchantRegister}
+              onOpenRegisterPage={handleOpenMerchantPortal}
+              onOpenMerchantPortal={handleOpenMerchantPortal}
             />
           </ErrorBoundary>
         )}

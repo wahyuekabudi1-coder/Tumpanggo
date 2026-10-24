@@ -100,6 +100,19 @@ export default function MerchantPortalLanding({
               </span>
               <ChevronRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
             </div>
+
+            <button
+              type="button"
+              id="btn-login-merchant"
+              onClick={(e) => {
+                e.stopPropagation();
+                onGoToLogin();
+              }}
+              className="w-full mt-3 bg-emerald-700 hover:bg-emerald-800 text-white font-extrabold py-2.5 px-4 rounded-xl text-xs flex items-center justify-center gap-1.5 shadow-xs transition-colors cursor-pointer"
+            >
+              <Lock className="w-3.5 h-3.5" />
+              <span>Login Merchant</span>
+            </button>
           </div>
 
           {/* Card 2: Daftar Menjadi Mitra */}
@@ -134,6 +147,19 @@ export default function MerchantPortalLanding({
               </span>
               <ChevronRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
             </div>
+
+            <button
+              type="button"
+              id="btn-register-mitra"
+              onClick={(e) => {
+                e.stopPropagation();
+                onGoToRegister();
+              }}
+              className="w-full mt-3 bg-amber-600 hover:bg-amber-700 text-white font-extrabold py-2.5 px-4 rounded-xl text-xs flex items-center justify-center gap-1.5 shadow-xs transition-colors cursor-pointer"
+            >
+              <Sparkles className="w-3.5 h-3.5" />
+              <span>Daftar Menjadi Mitra</span>
+            </button>
           </div>
 
         </div>
