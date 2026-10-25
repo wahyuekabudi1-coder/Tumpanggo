@@ -109,6 +109,53 @@ export default function PortalLogin({ role, targetMerchantId, targetDriverId, in
     }
   };
 
+  const handleClosePortalLogin = () => {
+    if (typeof window !== 'undefined') {
+      const win = window as any;
+      // 1. Android Native WebView Bridges (Close APK Activity safely)
+      if (win.AndroidMerchantApp && typeof win.AndroidMerchantApp.closeApp === 'function') {
+        win.AndroidMerchantApp.closeApp();
+        return;
+      }
+      if (win.MerchantAppBridge && typeof win.MerchantAppBridge.closeApp === 'function') {
+        win.MerchantAppBridge.closeApp();
+        return;
+      }
+      if (win.Android && typeof win.Android.closeApp === 'function') {
+        win.Android.closeApp();
+        return;
+      }
+
+      // 2. Standalone PWA / App Window
+      if (window.matchMedia('(display-mode: standalone)').matches || win.navigator?.standalone) {
+        try {
+          window.close();
+        } catch {}
+      }
+
+      // 3. If accessed directly via /merchant (dedicated merchant portal route in APK/browser)
+      const pathname = window.location.pathname.toLowerCase();
+      if (pathname === '/merchant' || pathname.startsWith('/merchant/')) {
+        // In browser on /merchant: DO NOT redirect to public customer site ('/')!
+        if (isActivationMode) {
+          setIsActivationMode(false);
+          return;
+        }
+        if (showForgotPasswordModal) {
+          setShowForgotPasswordModal(false);
+          return;
+        }
+        setError('');
+        setSuccessMsg('');
+        setIsNotRegisteredError(false);
+        setIsPasswordMismatchError(false);
+        return;
+      }
+    }
+
+    onCancel();
+  };
+
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const isActivate = params.get('activate') === 'true';
@@ -656,9 +703,9 @@ export default function PortalLogin({ role, targetMerchantId, targetDriverId, in
               {/* Close Button top-right */}
               <button 
                 type="button"
-                onClick={onCancel}
+                onClick={handleClosePortalLogin}
                 className="absolute top-3.5 right-3.5 sm:top-5 sm:right-5 p-2 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-500 hover:text-slate-800 transition-colors cursor-pointer z-10"
-                title="Kembali ke Beranda"
+                title="Tutup Portal"
                 aria-label="Tutup"
               >
                 <X className="w-4 h-4" />
@@ -1180,9 +1227,9 @@ export default function PortalLogin({ role, targetMerchantId, targetDriverId, in
         <div className="bg-gradient-to-b from-slate-50 via-slate-50/70 to-white text-slate-800 p-5 sm:p-6 pb-4 border-b border-slate-100 relative flex-shrink-0">
           <div className="absolute top-4 left-4">
             <button 
-              onClick={onCancel}
+              onClick={handleClosePortalLogin}
               className="p-2 rounded-full bg-white border border-slate-200 hover:bg-slate-100 text-slate-600 hover:text-slate-900 transition-all cursor-pointer shadow-sm"
-              title="Kembali"
+              title="Tutup"
             >
               <ChevronLeft className="w-5 h-5" />
             </button>

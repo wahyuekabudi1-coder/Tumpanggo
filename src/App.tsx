@@ -516,6 +516,38 @@ export default function App() {
   };
 
   const handleCancelPortalLogin = () => {
+    if (typeof window !== 'undefined') {
+      const win = window as any;
+      // 1. Android Native WebView Bridges: Close APK activity safely
+      if (win.AndroidMerchantApp && typeof win.AndroidMerchantApp.closeApp === 'function') {
+        win.AndroidMerchantApp.closeApp();
+        return;
+      }
+      if (win.MerchantAppBridge && typeof win.MerchantAppBridge.closeApp === 'function') {
+        win.MerchantAppBridge.closeApp();
+        return;
+      }
+      if (win.Android && typeof win.Android.closeApp === 'function') {
+        win.Android.closeApp();
+        return;
+      }
+
+      // 2. Standalone PWA / App Window
+      if (window.matchMedia('(display-mode: standalone)').matches || win.navigator?.standalone) {
+        try {
+          window.close();
+        } catch {}
+      }
+
+      // 3. If accessed directly on /merchant route (dedicated merchant portal in APK/browser)
+      const pathname = window.location.pathname.toLowerCase();
+      if (pathname === '/merchant' || pathname.startsWith('/merchant/') || currentRole === 'MERCHANT') {
+        // Do NOT redirect to '/' or force role to CUSTOMER!
+        setActiveMerchantId('');
+        return;
+      }
+    }
+
     setActiveMerchantId('');
     setActiveDriverId('');
     safeStorage.setItem('tumpang_current_portal', 'CUSTOMER');

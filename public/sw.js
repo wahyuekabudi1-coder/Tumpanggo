@@ -8,7 +8,7 @@
  * Strictly bypasses API requests, authentication, and QRIS endpoints to prevent stale data.
  */
 
-const CACHE_NAME = 'tumpanggo-pwa-v18';
+const CACHE_NAME = 'tumpanggo-pwa-v19';
 const STATIC_ASSETS = [
   '/',
   '/index.html',

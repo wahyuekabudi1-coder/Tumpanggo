@@ -41,6 +41,8 @@ import {
 import { useCookingTicker } from '../hooks/useCookingCountdown.ts';
 import { useOrderRingtone } from '../hooks/useOrderRingtone.ts';
 import { useWebPush } from '../hooks/useWebPush.ts';
+import { usePullToRefresh } from '../hooks/usePullToRefresh.ts';
+import { PullToRefreshIndicator } from './PullToRefreshIndicator.tsx';
 
 // Helper to extract clean initials from store name (e.g., "Warung Ombe" -> "WO", "Bakso Cak Ahmad" -> "BC")
 function getStoreInitials(name?: string): string {
@@ -71,8 +73,8 @@ function MerchantStoreLogo({
 
   const sizeClass = {
     sm: 'w-8 h-8 min-w-[32px] text-[11px]',
-    md: 'w-10 h-10 min-w-[40px] text-xs sm:text-sm',
-    lg: 'w-12 h-12 min-w-[48px] text-base'
+    md: 'w-11 h-11 min-w-[44px] text-xs sm:text-sm font-bold',
+    lg: 'w-14 h-14 min-w-[56px] text-base font-bold'
   }[size];
 
   if (logoUrl && !imgError) {
@@ -338,6 +340,9 @@ export default function MerchantView({ merchantId: rawMerchantId, onLogout, onSe
   const [profileName, setProfileName] = useState('');
   const [profilePhone, setProfilePhone] = useState('');
   const [profileOwner, setProfileOwner] = useState('');
+  const [profileImage, setProfileImage] = useState('');
+  const [profileImageError, setProfileImageError] = useState<string | null>(null);
+  const [isCompressingProfileImage, setIsCompressingProfileImage] = useState(false);
   const [profileBankName, setProfileBankName] = useState('');
   const [profileBankAccount, setProfileBankAccount] = useState('');
   const [profileBankHolder, setProfileBankHolder] = useState('');
@@ -348,6 +353,14 @@ export default function MerchantView({ merchantId: rawMerchantId, onLogout, onSe
   const [isSavingProfile, setIsSavingProfile] = useState(false);
   const [profileSaveSuccess, setProfileSaveSuccess] = useState(false);
   const [merchantAccessError, setMerchantAccessError] = useState<string | null>(null);
+
+  // Pull-to-Refresh Gesture Integration for Mobile & Android WebView
+  const { pullDistance, pullProgress, isRefreshing: isPullRefreshing } = usePullToRefresh({
+    onRefresh: async () => {
+      await fetchMerchantData(true);
+    },
+    disabled: showItemForm || Boolean(rejectModal) || Boolean(selectedReceiptOrder)
+  });
 
   const isMountedRef = useRef(true);
 
@@ -442,6 +455,8 @@ export default function MerchantView({ merchantId: rawMerchantId, onLogout, onSe
         setProfileOpenTime(profRes.openTime || '08:00');
         setProfileCloseTime(profRes.closeTime || '21:00');
         setProfileCategory(profRes.category || 'Nasi & Lauk');
+        setProfileImage(profRes.image || profRes.businessPhoto || '');
+        setProfileImageError(null);
       }
 
       setOrders(extractArrayResponse<Order>(ordRes, 'orders'));
@@ -688,6 +703,34 @@ export default function MerchantView({ merchantId: rawMerchantId, onLogout, onSe
     }
   };
 
+  // --- PROFILE LOGO / IMAGE UPLOAD ---
+  const handleProfileImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setProfileImageError(null);
+
+    if (!file.type.startsWith('image/')) {
+      setProfileImageError('Format file tidak didukung. Pilih gambar PNG, JPG, atau WebP.');
+      return;
+    }
+
+    if (file.size > 10 * 1024 * 1024) {
+      setProfileImageError('Ukuran file foto maksimal 10MB.');
+      return;
+    }
+
+    setIsCompressingProfileImage(true);
+    try {
+      // Compress to high-quality lightweight base64 DataURL
+      const compressed = await compressImage(file, 600, 600, 0.75);
+      setProfileImage(compressed);
+    } catch (err: any) {
+      setProfileImageError(err?.message || 'Gagal memproses gambar foto.');
+    } finally {
+      setIsCompressingProfileImage(false);
+    }
+  };
+
   // --- PROFILE UPDATE ---
   const handleUpdateProfile = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -701,6 +744,7 @@ export default function MerchantView({ merchantId: rawMerchantId, onLogout, onSe
           name: profileName.trim(),
           phone: profilePhone.trim(),
           ownerName: profileOwner.trim(),
+          image: profileImage,
           bankName: profileBankName.trim(),
           bankAccount: profileBankAccount.trim(),
           bankHolder: profileBankHolder.trim(),
@@ -715,6 +759,7 @@ export default function MerchantView({ merchantId: rawMerchantId, onLogout, onSe
       if (res.ok) {
         const updated = await res.json();
         setMerchant(updated);
+        setProfileImage(updated.image || updated.businessPhoto || '');
         setProfileSaveSuccess(true);
         setTimeout(() => setProfileSaveSuccess(false), 4000);
       } else {
@@ -926,6 +971,12 @@ export default function MerchantView({ merchantId: rawMerchantId, onLogout, onSe
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col md:flex-row antialiased text-slate-900 w-full max-w-full overflow-x-hidden">
+      {/* Floating Pull-to-Refresh Indicator */}
+      <PullToRefreshIndicator 
+        pullDistance={pullDistance} 
+        pullProgress={pullProgress} 
+        isRefreshing={isPullRefreshing} 
+      />
       
       {/* =========================================================================
           DESKTOP SIDEBAR (Tampil pada layar md: ke atas)
@@ -1133,6 +1184,22 @@ export default function MerchantView({ merchantId: rawMerchantId, onLogout, onSe
 
             {/* Drawer Footer Actions with Safe Area support */}
             <div className="p-4 pb-[calc(env(safe-area-inset-bottom,0px)+1rem)] border-t border-slate-100 bg-slate-50 space-y-2">
+              <div className="flex items-center justify-between p-2.5 bg-white rounded-xl border border-slate-200/80 text-xs">
+                <span className="text-slate-600 font-semibold flex items-center gap-1.5">
+                  <Volume2 className="w-4 h-4 text-slate-500" />
+                  Suara Dering:
+                </span>
+                <button
+                  type="button"
+                  onClick={toggleMute}
+                  className={`text-[11px] font-bold px-2.5 py-1 rounded-lg border cursor-pointer ${
+                    isMuted ? 'bg-slate-200 text-slate-600 border-slate-300' : 'bg-emerald-100 text-emerald-800 border-emerald-300'
+                  }`}
+                >
+                  {isMuted ? 'Mati' : 'Aktif'}
+                </button>
+              </div>
+
               <button
                 type="button"
                 onClick={() => {
@@ -1143,20 +1210,6 @@ export default function MerchantView({ merchantId: rawMerchantId, onLogout, onSe
               >
                 <Store className="w-4 h-4 text-emerald-700" />
                 <span>Lihat Website Utama</span>
-              </button>
-
-              <button
-                onClick={() => {
-                  toggleOpenStatus();
-                  setIsMobileDrawerOpen(false);
-                }}
-                className={`w-full min-h-[44px] py-2 px-3 rounded-xl text-xs font-bold transition-all shadow-xs cursor-pointer border flex items-center justify-center gap-1.5 ${
-                  merchant?.active 
-                    ? 'bg-rose-50 text-rose-700 border-rose-200' 
-                    : 'bg-emerald-50 text-emerald-800 border-emerald-200'
-                }`}
-              >
-                {merchant?.active ? 'Tutup Toko Sementara' : 'Buka Toko Sekarang'}
               </button>
 
               <div className="flex gap-2">
@@ -1175,7 +1228,7 @@ export default function MerchantView({ merchantId: rawMerchantId, onLogout, onSe
                     setIsMobileDrawerOpen(false);
                     handleConfirmLogout();
                   }}
-                  className="min-h-[44px] py-2 px-3 rounded-xl bg-slate-900 hover:bg-rose-700 text-white text-xs font-bold shadow-xs flex items-center justify-center gap-1.5 cursor-pointer"
+                  className="min-h-[44px] py-2 px-4 rounded-xl bg-slate-900 hover:bg-rose-700 text-white text-xs font-bold shadow-xs flex items-center justify-center gap-1.5 cursor-pointer"
                 >
                   <LogOut className="w-3.5 h-3.5" />
                   <span>Keluar</span>
@@ -1194,7 +1247,7 @@ export default function MerchantView({ merchantId: rawMerchantId, onLogout, onSe
         {/* Mobile Header (< md) — Ringkas, Proporsional, Tanpa Elemen Bertumpuk */}
         <header className="md:hidden bg-white border-b border-slate-200/90 sticky top-0 z-30 shadow-xs min-h-[56px] py-1.5 px-3 flex items-center justify-between gap-2 select-none">
           {/* Left: Hamburger & Store Identity with Store Logo */}
-          <div className="flex items-center gap-2 min-w-0 flex-1">
+          <div className="flex items-center gap-2.5 min-w-0 flex-1">
             <button
               onClick={() => setIsMobileDrawerOpen(true)}
               className="w-10 h-10 min-w-[40px] rounded-xl flex items-center justify-center text-slate-700 hover:bg-slate-100 active:bg-slate-200 cursor-pointer shrink-0"
@@ -1207,16 +1260,16 @@ export default function MerchantView({ merchantId: rawMerchantId, onLogout, onSe
             <MerchantStoreLogo merchant={merchant} size="md" />
 
             <div className="min-w-0 flex-1">
-              <h1 className="font-display font-bold text-xs sm:text-sm text-slate-900 truncate leading-tight" title={merchant?.name || 'Portal Toko'}>
+              <h1 className="font-display font-black text-sm sm:text-base text-slate-900 truncate leading-snug tracking-tight" title={merchant?.name || 'Portal Toko'}>
                 {merchant?.name || 'Portal Toko'}
               </h1>
               <div className="flex items-center gap-1.5 text-[10px] leading-none mt-0.5">
-                <span className="text-slate-400 font-medium hidden sm:inline">Merchant</span>
-                <span className="text-slate-300 hidden sm:inline">·</span>
-                <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${merchant?.active ? 'bg-emerald-500' : 'bg-slate-400'}`} />
-                <span className={`font-semibold truncate ${merchant?.active ? 'text-emerald-700' : 'text-slate-400'}`}>
+                <span className={`w-2 h-2 rounded-full shrink-0 ${merchant?.active ? 'bg-emerald-500 animate-pulse' : 'bg-slate-400'}`} />
+                <span className={`font-bold uppercase tracking-wider ${merchant?.active ? 'text-emerald-700' : 'text-slate-500'}`}>
                   {merchant?.active ? 'Buka' : 'Tutup'}
                 </span>
+                <span className="text-slate-300">·</span>
+                <span className="text-slate-500 font-medium truncate">{merchant?.category || 'Kuliner'}</span>
               </div>
             </div>
           </div>
@@ -1272,15 +1325,15 @@ export default function MerchantView({ merchantId: rawMerchantId, onLogout, onSe
 
         {/* Desktop Top Header Bar (md:) */}
         <header className="hidden md:flex bg-white border-b border-slate-200/80 px-6 lg:px-8 py-3.5 items-center justify-between sticky top-0 z-10 shadow-2xs">
-          <div className="flex items-center gap-3">
-            <MerchantStoreLogo merchant={merchant} size="md" />
+          <div className="flex items-center gap-3.5">
+            <MerchantStoreLogo merchant={merchant} size="lg" />
             <div>
-              <div className="flex items-center gap-2">
-                <h2 className="font-display font-bold text-base text-slate-900">
+              <div className="flex items-center gap-2.5">
+                <h1 className="font-display font-black text-lg text-slate-900 tracking-tight">
                   {merchant?.name || 'Dashboard Merchant'}
-                </h2>
-                <span className="text-xs text-slate-400">·</span>
-                <span className="text-xs font-semibold text-slate-600">
+                </h1>
+                <span className="text-xs text-slate-300">·</span>
+                <span className="text-xs font-semibold text-slate-600 bg-slate-100 px-2.5 py-0.5 rounded-md">
                   {activeTab === 'dashboard' && 'Dashboard Rekap Penjualan'}
                   {activeTab === 'incoming' && 'Pesanan Masuk & Operasional Dapur'}
                   {activeTab === 'history' && 'Riwayat & Arsip Pesanan'}
@@ -1288,7 +1341,7 @@ export default function MerchantView({ merchantId: rawMerchantId, onLogout, onSe
                   {activeTab === 'profile' && 'Profil Outlet & Jam Operasional'}
                 </span>
               </div>
-              <p className="text-xs text-slate-400">
+              <p className="text-xs text-slate-400 mt-0.5">
                 TumpangGo Merchant • Real-time sync • Update: {lastRefreshedAt.toLocaleTimeString('id-ID')} WIB
               </p>
             </div>
@@ -1377,10 +1430,10 @@ export default function MerchantView({ merchantId: rawMerchantId, onLogout, onSe
               <div className="bg-white p-4 sm:p-5 rounded-2xl border border-slate-200/90 shadow-xs space-y-3">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                   <div>
-                    <h2 className="font-display font-black text-lg sm:text-xl text-slate-900">
+                    <h2 className="font-display font-bold text-sm sm:text-base text-slate-900">
                       Ringkasan Penjualan Toko
                     </h2>
-                    <p className="text-xs text-slate-500 mt-0.5">
+                    <p className="text-[11px] sm:text-xs text-slate-500 mt-0.5">
                       Statistik operasional pesanan dan pendapatan kuliner Anda.
                     </p>
                   </div>
@@ -1530,33 +1583,15 @@ export default function MerchantView({ merchantId: rawMerchantId, onLogout, onSe
                 </div>
               </div>
 
-              {/* Quick Actions Shortcuts */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {/* Primary Action Shortcut: Tambah Menu */}
+              <div>
                 <button
-                  onClick={() => {
-                    setActiveTab('incoming');
-                    setOperationalSubTab('perlu_masak');
-                  }}
-                  className="bg-white p-3.5 rounded-2xl border border-slate-200/90 hover:border-emerald-300 shadow-xs flex items-center justify-between text-left cursor-pointer transition-all"
-                >
-                  <div className="flex items-center gap-3">
-                    <div className="w-9 h-9 rounded-xl bg-amber-50 text-amber-700 flex items-center justify-center shrink-0">
-                      <ChefHat className="w-5 h-5" />
-                    </div>
-                    <div>
-                      <h4 className="font-bold text-xs text-slate-900">Buka Pesanan Masuk Dapur</h4>
-                      <p className="text-[10px] text-slate-500">Konfirmasi masak &amp; pantau hitung mundur timer</p>
-                    </div>
-                  </div>
-                  <ChevronRight className="w-4 h-4 text-slate-400" />
-                </button>
-
-                <button
+                  type="button"
                   onClick={() => {
                     setEditingItem({ available: true, categoryId: categories[0]?.id || '' });
                     setShowItemForm(true);
                   }}
-                  className="bg-white p-3.5 rounded-2xl border border-slate-200/90 hover:border-emerald-300 shadow-xs flex items-center justify-between text-left cursor-pointer transition-all"
+                  className="w-full bg-white p-3.5 rounded-2xl border border-slate-200/90 hover:border-emerald-300 shadow-xs flex items-center justify-between text-left cursor-pointer transition-all"
                 >
                   <div className="flex items-center gap-3">
                     <div className="w-9 h-9 rounded-xl bg-emerald-50 text-emerald-700 flex items-center justify-center shrink-0">
@@ -1564,7 +1599,7 @@ export default function MerchantView({ merchantId: rawMerchantId, onLogout, onSe
                     </div>
                     <div>
                       <h4 className="font-bold text-xs text-slate-900">Tambah Menu Makanan Baru</h4>
-                      <p className="text-[10px] text-slate-500">Unggah foto dari galeri HP &amp; atur harga</p>
+                      <p className="text-[10px] text-slate-500">Unggah foto menu dari galeri HP &amp; atur harga makanan</p>
                     </div>
                   </div>
                   <ChevronRight className="w-4 h-4 text-slate-400" />
@@ -2319,7 +2354,76 @@ export default function MerchantView({ merchantId: rawMerchantId, onLogout, onSe
                   </div>
                 )}
 
-                <form onSubmit={handleUpdateProfile} className="space-y-3.5">
+                <form onSubmit={handleUpdateProfile} className="space-y-4">
+                  {/* Foto / Logo Toko */}
+                  <div className="p-3.5 bg-slate-50 border border-slate-200/90 rounded-2xl space-y-3">
+                    <label className="text-xs font-bold text-slate-800 flex items-center justify-between">
+                      <span>Foto / Logo Resmi Toko</span>
+                      <span className="text-[10px] text-slate-400 font-normal">PNG, JPG, WebP (Maks. 10MB)</span>
+                    </label>
+
+                    <div className="flex flex-col sm:flex-row items-center gap-3.5">
+                      {/* Image Preview */}
+                      <div className="w-20 h-20 sm:w-24 sm:h-24 rounded-2xl overflow-hidden border-2 border-emerald-500/20 bg-white shadow-xs shrink-0 flex items-center justify-center relative group">
+                        {profileImage ? (
+                          <img
+                            src={profileImage}
+                            alt="Preview Logo Toko"
+                            className="w-full h-full object-cover"
+                          />
+                        ) : (
+                          <div className="w-full h-full bg-gradient-to-br from-emerald-600 to-teal-800 text-white font-display font-black text-xl flex items-center justify-center">
+                            {getStoreInitials(profileName || merchant?.name)}
+                          </div>
+                        )}
+                        {isCompressingProfileImage && (
+                          <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-2xs flex items-center justify-center text-white text-xs font-bold gap-1">
+                            <RefreshCw className="w-4 h-4 animate-spin text-emerald-400" />
+                          </div>
+                        )}
+                      </div>
+
+                      {/* File Input and Action Buttons */}
+                      <div className="flex-1 w-full space-y-2">
+                        <div className="flex flex-wrap gap-2">
+                          <label className="min-h-[40px] px-3.5 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold cursor-pointer transition-colors flex items-center gap-1.5 shadow-xs">
+                            <Upload className="w-3.5 h-3.5" />
+                            <span>{profileImage ? 'Ganti Foto Toko' : 'Pilih Foto dari Galeri / Kamera'}</span>
+                            <input
+                              type="file"
+                              accept="image/png,image/jpeg,image/webp,image/*"
+                              onChange={handleProfileImageUpload}
+                              className="hidden"
+                              disabled={isCompressingProfileImage || isSavingProfile}
+                            />
+                          </label>
+
+                          {profileImage && (
+                            <button
+                              type="button"
+                              onClick={() => setProfileImage('')}
+                              className="min-h-[40px] px-3 py-2 rounded-xl bg-white border border-rose-200 text-rose-600 hover:bg-rose-50 text-xs font-bold cursor-pointer transition-colors flex items-center gap-1"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                              <span>Hapus Foto</span>
+                            </button>
+                          )}
+                        </div>
+
+                        <p className="text-[11px] text-slate-500 leading-relaxed">
+                          Foto atau logo ini akan tampil pada katalog pelanggan, banner profil mitra, dan aplikasi TumpangGo Merchant.
+                        </p>
+
+                        {profileImageError && (
+                          <p className="text-[11px] font-semibold text-rose-600 flex items-center gap-1">
+                            <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                            <span>{profileImageError}</span>
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
                       <label className="text-xs font-bold text-slate-700 block mb-1">Nama Toko / Resto</label>
