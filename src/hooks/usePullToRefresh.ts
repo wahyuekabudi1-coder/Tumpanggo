@@ -31,6 +31,7 @@ export function usePullToRefresh({
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [pullProgress, setPullProgress] = useState(0); // 0.0 to 1.0
 
+  const startXRef = useRef(0);
   const startYRef = useRef(0);
   const isPullingRef = useRef(false);
   const isRefreshingRef = useRef(false);
@@ -40,24 +41,52 @@ export function usePullToRefresh({
     isRefreshingRef.current = isRefreshing;
   }, [isRefreshing]);
 
-  // Check if an element or its ancestors is an active nested scrollable container
+  // Check if an element or its ancestors is an active nested scrollable container, form input, or modal
   const isInsideNestedScroll = (target: EventTarget | null): boolean => {
     if (!target || !(target instanceof HTMLElement)) return false;
     let el: HTMLElement | null = target;
     while (el && el !== document.body && el !== document.documentElement) {
-      // Disqualify interactive inputs, buttons, or scrollable modals
+      // 1. Form inputs and editable elements MUST NEVER trigger pull-to-refresh
       if (
         el.tagName === 'TEXTAREA' ||
         el.tagName === 'INPUT' ||
         el.tagName === 'SELECT' ||
-        el.getAttribute('role') === 'dialog' ||
-        el.classList.contains('overflow-y-auto') ||
-        el.classList.contains('overflow-y-scroll')
+        el.isContentEditable
       ) {
-        if (el.scrollTop > 0) {
+        return true;
+      }
+
+      // 2. Dialogs, Modals, Drawers, and Overlays
+      if (
+        el.getAttribute('role') === 'dialog' ||
+        el.getAttribute('aria-modal') === 'true' ||
+        el.classList.contains('fixed') ||
+        el.hasAttribute('data-modal')
+      ) {
+        return true;
+      }
+
+      // 3. Scrollable list containers (e.g. order list, menu list, sub-tabs)
+      if (
+        el.classList.contains('overflow-y-auto') ||
+        el.classList.contains('overflow-y-scroll') ||
+        el.classList.contains('overflow-auto') ||
+        el.classList.contains('overflow-x-auto')
+      ) {
+        return true;
+      }
+
+      // 4. Computed scrollable check
+      try {
+        const style = window.getComputedStyle(el);
+        if (
+          (style.overflowY === 'auto' || style.overflowY === 'scroll') &&
+          el.scrollHeight > el.clientHeight
+        ) {
           return true;
         }
-      }
+      } catch {}
+
       el = el.parentElement;
     }
     return false;
@@ -66,13 +95,14 @@ export function usePullToRefresh({
   const handleTouchStart = useCallback((e: TouchEvent) => {
     if (disabled || isRefreshingRef.current) return;
 
-    // Only allow when page is at the very top
+    // Only allow when the main window/page is strictly at the top (scrollTop === 0)
     const scrollTop = window.scrollY || document.documentElement.scrollTop || document.body.scrollTop || 0;
-    if (scrollTop > 2) return;
+    if (scrollTop > 0) return;
 
     if (isInsideNestedScroll(e.target)) return;
 
     if (e.touches.length === 1) {
+      startXRef.current = e.touches[0].clientX;
       startYRef.current = e.touches[0].clientY;
       isPullingRef.current = true;
     }
@@ -82,24 +112,34 @@ export function usePullToRefresh({
     if (!isPullingRef.current || disabled || isRefreshingRef.current) return;
 
     const scrollTop = window.scrollY || document.documentElement.scrollTop || document.body.scrollTop || 0;
-    if (scrollTop > 2) {
+    if (scrollTop > 0) {
       isPullingRef.current = false;
       setPullDistance(0);
       setPullProgress(0);
       return;
     }
 
+    const currentX = e.touches[0].clientX;
     const currentY = e.touches[0].clientY;
-    const diff = currentY - startYRef.current;
+    const diffX = currentX - startXRef.current;
+    const diffY = currentY - startYRef.current;
+
+    // If movement is predominantly horizontal (e.g. scrolling sub-tabs or horizontal pills), cancel pull-to-refresh
+    if (Math.abs(diffX) > Math.abs(diffY)) {
+      isPullingRef.current = false;
+      setPullDistance(0);
+      setPullProgress(0);
+      return;
+    }
 
     // Only pull downwards
-    if (diff > 0) {
-      const damped = Math.min(diff * resistance, maxPull);
+    if (diffY > 0) {
+      const damped = Math.min(diffY * resistance, maxPull);
       setPullDistance(damped);
       setPullProgress(Math.min(damped / threshold, 1));
       
-      // Prevent browser default pull-to-reload if we are handling it
-      if (diff > 10 && e.cancelable) {
+      // Prevent browser default pull-to-reload if we are actively pulling
+      if (diffY > 10 && e.cancelable) {
         e.preventDefault();
       }
     } else {

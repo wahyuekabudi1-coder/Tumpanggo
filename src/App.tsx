@@ -541,8 +541,8 @@ export default function App() {
 
       // 3. If accessed directly on /merchant route (dedicated merchant portal in APK/browser)
       const pathname = window.location.pathname.toLowerCase();
-      if (pathname === '/merchant' || pathname.startsWith('/merchant/') || currentRole === 'MERCHANT') {
-        // Do NOT redirect to '/' or force role to CUSTOMER!
+      if (pathname === '/merchant' || pathname.startsWith('/merchant/')) {
+        // Do NOT redirect to '/' or force role to CUSTOMER on dedicated merchant route!
         setActiveMerchantId('');
         return;
       }

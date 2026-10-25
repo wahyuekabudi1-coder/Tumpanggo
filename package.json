@@ -9,7 +9,7 @@
     "start": "node server.ts",
     "clean": "rm -rf dist server.cjs api/_app.cjs api/_app.cjs.map",
     "master:recover": "tsx scripts/recover_master_password.ts",
-    "test": "tsx tests/fee_and_db.test.ts && tsx tests/firestore_integration_verification.test.ts && tsx tests/pwa_installation_mechanism.test.ts && tsx tests/security_critical_remediation.test.ts && tsx tests/website_updates_verification.test.ts && tsx tests/merchant_responsive_verification.test.ts && tsx tests/driver_ui_consistency_verification.test.ts && tsx tests/admin_ui_consistency_verification.test.ts",
+    "test": "tsx tests/fee_and_db.test.ts && tsx tests/firestore_integration_verification.test.ts && tsx tests/pwa_installation_mechanism.test.ts && tsx tests/security_critical_remediation.test.ts && tsx tests/website_updates_verification.test.ts && tsx tests/merchant_responsive_verification.test.ts && tsx tests/merchant_audit_and_persistence.test.ts && tsx tests/driver_ui_consistency_verification.test.ts && tsx tests/admin_ui_consistency_verification.test.ts",
     "test:security": "tsx tests/security_critical_remediation.test.ts",
     "test:pwa": "tsx tests/pwa_installation_mechanism.test.ts",
     "test:integration": "tsx tests/firestore_integration_verification.test.ts",

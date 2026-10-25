@@ -62,9 +62,10 @@
   --color-secondary-600: #2563EB;
 }
 
-body {
+html, body {
   background-color: #F4F7F5;
   color: #0F172A;
+  overscroll-behavior-y: contain;
 }
 
 /* Leaflet Override Styles */

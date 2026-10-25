@@ -412,11 +412,13 @@ export default function MerchantView({ merchantId: rawMerchantId, onLogout, onSe
 
     try {
       if (isBackground) {
-        const ordRes = await fetch(`/api/merchants/${encodeURIComponent(effectiveMerchantId)}/orders`)
-          .then(r => r.ok ? r.json() : [])
-          .catch(() => []);
+        const [ordRes, menuRes] = await Promise.all([
+          fetch(`/api/merchants/${encodeURIComponent(effectiveMerchantId)}/orders`).then(r => r.ok ? r.json() : []).catch(() => []),
+          fetch(`/api/merchants/${encodeURIComponent(effectiveMerchantId)}/menu`).then(r => r.ok ? r.json() : []).catch(() => [])
+        ]);
         if (!isMountedRef.current) return;
         setOrders(extractArrayResponse<Order>(ordRes, 'orders'));
+        setMenuItems(extractArrayResponse<MenuItem>(menuRes, 'menuItems'));
         setLastRefreshedAt(new Date());
         return;
       }
@@ -1247,7 +1249,7 @@ export default function MerchantView({ merchantId: rawMerchantId, onLogout, onSe
         {/* Mobile Header (< md) — Ringkas, Proporsional, Tanpa Elemen Bertumpuk */}
         <header className="md:hidden bg-white border-b border-slate-200/90 sticky top-0 z-30 shadow-xs min-h-[56px] py-1.5 px-3 flex items-center justify-between gap-2 select-none">
           {/* Left: Hamburger & Store Identity with Store Logo */}
-          <div className="flex items-center gap-2.5 min-w-0 flex-1">
+          <div className="flex items-center gap-2 min-w-0 flex-1">
             <button
               onClick={() => setIsMobileDrawerOpen(true)}
               className="w-10 h-10 min-w-[40px] rounded-xl flex items-center justify-center text-slate-700 hover:bg-slate-100 active:bg-slate-200 cursor-pointer shrink-0"
