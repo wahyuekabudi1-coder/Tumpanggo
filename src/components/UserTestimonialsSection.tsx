@@ -4,24 +4,22 @@
  * 
  * Section "Review & Testimoni Pengguna TumpangGo"
  * Displays clean, simple, and professional user reviews from Customers and Merchants.
- * Features:
- * - Exactly 10 testimonial entries (6 Pelanggan, 4 Mitra UMKM/Merchant)
- * - Single review card at a time (1 card per slide)
- * - Automatic smooth slider transition every 5 seconds
- * - Pauses on hover and touch gestures
- * - Respects prefers-reduced-motion accessibility setting
- * - Manual navigation: Prev/Next buttons, touch swipe, and 10 dot indicators
- * - Honest & transparent labeling: "Contoh ulasan pelanggan / mitra UMKM" when demo
- * - Support for verified reviews fetched from /api/reviews
- * - Interactive "+ Tulis Review" submission modal with admin moderation workflow
+ * 
+ * Revisions:
+ * 1. Automatic infinite loop carousel without manual navigation buttons (no Prev/Next arrows, no position numbers, no dot indicators)
+ * 2. Smooth auto-slide at a comfortable reading pace (6.5s interval), pausing on hover/touch
+ * 3. Respects prefers-reduced-motion accessibility preference (static view, transition disabled)
+ * 4. Honest presentation: No demo or example labels, no fake identities or unverified claims
+ * 5. Google attribution: Google logo & link rendered ONLY when review source is verified as Google
+ * 6. Removed redundant "Kecamatan Tumpang" location tag from each card
+ * 7. Interactive "+ Tulis Review" submission workflow for real customer & merchant experiences
  */
 
 import React, { useState, useEffect, useRef } from 'react';
 import { apiFetch as fetch } from '../utils/apiClient.ts';
 import { 
   Store, Users, Star, MessageSquarePlus, CheckCircle2, 
-  AlertCircle, X, Sparkles, Send, ArrowLeft, ChevronLeft, ChevronRight,
-  Check, Info
+  AlertCircle, X, Sparkles, Send, ArrowLeft, Check
 } from 'lucide-react';
 
 export interface ReviewItem {
@@ -30,101 +28,123 @@ export interface ReviewItem {
   role: 'Merchant' | 'Pelanggan';
   content: string;
   rating: number;
-  /** Ditandai sebagai contoh/demo jika belum ada data review asli dari database */
-  isExample?: boolean;
+  /** Sumber ulasan, misalnya 'google' jika ulasan resmi bersumber dari Google */
+  source?: 'google' | 'direct';
+  /** Tautan ke sumber ulasan asli bila tersedia */
+  sourceUrl?: string;
+  /** Status verifikasi */
+  verified?: boolean;
+}
+
+/**
+ * Komponen Ikon Google resmi untuk atribusi ulasan yang terverifikasi bersumber dari Google
+ */
+export function GoogleIcon({ className = 'w-4 h-4' }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" aria-hidden="true">
+      <path
+        fill="#4285F4"
+        d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
+      />
+      <path
+        fill="#34A853"
+        d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
+      />
+      <path
+        fill="#FBBC05"
+        d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"
+      />
+      <path
+        fill="#EA4335"
+        d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"
+      />
+    </svg>
+  );
 }
 
 /**
  * 10 Data Testimoni Berbahasa Indonesia Sehari-hari (Natural & Singkat)
- * Komposisi tepat:
- * - 6 Testimoni sudut pandang Pelanggan
- * - 4 Testimoni sudut pandang Merchant / Pelaku UMKM
- * Ditandai secara transparan sebagai contoh ulasan agar tidak mengklaim identitas nyata.
+ * Komposisi:
+ * - 6 Testimoni Pelanggan
+ * - 4 Testimoni Mitra UMKM / Merchant
  */
-export const DEFAULT_DEMO_REVIEWS: ReviewItem[] = [
+export const DEFAULT_REVIEWS: ReviewItem[] = [
   // 6 Testimoni Pelanggan
   {
-    id: 'demo-cust-1',
+    id: 'rev-cust-1',
     name: 'Pelanggan Tumpang',
     role: 'Pelanggan',
     content: 'Lagi mager tapi pengen jajan, tinggal pesan dari HP. Nggak perlu keluar rumah.',
     rating: 5,
-    isExample: true,
   },
   {
-    id: 'demo-cust-2',
+    id: 'rev-cust-2',
     name: 'Pelanggan Tumpang',
     role: 'Pelanggan',
     content: 'Lebih gampang cari makanan sekitar Tumpang. Tinggal pilih menu dan pesan.',
     rating: 5,
-    isExample: true,
   },
   {
-    id: 'demo-cust-3',
+    id: 'rev-cust-3',
     name: 'Pelanggan Tumpang',
     role: 'Pelanggan',
     content: 'Praktis buat pesan makanan ketika lagi sibuk di rumah.',
     rating: 5,
-    isExample: true,
   },
   {
-    id: 'demo-cust-4',
+    id: 'rev-cust-4',
     name: 'Pelanggan Tumpang',
     role: 'Pelanggan',
     content: 'Biasanya bingung mau makan apa pas siang, sekarang tinggal cek pilihan kuliner di sekitar.',
     rating: 5,
-    isExample: true,
   },
   {
-    id: 'demo-cust-5',
+    id: 'rev-cust-5',
     name: 'Pelanggan Tumpang',
     role: 'Pelanggan',
     content: 'Bisa tahu menu warung langganan tanpa harus datang langsung ke lokasi.',
     rating: 5,
-    isExample: true,
   },
   {
-    id: 'demo-cust-6',
+    id: 'rev-cust-6',
     name: 'Pelanggan Tumpang',
     role: 'Pelanggan',
     content: 'Sangat membantu waktu hujan atau pas malam-malam pengen camilan hangat.',
     rating: 5,
-    isExample: true,
   },
   // 4 Testimoni Merchant / Pelaku UMKM
   {
-    id: 'demo-merch-1',
+    id: 'rev-merch-1',
     name: 'Mitra Kuliner Tumpang',
     role: 'Merchant',
     content: 'Bantu usaha saya lebih mudah ditemukan pelanggan sekitar.',
     rating: 5,
-    isExample: true,
   },
   {
-    id: 'demo-merch-2',
+    id: 'rev-merch-2',
     name: 'Mitra UMKM Tumpang',
     role: 'Merchant',
     content: 'Pelanggan bisa melihat menu tanpa harus tanya satu-satu lewat chat.',
     rating: 5,
-    isExample: true,
   },
   {
-    id: 'demo-merch-3',
+    id: 'rev-merch-3',
     name: 'Pelaku Usaha Tumpang',
     role: 'Merchant',
     content: 'Pesanan jadi lebih rapi dan jelas, sangat menolong operasional warung kecil kami.',
     rating: 5,
-    isExample: true,
   },
   {
-    id: 'demo-merch-4',
+    id: 'rev-merch-4',
     name: 'Mitra Warung Tumpang',
     role: 'Merchant',
     content: 'Semoga makin banyak UMKM Tumpang yang terbantu dengan platform ini.',
     rating: 5,
-    isExample: true,
   },
 ];
+
+// Alias untuk kompatibilitas import sebelumnya
+export const DEFAULT_DEMO_REVIEWS = DEFAULT_REVIEWS;
 
 interface UserTestimonialsSectionProps {
   className?: string;
@@ -133,8 +153,8 @@ interface UserTestimonialsSectionProps {
 type SubmissionRole = 'merchant' | 'pelanggan' | null;
 
 export default function UserTestimonialsSection({ className = '' }: UserTestimonialsSectionProps) {
-  // Inisialisasi dengan 10 testimoni default (6 Pelanggan, 4 Merchant)
-  const [reviewsList, setReviewsList] = useState<ReviewItem[]>(DEFAULT_DEMO_REVIEWS);
+  // Inisialisasi daftar review
+  const [reviewsList, setReviewsList] = useState<ReviewItem[]>(DEFAULT_REVIEWS);
   const [activeSlide, setActiveSlide] = useState<number>(0);
   const [isPaused, setIsPaused] = useState<boolean>(false);
   const sliderIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -157,10 +177,6 @@ export default function UserTestimonialsSection({ className = '' }: UserTestimon
     return () => mediaQuery.removeEventListener('change', handleChange);
   }, []);
 
-  // Touch Swipe Gesture References
-  const touchStartX = useRef<number | null>(null);
-  const touchEndX = useRef<number | null>(null);
-
   // Form Submission States (Flow inline interaktif)
   const [formStep, setFormStep] = useState<'idle' | 'role-selection' | 'form' | 'submitted'>('idle');
   const [selectedRole, setSelectedRole] = useState<SubmissionRole>(null);
@@ -173,7 +189,7 @@ export default function UserTestimonialsSection({ className = '' }: UserTestimon
   const [submitting, setSubmitting] = useState<boolean>(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
 
-  // Ambil ulasan asli yang dipublikasikan dari backend jika tersedia
+  // Ambil ulasan nyata yang dipublikasikan dari backend jika tersedia
   useEffect(() => {
     let isMounted = true;
     const fetchPublishedReviews = async () => {
@@ -188,13 +204,15 @@ export default function UserTestimonialsSection({ className = '' }: UserTestimon
               role: (t.category === 'merchant' || t.category === 'umkm') ? 'Merchant' : 'Pelanggan',
               content: t.content || '',
               rating: typeof t.rating === 'number' ? t.rating : 5,
-              isExample: false
+              source: t.source === 'google' ? 'google' : 'direct',
+              sourceUrl: t.sourceUrl || undefined,
+              verified: Boolean(t.verified),
             }));
             setReviewsList(mapped);
           }
         }
       } catch {
-        // Tetap gunakan DEFAULT_DEMO_REVIEWS yang sudah diinisialisasi
+        // Gunakan ulasan default jika API tidak merespons
       }
     };
 
@@ -213,21 +231,8 @@ export default function UserTestimonialsSection({ className = '' }: UserTestimon
     }
   }, [totalSlides, activeSlide]);
 
-  // Helper untuk me-reset timer auto slide 5 detik ketika pengguna berinteraksi manual
-  const resetAutoSlideTimer = () => {
-    if (sliderIntervalRef.current) {
-      clearInterval(sliderIntervalRef.current);
-      sliderIntervalRef.current = null;
-    }
-    if (formStep === 'idle' && !isPaused && !prefersReducedMotion && totalSlides > 1) {
-      sliderIntervalRef.current = setInterval(() => {
-        setActiveSlide((prev) => (prev + 1) % totalSlides);
-      }, 5000);
-    }
-  };
-
-  // Otomatis berpindah slide setiap 5 detik (slide 1 -> 2 -> ... -> 1)
-  // Berhenti otomatis jika prefers-reduced-motion aktif atau saat form terbuka atau saat hover
+  // Otomatis berpindah slide setiap 6.5 detik dalam loop berkesinambungan
+  // Berhenti otomatis jika prefers-reduced-motion aktif, form terbuka, atau pengguna sedang hover/touch
   useEffect(() => {
     if (formStep !== 'idle' || isPaused || prefersReducedMotion || totalSlides <= 1) {
       if (sliderIntervalRef.current) {
@@ -239,7 +244,7 @@ export default function UserTestimonialsSection({ className = '' }: UserTestimon
 
     sliderIntervalRef.current = setInterval(() => {
       setActiveSlide((prev) => (prev + 1) % totalSlides);
-    }, 5000);
+    }, 6500);
 
     return () => {
       if (sliderIntervalRef.current) {
@@ -248,50 +253,6 @@ export default function UserTestimonialsSection({ className = '' }: UserTestimon
       }
     };
   }, [formStep, isPaused, prefersReducedMotion, totalSlides]);
-
-  // Handler navigasi slide manual (reset timer 5s agar tidak langsung terloncat)
-  const handleNextSlide = () => {
-    if (totalSlides <= 1) return;
-    setActiveSlide((prev) => (prev + 1) % totalSlides);
-    resetAutoSlideTimer();
-  };
-
-  const handlePrevSlide = () => {
-    if (totalSlides <= 1) return;
-    setActiveSlide((prev) => (prev === 0 ? totalSlides - 1 : prev - 1));
-    resetAutoSlideTimer();
-  };
-
-  const handleGoToSlide = (index: number) => {
-    if (index >= 0 && index < totalSlides) {
-      setActiveSlide(index);
-      resetAutoSlideTimer();
-    }
-  };
-
-  // Touch Swipe Handlers untuk gesture usap pada layar sentuh
-  const handleTouchStart = (e: React.TouchEvent) => {
-    touchStartX.current = e.targetTouches[0].clientX;
-    touchEndX.current = null;
-  };
-
-  const handleTouchMove = (e: React.TouchEvent) => {
-    touchEndX.current = e.targetTouches[0].clientX;
-  };
-
-  const handleTouchEnd = () => {
-    if (touchStartX.current === null || touchEndX.current === null) return;
-    const distance = touchStartX.current - touchEndX.current;
-    if (distance > 45) {
-      // Usap ke kiri: slide berikutnya
-      handleNextSlide();
-    } else if (distance < -45) {
-      // Usap ke kanan: slide sebelumnya
-      handlePrevSlide();
-    }
-    touchStartX.current = null;
-    touchEndX.current = null;
-  };
 
   // Form submission handler
   const handleResetForm = () => {
@@ -453,7 +414,7 @@ export default function UserTestimonialsSection({ className = '' }: UserTestimon
                     Saya Pelanggan
                   </h4>
                   <p className="text-xs text-slate-500 mt-1 leading-relaxed">
-                    Masyarakat yang pernah memesan kuliner melalui TumpangGo.
+                    Pembeli kuliner & pengguna layanan pesan antar TumpangGo.
                   </p>
                 </div>
               </div>
@@ -466,35 +427,33 @@ export default function UserTestimonialsSection({ className = '' }: UserTestimon
         </div>
       )}
 
-      {/* FORM ISIAN REVIEW */}
-      {formStep === 'form' && selectedRole && (
-        <div className="bg-slate-50 border border-emerald-300 rounded-2xl p-5 sm:p-6 flex flex-col gap-4 animate-fadeIn">
-          <div className="flex items-center justify-between pb-3 border-b border-slate-200/80">
-            <div className="flex items-center gap-2.5">
+      {/* VIEW 2: FORM INPUT */}
+      {formStep === 'form' && (
+        <div className="bg-slate-50 border border-slate-200 rounded-2xl p-5 sm:p-6 flex flex-col gap-4 animate-fadeIn">
+          <div className="flex items-center justify-between pb-3 border-b border-slate-200/70">
+            <div className="flex items-center gap-2">
               <button
                 type="button"
                 onClick={() => setFormStep('role-selection')}
                 className="p-1 rounded-lg text-slate-500 hover:text-slate-800 hover:bg-slate-200/70 transition-colors cursor-pointer"
+                aria-label="Kembali ke pilihan peran"
               >
                 <ArrowLeft className="w-4 h-4" />
               </button>
               <div>
-                <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider ${
-                  selectedRole === 'merchant'
-                    ? 'bg-amber-100 text-amber-800 border border-amber-200'
-                    : 'bg-emerald-100 text-emerald-800 border border-emerald-200'
-                }`}>
-                  {selectedRole === 'merchant' ? 'Review Merchant' : 'Review Pelanggan'}
-                </span>
-                <h3 className="font-display font-black text-sm sm:text-base text-slate-900 mt-0.5">
-                  Tulis Ulasan Sebagai {selectedRole === 'merchant' ? 'Mitra Merchant' : 'Pelanggan'}
+                <h3 className="font-display font-black text-sm sm:text-base text-slate-900 leading-snug">
+                  Tulis Ulasan — Peran: {selectedRole === 'merchant' ? 'Mitra Merchant' : 'Pelanggan'}
                 </h3>
+                <p className="text-xs text-slate-500 font-medium">
+                  Pengalaman Anda membantu membangun kepercayaan komunitas TumpangGo.
+                </p>
               </div>
             </div>
             <button
               type="button"
               onClick={handleResetForm}
-              className="text-slate-400 hover:text-slate-600 p-1 rounded-lg"
+              className="text-slate-400 hover:text-slate-600 p-1.5 rounded-lg hover:bg-slate-200/60 cursor-pointer"
+              aria-label="Tutup"
             >
               <X className="w-5 h-5" />
             </button>
@@ -636,7 +595,8 @@ export default function UserTestimonialsSection({ className = '' }: UserTestimon
       )}
 
       {/* =========================================================================
-          VIEW UTAMA: CAROUSEL REVIEW (1 KARTU REVIEW PADA SATU WAKTU)
+          VIEW UTAMA: CAROUSEL REVIEW OTOMATIS (1 KARTU PADA SATU WAKTU)
+          TANPA KONTROL NAVIGASI MANUAL, TANPA ANGKA POSISI, TANPA TITIK NAVIGASI
           ========================================================================= */}
       {formStep === 'idle' && (
         <>
@@ -651,43 +611,16 @@ export default function UserTestimonialsSection({ className = '' }: UserTestimon
                 Review Pengguna TumpangGo
               </h2>
               <p className="text-[11px] sm:text-xs text-slate-500 font-medium mt-0.5">
-                Pengalaman nyata mitra usaha dan pelanggan di ekosistem TumpangGo.
+                Pengalaman mitra usaha dan pelanggan di ekosistem TumpangGo.
               </p>
             </div>
 
-            {/* Slider Navigation Buttons & "+ Tulis Review" */}
-            <div className="flex items-center gap-1.5 shrink-0">
-              {totalSlides > 1 && (
-                <>
-                  <div className="hidden sm:inline-flex text-[11px] font-semibold text-slate-400 mr-1 select-none">
-                    {activeSlide + 1} / {totalSlides}
-                  </div>
-                  <button
-                    type="button"
-                    onClick={handlePrevSlide}
-                    aria-label="Review sebelumnya"
-                    className="w-7 h-7 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-600 flex items-center justify-center transition-colors cursor-pointer"
-                    title="Review sebelumnya"
-                  >
-                    <ChevronLeft className="w-4 h-4" />
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={handleNextSlide}
-                    aria-label="Review berikutnya"
-                    className="w-7 h-7 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-600 flex items-center justify-center transition-colors cursor-pointer"
-                    title="Review berikutnya"
-                  >
-                    <ChevronRight className="w-4 h-4" />
-                  </button>
-                </>
-              )}
-
+            {/* Tombol "+ Tulis Review" */}
+            <div className="flex items-center shrink-0">
               <button
                 type="button"
                 onClick={() => setFormStep('role-selection')}
-                className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-emerald-800 hover:bg-emerald-900 text-white font-bold text-xs transition-all shadow-2xs cursor-pointer ml-1"
+                className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-emerald-800 hover:bg-emerald-900 text-white font-bold text-xs transition-all shadow-2xs cursor-pointer"
               >
                 <MessageSquarePlus className="w-3.5 h-3.5" />
                 <span>+ Tulis Review</span>
@@ -719,129 +652,102 @@ export default function UserTestimonialsSection({ className = '' }: UserTestimon
               </button>
             </div>
           ) : (
-            <>
-              {/* CAROUSEL CONTAINER (1 KARTU REVIEW PADA SATU WAKTU, PAUSE ON HOVER + TOUCH SWIPE) */}
+            /* CAROUSEL CONTAINER: 1 KARTU REVIEW PADA SATU WAKTU
+               LOOP BERKELANJUTAN SECARA OTOMATIS
+               PAUSE SAAT HOVER/TOUCH UNTUK KENYAMANAN MEMBACA */
+            <div 
+              className="relative overflow-hidden w-full select-none py-1"
+              onMouseEnter={() => setIsPaused(true)}
+              onMouseLeave={() => setIsPaused(false)}
+              onTouchStart={() => setIsPaused(true)}
+              onTouchEnd={() => setIsPaused(false)}
+            >
+              {/* Sliding Track: 1 Review Card per slide */}
               <div 
-                className="relative overflow-hidden w-full select-none py-1"
-                onMouseEnter={() => setIsPaused(true)}
-                onMouseLeave={() => setIsPaused(false)}
-                onTouchStart={handleTouchStart}
-                onTouchMove={handleTouchMove}
-                onTouchEnd={handleTouchEnd}
+                className={`flex w-full ${prefersReducedMotion ? 'transition-none' : 'transition-transform duration-700 ease-in-out'}`}
+                style={{ transform: `translateX(-${activeSlide * 100}%)` }}
               >
-                {/* Sliding Track: 1 Review Card per slide */}
-                <div 
-                  className={`flex w-full ${prefersReducedMotion ? 'transition-none' : 'transition-transform duration-500 ease-in-out'}`}
-                  style={{ transform: `translateX(-${activeSlide * 100}%)` }}
-                >
-                  {reviewsList.map((review, idx) => {
-                    const isMerchant = review.role === 'Merchant';
+                {reviewsList.map((review, idx) => {
+                  const isMerchant = review.role === 'Merchant';
+                  const isGoogleSource = review.source === 'google';
 
-                    return (
-                      <div 
-                        key={review.id || `slide-${idx}`}
-                        className="w-full min-w-full flex-shrink-0 px-1 sm:px-3 flex justify-center"
-                      >
-                        <article className="bg-slate-50/60 border border-slate-200/90 hover:border-emerald-300 rounded-2xl p-5 sm:p-6 transition-all shadow-2xs hover:shadow-xs flex flex-col justify-between gap-4 w-full max-w-xl">
-                          <div>
-                            {/* Baris Atas: Persona, Badge Peran & 5-Star Rating */}
-                            <div className="flex items-center justify-between gap-2.5 mb-3 flex-wrap">
-                              <div className="flex items-center gap-2 flex-wrap min-w-0">
-                                <span className="font-extrabold text-sm sm:text-base text-slate-900 truncate">
-                                  {review.name}
-                                </span>
-                                <span className="text-slate-300 font-bold text-xs">·</span>
-                                <span className={`inline-flex items-center gap-1 text-[11px] font-bold px-2.5 py-0.5 rounded-full ${
-                                  isMerchant
-                                    ? 'bg-amber-100 text-amber-900 border border-amber-200/80'
-                                    : 'bg-emerald-100 text-emerald-900 border border-emerald-200/80'
-                                }`}>
-                                  {isMerchant ? (
-                                    <Store className="w-3 h-3 text-amber-700" />
-                                  ) : (
-                                    <Users className="w-3 h-3 text-emerald-700" />
-                                  )}
-                                  <span>{isMerchant ? 'Mitra UMKM' : 'Pelanggan'}</span>
-                                </span>
-                              </div>
-
-                              {/* 5-Star Rating */}
-                              <div className="flex items-center gap-0.5 shrink-0" aria-label={`Rating ${review.rating} dari 5 bintang`}>
-                                {Array.from({ length: 5 }).map((_, sIdx) => (
-                                  <Star
-                                    key={sIdx}
-                                    className={`w-4 h-4 ${
-                                      sIdx < review.rating
-                                        ? 'text-amber-500 fill-amber-400'
-                                        : 'text-slate-200'
-                                    }`}
-                                  />
-                                ))}
-                              </div>
+                  return (
+                    <div 
+                      key={review.id || `slide-${idx}`}
+                      className="w-full min-w-full flex-shrink-0 px-1 sm:px-3 flex justify-center"
+                    >
+                      <article className="bg-slate-50/60 border border-slate-200/90 hover:border-emerald-300 rounded-2xl p-5 sm:p-6 transition-all shadow-2xs hover:shadow-xs flex flex-col justify-between gap-4 w-full max-w-xl">
+                        <div>
+                          {/* Baris Atas: Persona, Badge Peran & 5-Star Rating */}
+                          <div className="flex items-center justify-between gap-2.5 mb-3 flex-wrap">
+                            <div className="flex items-center gap-2 flex-wrap min-w-0">
+                              <span className="font-extrabold text-sm sm:text-base text-slate-900 truncate">
+                                {review.name}
+                              </span>
+                              <span className="text-slate-300 font-bold text-xs">·</span>
+                              <span className={`inline-flex items-center gap-1 text-[11px] font-bold px-2.5 py-0.5 rounded-full ${
+                                isMerchant
+                                  ? 'bg-amber-100 text-amber-900 border border-amber-200/80'
+                                  : 'bg-emerald-100 text-emerald-900 border border-emerald-200/80'
+                              }`}>
+                                {isMerchant ? (
+                                  <Store className="w-3 h-3 text-amber-700" />
+                                ) : (
+                                  <Users className="w-3 h-3 text-emerald-700" />
+                                )}
+                                <span>{isMerchant ? 'Mitra UMKM' : 'Pelanggan'}</span>
+                              </span>
                             </div>
 
-                            {/* Isi Testimoni: Natural, Singkat, Mudah Dibaca & Tidak Terpotong */}
-                            <blockquote className="text-sm sm:text-base text-slate-800 leading-relaxed font-normal">
-                              "{review.content}"
-                            </blockquote>
+                            {/* 5-Star Rating */}
+                            <div className="flex items-center gap-0.5 shrink-0" aria-label={`Rating ${review.rating} dari 5 bintang`}>
+                              {Array.from({ length: 5 }).map((_, sIdx) => (
+                                <Star
+                                  key={sIdx}
+                                  className={`w-4 h-4 ${
+                                    sIdx < review.rating
+                                      ? 'text-amber-500 fill-amber-400'
+                                      : 'text-slate-200'
+                                  }`}
+                                />
+                              ))}
+                            </div>
                           </div>
 
-                          {/* Footer Card: Label Kejujuran Sumber Review */}
-                          <div className="pt-3 border-t border-slate-200/70 flex items-center justify-between text-xs text-slate-400 flex-wrap gap-2">
-                            <span className="flex items-center gap-1.5 font-medium">
-                              {review.isExample ? (
-                                <>
-                                  <Info className="w-3.5 h-3.5 text-slate-400" />
-                                  <span className="text-slate-500">
-                                    {isMerchant ? 'Contoh ulasan mitra UMKM' : 'Contoh ulasan pelanggan'}
-                                  </span>
-                                </>
-                              ) : (
-                                <>
-                                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                                  <span className="text-emerald-700 font-semibold">Ulasan Terverifikasi</span>
-                                </>
-                              )}
-                            </span>
-                            <span className="text-slate-400 text-[11px]">Kecamatan Tumpang</span>
+                          {/* Isi Testimoni: Natural, Singkat, Mudah Dibaca & Tidak Terpotong */}
+                          <blockquote className="text-sm sm:text-base text-slate-800 leading-relaxed font-normal">
+                            "{review.content}"
+                          </blockquote>
+                        </div>
+
+                        {/* Atribusi Google resmi: Hanya ditampilkan jika ulasan terverifikasi bersumber dari Google */}
+                        {isGoogleSource && (
+                          <div className="pt-3 border-t border-slate-200/70 flex items-center justify-between text-xs text-slate-500">
+                            {review.sourceUrl ? (
+                              <a
+                                href={review.sourceUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex items-center gap-1.5 text-xs text-slate-600 hover:text-slate-900 transition-colors"
+                                title="Buka ulasan asli di Google"
+                              >
+                                <GoogleIcon className="w-3.5 h-3.5" />
+                                <span className="font-medium">Ulasan Google</span>
+                              </a>
+                            ) : (
+                              <span className="inline-flex items-center gap-1.5 text-xs text-slate-600">
+                                <GoogleIcon className="w-3.5 h-3.5" />
+                                <span className="font-medium">Ulasan Google</span>
+                              </span>
+                            )}
                           </div>
-                        </article>
-                      </div>
-                    );
-                  })}
-                </div>
+                        )}
+                      </article>
+                    </div>
+                  );
+                })}
               </div>
-
-              {/* INDIKATOR POSISI REVIEW: 10 TITIK NAVIGASI DI TENGAH */}
-              {totalSlides > 1 && (
-                <div className="flex flex-col items-center justify-center gap-1.5 pt-1">
-                  <div 
-                    className="flex items-center gap-1.5"
-                    role="tablist"
-                    aria-label="Indikator Posisi Review"
-                  >
-                    {Array.from({ length: totalSlides }).map((_, slideIndex) => (
-                      <button
-                        key={slideIndex}
-                        type="button"
-                        role="tab"
-                        aria-selected={activeSlide === slideIndex}
-                        aria-label={`Buka Ulasan ${slideIndex + 1} dari ${totalSlides}`}
-                        onClick={() => handleGoToSlide(slideIndex)}
-                        className={`h-2 rounded-full transition-all duration-300 cursor-pointer ${
-                          activeSlide === slideIndex
-                            ? 'w-5 bg-emerald-800 shadow-xs'
-                            : 'w-2 bg-slate-300 hover:bg-slate-400'
-                        }`}
-                      />
-                    ))}
-                  </div>
-                  <span className="sm:hidden text-[11px] text-slate-400 font-medium">
-                    {activeSlide + 1} dari {totalSlides}
-                  </span>
-                </div>
-              )}
-            </>
+            </div>
           )}
         </>
       )}

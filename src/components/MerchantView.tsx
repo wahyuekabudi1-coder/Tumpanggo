@@ -952,12 +952,12 @@ export default function MerchantView({ merchantId: rawMerchantId, onLogout, onSe
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col md:flex-row antialiased text-slate-900">
+    <div className="min-h-screen bg-slate-50 flex flex-col md:flex-row antialiased text-slate-900 w-full max-w-full overflow-x-hidden">
       
       {/* =========================================================================
           DESKTOP SIDEBAR (Tampil pada layar md: ke atas)
           ========================================================================= */}
-      <aside className="hidden md:flex flex-col w-64 lg:w-72 bg-white border-r border-slate-200/90 h-screen sticky top-0 shrink-0 select-none z-20">
+      <aside className="hidden md:flex flex-col w-56 lg:w-64 xl:w-72 bg-white border-r border-slate-200/90 h-screen sticky top-0 shrink-0 select-none z-20">
         
         {/* Sidebar Header */}
         <div className="p-4 border-b border-slate-100 flex items-center justify-between">
@@ -1162,15 +1162,15 @@ export default function MerchantView({ merchantId: rawMerchantId, onLogout, onSe
               </nav>
             </div>
 
-            {/* Drawer Footer Actions */}
-            <div className="p-4 border-t border-slate-100 bg-slate-50 space-y-2">
+            {/* Drawer Footer Actions with Safe Area support */}
+            <div className="p-4 pb-[calc(env(safe-area-inset-bottom,0px)+1rem)] border-t border-slate-100 bg-slate-50 space-y-2">
               <button
                 type="button"
                 onClick={() => {
                   setIsMobileDrawerOpen(false);
                   handleViewCustomerSite();
                 }}
-                className="w-full min-h-[42px] py-2 px-3 rounded-xl border border-slate-200 bg-white hover:bg-slate-100 text-slate-800 text-xs font-bold transition-all shadow-xs cursor-pointer flex items-center justify-center gap-2"
+                className="w-full min-h-[44px] py-2 px-3 rounded-xl border border-slate-200 bg-white hover:bg-slate-100 text-slate-800 text-xs font-bold transition-all shadow-xs cursor-pointer flex items-center justify-center gap-2"
               >
                 <Store className="w-4 h-4 text-emerald-700" />
                 <span>Lihat Website Utama</span>
@@ -1181,7 +1181,7 @@ export default function MerchantView({ merchantId: rawMerchantId, onLogout, onSe
                   toggleOpenStatus();
                   setIsMobileDrawerOpen(false);
                 }}
-                className={`w-full min-h-[42px] py-2 px-3 rounded-xl text-xs font-bold transition-all shadow-xs cursor-pointer border flex items-center justify-center gap-1.5 ${
+                className={`w-full min-h-[44px] py-2 px-3 rounded-xl text-xs font-bold transition-all shadow-xs cursor-pointer border flex items-center justify-center gap-1.5 ${
                   merchant?.active 
                     ? 'bg-rose-50 text-rose-700 border-rose-200' 
                     : 'bg-emerald-50 text-emerald-800 border-emerald-200'
@@ -1196,7 +1196,7 @@ export default function MerchantView({ merchantId: rawMerchantId, onLogout, onSe
                     fetchMerchantData(false);
                     setIsMobileDrawerOpen(false);
                   }}
-                  className="flex-1 min-h-[40px] py-2 px-2.5 rounded-xl border border-slate-200 bg-white text-slate-700 text-xs font-bold shadow-xs flex items-center justify-center gap-1.5"
+                  className="flex-1 min-h-[44px] py-2 px-2.5 rounded-xl border border-slate-200 bg-white text-slate-700 text-xs font-bold shadow-xs flex items-center justify-center gap-1.5 cursor-pointer"
                 >
                   <RefreshCw className="w-3.5 h-3.5" />
                   <span>Refresh</span>
@@ -1206,7 +1206,7 @@ export default function MerchantView({ merchantId: rawMerchantId, onLogout, onSe
                     setIsMobileDrawerOpen(false);
                     handleConfirmLogout();
                   }}
-                  className="min-h-[40px] py-2 px-3 rounded-xl bg-slate-900 hover:bg-rose-700 text-white text-xs font-bold shadow-xs flex items-center justify-center gap-1.5 cursor-pointer"
+                  className="min-h-[44px] py-2 px-3 rounded-xl bg-slate-900 hover:bg-rose-700 text-white text-xs font-bold shadow-xs flex items-center justify-center gap-1.5 cursor-pointer"
                 >
                   <LogOut className="w-3.5 h-3.5" />
                   <span>Keluar</span>
@@ -1220,26 +1220,26 @@ export default function MerchantView({ merchantId: rawMerchantId, onLogout, onSe
       {/* =========================================================================
           MAIN CONTENT AREA (Kanan pada desktop, Full-width pada mobile)
           ========================================================================= */}
-      <div className="flex-1 min-w-0 flex flex-col min-h-screen">
+      <div className="flex-1 min-w-0 flex flex-col min-h-screen max-w-full">
         
-        {/* Mobile Header (< md) — Ringkas, Terjangkau 1 Tangan */}
-        <header className="md:hidden bg-white border-b border-slate-200/90 sticky top-0 z-30 shadow-xs h-14 flex items-center justify-between px-3">
+        {/* Mobile Header (< md) — Ringkas, Proporsional, Tanpa Elemen Bertumpuk */}
+        <header className="md:hidden bg-white border-b border-slate-200/90 sticky top-0 z-30 shadow-xs min-h-[56px] py-1.5 px-3 flex items-center justify-between gap-2 select-none">
           {/* Left: Hamburger & Store Identity */}
-          <div className="flex items-center gap-2 min-w-0">
+          <div className="flex items-center gap-2 min-w-0 flex-1">
             <button
               onClick={() => setIsMobileDrawerOpen(true)}
-              className="w-10 h-10 rounded-xl flex items-center justify-center text-slate-700 hover:bg-slate-100 active:bg-slate-200 cursor-pointer shrink-0"
+              className="w-10 h-10 min-w-[40px] rounded-xl flex items-center justify-center text-slate-700 hover:bg-slate-100 active:bg-slate-200 cursor-pointer shrink-0"
               aria-label="Buka Menu"
             >
               <MenuIcon className="w-5 h-5" />
             </button>
-            <div className="min-w-0">
-              <h1 className="font-display font-bold text-xs sm:text-sm text-slate-900 truncate max-w-[140px] sm:max-w-[180px]">
+            <div className="min-w-0 flex-1">
+              <h1 className="font-display font-bold text-xs sm:text-sm text-slate-900 truncate" title={merchant?.name || 'Portal Toko'}>
                 {merchant?.name || 'Portal Toko'}
               </h1>
               <div className="flex items-center gap-1 text-[10px]">
-                <span className={`w-1.5 h-1.5 rounded-full ${merchant?.active ? 'bg-emerald-500' : 'bg-slate-400'}`} />
-                <span className={`font-semibold ${merchant?.active ? 'text-emerald-700' : 'text-slate-400'}`}>
+                <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${merchant?.active ? 'bg-emerald-500' : 'bg-slate-400'}`} />
+                <span className={`font-semibold truncate ${merchant?.active ? 'text-emerald-700' : 'text-slate-400'}`}>
                   {merchant?.active ? 'Buka' : 'Tutup'}
                 </span>
               </div>
@@ -1252,7 +1252,7 @@ export default function MerchantView({ merchantId: rawMerchantId, onLogout, onSe
             <button
               type="button"
               onClick={toggleMute}
-              className={`w-9 h-9 rounded-xl border flex items-center justify-center cursor-pointer transition-colors ${
+              className={`w-10 h-10 min-w-[40px] rounded-xl border flex items-center justify-center cursor-pointer transition-colors shrink-0 ${
                 isRinging 
                   ? 'bg-rose-600 text-white border-rose-600 animate-bounce' 
                   : isMuted 
@@ -1273,7 +1273,7 @@ export default function MerchantView({ merchantId: rawMerchantId, onLogout, onSe
                   setActiveTab('incoming');
                   setOperationalSubTab('perlu_masak');
                 }}
-                className="relative px-2.5 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-extrabold text-[11px] flex items-center gap-1 animate-pulse shadow-xs cursor-pointer"
+                className="relative min-h-[40px] px-2.5 sm:px-3 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-extrabold text-[11px] flex items-center gap-1 animate-pulse shadow-xs cursor-pointer shrink-0"
                 title={`${incomingOrders.length} Pesanan Masuk Perlu Dimasak`}
               >
                 <BellRing className="w-3.5 h-3.5" />
@@ -1281,13 +1281,13 @@ export default function MerchantView({ merchantId: rawMerchantId, onLogout, onSe
               </button>
             )}
 
-            {/* Quick Open/Close Pill */}
+            {/* Quick Open/Close Button */}
             <button
               onClick={toggleOpenStatus}
-              className={`px-2.5 py-1.5 rounded-xl text-[10px] font-extrabold cursor-pointer border transition-colors ${
+              className={`min-h-[40px] px-2.5 sm:px-3 rounded-xl text-[11px] font-extrabold cursor-pointer border transition-colors shrink-0 ${
                 merchant?.active
-                  ? 'bg-rose-50 text-rose-700 border-rose-200'
-                  : 'bg-emerald-600 text-white border-emerald-600'
+                  ? 'bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-100'
+                  : 'bg-emerald-600 text-white border-emerald-600 hover:bg-emerald-700'
               }`}
             >
               {merchant?.active ? 'Tutup' : 'Buka'}
@@ -1380,8 +1380,8 @@ export default function MerchantView({ merchantId: rawMerchantId, onLogout, onSe
           </div>
         )}
 
-        {/* Content Body — Added pb-24 for mobile bottom bar clearance */}
-        <main className="max-w-6xl mx-auto px-3 sm:px-6 lg:px-8 py-4 sm:py-6 w-full flex-1 pb-24 md:pb-12">
+        {/* Content Body — Added dynamic safe area padding for mobile bottom bar clearance */}
+        <main className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-3.5 sm:py-6 w-full flex-1 pb-[calc(env(safe-area-inset-bottom,0px)+5.5rem)] md:pb-12 min-w-0">
 
           {/* =========================================================================
               1. TAB: DASHBOARD RECAP (DEFAULT LANDING PAGE)
@@ -1401,12 +1401,12 @@ export default function MerchantView({ merchantId: rawMerchantId, onLogout, onSe
                     </p>
                   </div>
 
-                  {/* Filter Period Controls (Harian, Mingguan, Bulanan) */}
-                  <div className="inline-flex items-center gap-1 p-1 bg-slate-100 rounded-xl self-start sm:self-auto">
+                  {/* Filter Period Controls (Harian, Mingguan, Bulanan) — Full-width on mobile */}
+                  <div className="w-full sm:w-auto flex items-center justify-between sm:justify-start gap-1 p-1 bg-slate-100 rounded-xl overflow-x-auto scrollbar-none">
                     <button
                       type="button"
                       onClick={() => setDashboardPeriod('TODAY')}
-                      className={`min-h-[36px] px-3 py-1.5 text-xs font-bold rounded-lg transition-colors cursor-pointer ${
+                      className={`flex-1 sm:flex-initial min-h-[38px] px-2.5 sm:px-3.5 py-1.5 text-xs font-bold rounded-lg transition-colors cursor-pointer whitespace-nowrap text-center ${
                         dashboardPeriod === 'TODAY' 
                           ? 'bg-white text-slate-900 shadow-xs' 
                           : 'text-slate-600 hover:text-slate-900'
@@ -1417,18 +1417,18 @@ export default function MerchantView({ merchantId: rawMerchantId, onLogout, onSe
                     <button
                       type="button"
                       onClick={() => setDashboardPeriod('WEEK')}
-                      className={`min-h-[36px] px-3 py-1.5 text-xs font-bold rounded-lg transition-colors cursor-pointer ${
+                      className={`flex-1 sm:flex-initial min-h-[38px] px-2.5 sm:px-3.5 py-1.5 text-xs font-bold rounded-lg transition-colors cursor-pointer whitespace-nowrap text-center ${
                         dashboardPeriod === 'WEEK' 
                           ? 'bg-white text-slate-900 shadow-xs' 
                           : 'text-slate-600 hover:text-slate-900'
                       }`}
                     >
-                      Mingguan (7 Hari)
+                      Mingguan
                     </button>
                     <button
                       type="button"
                       onClick={() => setDashboardPeriod('MONTH')}
-                      className={`min-h-[36px] px-3 py-1.5 text-xs font-bold rounded-lg transition-colors cursor-pointer ${
+                      className={`flex-1 sm:flex-initial min-h-[38px] px-2.5 sm:px-3.5 py-1.5 text-xs font-bold rounded-lg transition-colors cursor-pointer whitespace-nowrap text-center ${
                         dashboardPeriod === 'MONTH' 
                           ? 'bg-white text-slate-900 shadow-xs' 
                           : 'text-slate-600 hover:text-slate-900'
@@ -1440,7 +1440,7 @@ export default function MerchantView({ merchantId: rawMerchantId, onLogout, onSe
                 </div>
 
                 {/* Primary Hero: Total Order Hari Ini */}
-                <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-xs text-slate-600">
+                <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-xs text-slate-600 flex-wrap gap-2">
                   <div className="flex items-center gap-1.5">
                     <span className="font-semibold text-slate-500">Total Order Hari Ini:</span>
                     <strong className="font-mono text-emerald-800 text-sm">{periodData.todayOrdersCount} Pesanan</strong>
@@ -1453,7 +1453,7 @@ export default function MerchantView({ merchantId: rawMerchantId, onLogout, onSe
 
               {/* Action Banner if orders are waiting in kitchen */}
               {incomingOrders.length > 0 && (
-                <div className="bg-amber-50 border-2 border-amber-300 rounded-2xl p-4 shadow-xs flex items-center justify-between gap-3">
+                <div className="bg-amber-50 border-2 border-amber-300 rounded-2xl p-3.5 sm:p-4 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                   <div className="flex items-center gap-3 min-w-0">
                     <div className="w-10 h-10 rounded-xl bg-amber-500 text-white flex items-center justify-center shrink-0">
                       <ChefHat className="w-5 h-5 animate-bounce" />
@@ -1462,7 +1462,7 @@ export default function MerchantView({ merchantId: rawMerchantId, onLogout, onSe
                       <h3 className="font-display font-bold text-xs sm:text-sm text-amber-950 truncate">
                         {incomingOrders.length} Pesanan Baru Menunggu Dikonfirmasi!
                       </h3>
-                      <p className="text-[11px] text-amber-800">
+                      <p className="text-[11px] text-amber-800 leading-snug">
                         Pembayaran sudah terverifikasi admin. Segera tentukan estimasi masak.
                       </p>
                     </div>
@@ -1472,7 +1472,7 @@ export default function MerchantView({ merchantId: rawMerchantId, onLogout, onSe
                       setActiveTab('incoming');
                       setOperationalSubTab('perlu_masak');
                     }}
-                    className="min-h-[40px] px-3.5 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-extrabold text-xs shrink-0 shadow-xs flex items-center gap-1 cursor-pointer"
+                    className="w-full sm:w-auto min-h-[44px] px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-extrabold text-xs shrink-0 shadow-xs flex items-center justify-center gap-1.5 cursor-pointer"
                   >
                     <span>Proses Sekarang</span>
                     <ArrowRight className="w-3.5 h-3.5" />
@@ -1480,15 +1480,15 @@ export default function MerchantView({ merchantId: rawMerchantId, onLogout, onSe
                 </div>
               )}
 
-              {/* Ringkas: 2 Kolom pada HP, 4 Kolom pada Desktop */}
+              {/* Stat Cards: 2 Kolom pada HP & Tablet Portrait, 4 Kolom pada Tablet Landscape & Desktop */}
               <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-4">
                 {/* 1. Total Pesanan */}
-                <div className="bg-white rounded-2xl border border-slate-200/90 p-3.5 sm:p-4 shadow-xs flex flex-col justify-between">
-                  <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">
+                <div className="bg-white rounded-2xl border border-slate-200/90 p-3 sm:p-4 shadow-xs flex flex-col justify-between">
+                  <span className="text-[10px] sm:text-[11px] font-bold text-slate-400 uppercase tracking-wider block truncate">
                     Total Pesanan
                   </span>
                   <div className="mt-1">
-                    <span className="font-display font-black text-2xl sm:text-3xl text-slate-900 block font-mono">
+                    <span className="font-display font-black text-xl sm:text-2xl lg:text-3xl text-slate-900 block font-mono">
                       {periodData.totalOrdersInPeriod}
                     </span>
                     <span className="text-[10px] sm:text-[11px] text-slate-500 font-medium mt-0.5 block truncate">
@@ -1498,12 +1498,15 @@ export default function MerchantView({ merchantId: rawMerchantId, onLogout, onSe
                 </div>
 
                 {/* 2. Total Omset Selesai */}
-                <div className="bg-white rounded-2xl border border-slate-200/90 p-3.5 sm:p-4 shadow-xs flex flex-col justify-between">
-                  <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">
+                <div className="bg-white rounded-2xl border border-slate-200/90 p-3 sm:p-4 shadow-xs flex flex-col justify-between">
+                  <span className="text-[10px] sm:text-[11px] font-bold text-slate-400 uppercase tracking-wider block truncate">
                     Omset Selesai
                   </span>
                   <div className="mt-1">
-                    <span className="font-display font-black text-lg sm:text-2xl text-emerald-800 block font-mono truncate">
+                    <span 
+                      className="font-display font-black text-base sm:text-xl lg:text-2xl text-emerald-800 block font-mono truncate"
+                      title={`Rp ${periodData.completedSales.toLocaleString('id-ID')}`}
+                    >
                       Rp {periodData.completedSales.toLocaleString('id-ID')}
                     </span>
                     <span className="text-[10px] sm:text-[11px] text-emerald-700 font-medium mt-0.5 block truncate">
@@ -1513,12 +1516,12 @@ export default function MerchantView({ merchantId: rawMerchantId, onLogout, onSe
                 </div>
 
                 {/* 3. Pesanan Selesai */}
-                <div className="bg-white rounded-2xl border border-slate-200/90 p-3.5 sm:p-4 shadow-xs flex flex-col justify-between">
-                  <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">
+                <div className="bg-white rounded-2xl border border-slate-200/90 p-3 sm:p-4 shadow-xs flex flex-col justify-between">
+                  <span className="text-[10px] sm:text-[11px] font-bold text-slate-400 uppercase tracking-wider block truncate">
                     Pesanan Selesai
                   </span>
                   <div className="mt-1">
-                    <span className="font-display font-black text-2xl sm:text-3xl text-emerald-700 block font-mono">
+                    <span className="font-display font-black text-xl sm:text-2xl lg:text-3xl text-emerald-700 block font-mono">
                       {periodData.completedOrdersCount}
                     </span>
                     <span className="text-[10px] sm:text-[11px] text-slate-500 font-medium mt-0.5 block truncate">
@@ -1528,16 +1531,16 @@ export default function MerchantView({ merchantId: rawMerchantId, onLogout, onSe
                 </div>
 
                 {/* 4. Sedang Berjalan */}
-                <div className="bg-white rounded-2xl border border-slate-200/90 p-3.5 sm:p-4 shadow-xs flex flex-col justify-between">
-                  <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">
+                <div className="bg-white rounded-2xl border border-slate-200/90 p-3 sm:p-4 shadow-xs flex flex-col justify-between">
+                  <span className="text-[10px] sm:text-[11px] font-bold text-slate-400 uppercase tracking-wider block truncate">
                     Sedang Berjalan
                   </span>
                   <div className="mt-1">
-                    <span className="font-display font-black text-2xl sm:text-3xl text-blue-700 block font-mono">
+                    <span className="font-display font-black text-xl sm:text-2xl lg:text-3xl text-blue-700 block font-mono">
                       {periodData.activeOrdersCount}
                     </span>
                     <span className="text-[10px] sm:text-[11px] text-blue-600 font-medium mt-0.5 block truncate">
-                      Dapur &amp; Pengantaran
+                      Dapur &amp; Kurir
                     </span>
                   </div>
                 </div>
@@ -1668,12 +1671,12 @@ export default function MerchantView({ merchantId: rawMerchantId, onLogout, onSe
                   </button>
                 </div>
 
-                {/* Segmented Operational Sub-tabs */}
+                {/* Segmented Operational Sub-tabs — Responsive Touch Targets */}
                 <div className="flex space-x-1 p-1 bg-slate-100 rounded-xl overflow-x-auto scrollbar-none">
                   <button
                     type="button"
                     onClick={() => setOperationalSubTab('perlu_masak')}
-                    className={`flex-1 min-h-[36px] px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap flex items-center justify-center gap-1.5 ${
+                    className={`flex-1 min-w-[95px] min-h-[40px] px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap flex items-center justify-center gap-1.5 ${
                       operationalSubTab === 'perlu_masak'
                         ? 'bg-white text-slate-900 shadow-xs'
                         : 'text-slate-600 hover:text-slate-900'
@@ -1690,7 +1693,7 @@ export default function MerchantView({ merchantId: rawMerchantId, onLogout, onSe
                   <button
                     type="button"
                     onClick={() => setOperationalSubTab('cooking')}
-                    className={`flex-1 min-h-[36px] px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap flex items-center justify-center gap-1.5 ${
+                    className={`flex-1 min-w-[95px] min-h-[40px] px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap flex items-center justify-center gap-1.5 ${
                       operationalSubTab === 'cooking'
                         ? 'bg-white text-slate-900 shadow-xs'
                         : 'text-slate-600 hover:text-slate-900'
@@ -1705,7 +1708,7 @@ export default function MerchantView({ merchantId: rawMerchantId, onLogout, onSe
                   <button
                     type="button"
                     onClick={() => setOperationalSubTab('ready')}
-                    className={`flex-1 min-h-[36px] px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap flex items-center justify-center gap-1.5 ${
+                    className={`flex-1 min-w-[95px] min-h-[40px] px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap flex items-center justify-center gap-1.5 ${
                       operationalSubTab === 'ready'
                         ? 'bg-white text-slate-900 shadow-xs'
                         : 'text-slate-600 hover:text-slate-900'
@@ -1733,7 +1736,7 @@ export default function MerchantView({ merchantId: rawMerchantId, onLogout, onSe
                       </p>
                     </div>
                   ) : (
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5 sm:gap-5">
+                    <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-3.5 sm:gap-5">
                       {incomingOrders.map(order => (
                         <div key={order.id} className="bg-white rounded-2xl border-2 border-emerald-300 shadow-xs overflow-hidden flex flex-col justify-between hover:shadow-md transition-all">
                           <div>
@@ -1903,7 +1906,7 @@ export default function MerchantView({ merchantId: rawMerchantId, onLogout, onSe
                       </p>
                     </div>
                   ) : (
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5 sm:gap-5">
+                    <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-3.5 sm:gap-5">
                       {cookingOrders.map(order => (
                         <MerchantCookingCard
                           key={order.id}
@@ -1932,7 +1935,7 @@ export default function MerchantView({ merchantId: rawMerchantId, onLogout, onSe
                       </p>
                     </div>
                   ) : (
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5 sm:gap-5">
+                    <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-3.5 sm:gap-5">
                       {readyOrders.map(order => (
                         <div key={order.id} className="bg-white rounded-2xl border border-indigo-200 shadow-xs p-4 flex flex-col justify-between">
                           <div className="space-y-3">
@@ -2049,11 +2052,11 @@ export default function MerchantView({ merchantId: rawMerchantId, onLogout, onSe
                   <p className="text-xs text-slate-500 mt-1">Pesanan yang telah diproses akan tercatat di sini.</p>
                 </div>
               ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5 sm:gap-4">
+                <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-3.5 sm:gap-4">
                   {filteredHistoryOrders.map(order => (
                     <div key={order.id} className="bg-white rounded-2xl border border-slate-200/90 shadow-xs p-4 flex flex-col justify-between hover:border-emerald-200 transition-all">
                       <div className="space-y-3">
-                        <div className="flex justify-between items-center pb-2 border-b border-slate-100">
+                        <div className="flex justify-between items-center pb-2 border-b border-slate-100 flex-wrap gap-1.5">
                           <div>
                             <span className="font-mono text-xs font-bold text-slate-900">#{order.orderNumber || order.id}</span>
                             <span className="block text-[10px] text-slate-400">
@@ -2111,7 +2114,7 @@ export default function MerchantView({ merchantId: rawMerchantId, onLogout, onSe
                         {order.receipt && (
                           <button
                             onClick={() => setSelectedReceiptOrder(order)}
-                            className="min-h-[32px] px-2.5 py-1 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-[11px] font-bold border border-emerald-200 inline-flex items-center gap-1 cursor-pointer transition-colors"
+                            className="min-h-[36px] px-3 py-1.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-xs font-bold border border-emerald-200 inline-flex items-center gap-1.5 cursor-pointer transition-colors"
                           >
                             <Receipt className="w-3.5 h-3.5 text-emerald-600" />
                             <span>E-Receipt</span>
@@ -2133,7 +2136,7 @@ export default function MerchantView({ merchantId: rawMerchantId, onLogout, onSe
             <div className="space-y-4 sm:space-y-6">
               
               {/* Header Menu */}
-              <div className="bg-white p-4 sm:p-5 rounded-2xl border border-slate-200/90 shadow-xs flex flex-wrap items-center justify-between gap-3">
+              <div className="bg-white p-4 sm:p-5 rounded-2xl border border-slate-200/90 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <div>
                   <h2 className="font-display font-bold text-base sm:text-lg text-slate-900">Katalog Menu Toko</h2>
                   <p className="text-xs text-slate-500 mt-0.5">
@@ -2147,7 +2150,7 @@ export default function MerchantView({ merchantId: rawMerchantId, onLogout, onSe
                     setEditingItem({ available: true, categoryId: categories[0]?.id || '' }); 
                     setShowItemForm(true); 
                   }}
-                  className="min-h-[44px] px-4 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold transition-all shadow-xs cursor-pointer flex items-center gap-1.5"
+                  className="w-full sm:w-auto min-h-[44px] px-4 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold transition-all shadow-xs cursor-pointer flex items-center justify-center gap-1.5"
                 >
                   <Plus className="w-4 h-4" />
                   <span>Tambah Menu</span>
@@ -2156,12 +2159,12 @@ export default function MerchantView({ merchantId: rawMerchantId, onLogout, onSe
 
               {/* Category Filter Chips (Data dari Kategori Resmi Admin Pusat) */}
               {categories.length > 0 ? (
-                <div className="flex space-x-1.5 overflow-x-auto scrollbar-none pb-1">
+                <div className="flex space-x-1.5 overflow-x-auto scrollbar-none pb-1 -mx-1 px-1">
                   <button
                     onClick={() => setSelectedMenuCategory('ALL')}
-                    className={`min-h-[34px] px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                    className={`min-h-[38px] px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap shrink-0 ${
                       selectedMenuCategory === 'ALL'
-                        ? 'bg-slate-900 text-white'
+                        ? 'bg-slate-900 text-white shadow-xs'
                         : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
                     }`}
                   >
@@ -2173,9 +2176,9 @@ export default function MerchantView({ merchantId: rawMerchantId, onLogout, onSe
                       <button
                         key={c.id}
                         onClick={() => setSelectedMenuCategory(c.id)}
-                        className={`min-h-[34px] px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+                        className={`min-h-[38px] px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap shrink-0 ${
                           selectedMenuCategory === c.id
-                            ? 'bg-slate-900 text-white'
+                            ? 'bg-slate-900 text-white shadow-xs'
                             : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
                         }`}
                       >
@@ -2259,24 +2262,26 @@ export default function MerchantView({ merchantId: rawMerchantId, onLogout, onSe
                         <button
                           type="button"
                           onClick={() => toggleItemAvailability(item)}
-                          className="min-h-[36px] text-xs font-bold text-slate-600 hover:text-slate-900 cursor-pointer"
+                          className="min-h-[40px] px-2.5 py-1 text-xs font-bold text-slate-700 hover:text-slate-900 cursor-pointer"
                         >
                           {item.available ? 'Set Habis' : 'Set Tersedia'}
                         </button>
-                        <div className="flex items-center gap-1.5">
+                        <div className="flex items-center gap-2">
                           <button
                             onClick={() => { setEditingItem(item); setShowItemForm(true); }}
-                            className="min-h-[36px] min-w-[36px] p-2 rounded-lg border border-slate-200 bg-white hover:bg-slate-100 text-slate-700 cursor-pointer flex items-center justify-center"
+                            className="min-h-[40px] min-w-[40px] p-2 rounded-xl border border-slate-200 bg-white hover:bg-slate-100 text-slate-700 cursor-pointer flex items-center justify-center transition-colors shadow-2xs"
                             title="Edit Menu"
+                            aria-label="Edit Menu"
                           >
-                            <Edit className="w-3.5 h-3.5" />
+                            <Edit className="w-4 h-4" />
                           </button>
                           <button
                             onClick={() => deleteItem(item.id)}
-                            className="min-h-[36px] min-w-[36px] p-2 rounded-lg border border-rose-200 bg-white hover:bg-rose-50 text-rose-600 cursor-pointer flex items-center justify-center"
+                            className="min-h-[40px] min-w-[40px] p-2 rounded-xl border border-rose-200 bg-white hover:bg-rose-50 text-rose-600 cursor-pointer flex items-center justify-center transition-colors shadow-2xs"
                             title="Hapus Menu"
+                            aria-label="Hapus Menu"
                           >
-                            <Trash2 className="w-3.5 h-3.5" />
+                            <Trash2 className="w-4 h-4" />
                           </button>
                         </div>
                       </div>
@@ -2645,19 +2650,19 @@ export default function MerchantView({ merchantId: rawMerchantId, onLogout, onSe
 
         {/* =========================================================================
             BOTTOM NAVIGATION BAR (Mobile HP Only, < md)
-            Maksimal 4 menu utama yang dapat disentuh dengan nyaman oleh jempol
+            5 menu utama yang dapat disentuh dengan nyaman oleh jempol, dengan safe area support
             ========================================================================= */}
-        <nav className="md:hidden fixed bottom-0 left-0 right-0 z-30 bg-white border-t border-slate-200/90 shadow-lg px-2 py-1 flex items-center justify-around select-none">
+        <nav className="md:hidden fixed bottom-0 left-0 right-0 z-30 bg-white border-t border-slate-200/90 shadow-lg px-1 sm:px-2 py-1 pb-[calc(env(safe-area-inset-bottom,0px)+0.25rem)] flex items-center justify-around select-none">
           {/* 1. Dashboard */}
           <button
             type="button"
             onClick={() => setActiveTab('dashboard')}
-            className={`flex-1 min-h-[48px] flex flex-col items-center justify-center gap-0.5 cursor-pointer transition-colors ${
+            className={`flex-1 min-h-[48px] py-1 flex flex-col items-center justify-center gap-0.5 cursor-pointer transition-colors ${
               activeTab === 'dashboard' ? 'text-emerald-700 font-extrabold' : 'text-slate-500 hover:text-slate-900'
             }`}
           >
             <TrendingUp className="w-5 h-5" />
-            <span className="text-[10px]">Dashboard</span>
+            <span className="text-[9px] sm:text-[10px]">Dashboard</span>
           </button>
 
           {/* 2. Pesanan Masuk (with live notification badge) */}
@@ -2667,7 +2672,7 @@ export default function MerchantView({ merchantId: rawMerchantId, onLogout, onSe
               setActiveTab('incoming');
               setOperationalSubTab('perlu_masak');
             }}
-            className={`flex-1 min-h-[48px] flex flex-col items-center justify-center gap-0.5 relative cursor-pointer transition-colors ${
+            className={`flex-1 min-h-[48px] py-1 flex flex-col items-center justify-center gap-0.5 relative cursor-pointer transition-colors ${
               activeTab === 'incoming' ? 'text-emerald-700 font-extrabold' : 'text-slate-500 hover:text-slate-900'
             }`}
           >
@@ -2679,31 +2684,43 @@ export default function MerchantView({ merchantId: rawMerchantId, onLogout, onSe
                 </span>
               )}
             </div>
-            <span className="text-[10px]">Pesanan</span>
+            <span className="text-[9px] sm:text-[10px]">Pesanan</span>
           </button>
 
           {/* 3. Produk / Menu */}
           <button
             type="button"
             onClick={() => setActiveTab('menu')}
-            className={`flex-1 min-h-[48px] flex flex-col items-center justify-center gap-0.5 cursor-pointer transition-colors ${
+            className={`flex-1 min-h-[48px] py-1 flex flex-col items-center justify-center gap-0.5 cursor-pointer transition-colors ${
               activeTab === 'menu' ? 'text-emerald-700 font-extrabold' : 'text-slate-500 hover:text-slate-900'
             }`}
           >
             <Utensils className="w-5 h-5" />
-            <span className="text-[10px]">Menu</span>
+            <span className="text-[9px] sm:text-[10px]">Menu</span>
           </button>
 
-          {/* 4. Profil & Jam Operasional */}
+          {/* 4. Riwayat Pesanan */}
+          <button
+            type="button"
+            onClick={() => setActiveTab('history')}
+            className={`flex-1 min-h-[48px] py-1 flex flex-col items-center justify-center gap-0.5 cursor-pointer transition-colors ${
+              activeTab === 'history' ? 'text-emerald-700 font-extrabold' : 'text-slate-500 hover:text-slate-900'
+            }`}
+          >
+            <ClipboardList className="w-5 h-5" />
+            <span className="text-[9px] sm:text-[10px]">Riwayat</span>
+          </button>
+
+          {/* 5. Profil & Jam Operasional */}
           <button
             type="button"
             onClick={() => setActiveTab('profile')}
-            className={`flex-1 min-h-[48px] flex flex-col items-center justify-center gap-0.5 cursor-pointer transition-colors ${
+            className={`flex-1 min-h-[48px] py-1 flex flex-col items-center justify-center gap-0.5 cursor-pointer transition-colors ${
               activeTab === 'profile' ? 'text-emerald-700 font-extrabold' : 'text-slate-500 hover:text-slate-900'
             }`}
           >
             <Settings className="w-5 h-5" />
-            <span className="text-[10px]">Profil</span>
+            <span className="text-[9px] sm:text-[10px]">Profil</span>
           </button>
         </nav>
 
@@ -2716,8 +2733,9 @@ export default function MerchantView({ merchantId: rawMerchantId, onLogout, onSe
       {/* 1. Modal Form Tambah / Edit Menu (File Upload & Kategori Resmi Admin Pusat) */}
       {showItemForm && editingItem && (
         <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4">
-          <div className="bg-white rounded-2xl max-w-md w-full p-4 sm:p-5 shadow-2xl space-y-3.5 max-h-[92vh] overflow-y-auto">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-2">
+          <div className="bg-white rounded-2xl max-w-md w-full shadow-2xl flex flex-col max-h-[90dvh] sm:max-h-[92vh] overflow-hidden">
+            {/* Modal Header */}
+            <div className="p-4 sm:p-5 border-b border-slate-100 flex items-center justify-between shrink-0 bg-white">
               <h3 className="font-display font-bold text-sm sm:text-base text-slate-900">
                 {editingItem.id ? 'Edit Menu Makanan' : 'Tambah Menu Makanan Baru'}
               </h3>
@@ -2727,13 +2745,14 @@ export default function MerchantView({ merchantId: rawMerchantId, onLogout, onSe
                   setShowItemForm(false);
                   setItemImageError(null);
                 }} 
-                className="w-8 h-8 rounded-lg flex items-center justify-center text-slate-400 hover:text-slate-600 hover:bg-slate-100 cursor-pointer"
+                className="w-9 h-9 rounded-xl flex items-center justify-center text-slate-400 hover:text-slate-600 hover:bg-slate-100 cursor-pointer"
+                aria-label="Tutup"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
 
-            <form onSubmit={handleSaveItem} className="space-y-3">
+            <form onSubmit={handleSaveItem} className="p-4 sm:p-5 space-y-3.5 overflow-y-auto flex-1">
               {/* Field 1: Nama Menu */}
               <div>
                 <label className="text-xs font-bold text-slate-700 block mb-1">
@@ -2887,22 +2906,22 @@ export default function MerchantView({ merchantId: rawMerchantId, onLogout, onSe
                 </label>
               </div>
 
-              {/* Form Buttons */}
-              <div className="flex gap-2 pt-2">
+              {/* Form Buttons: Sticky at bottom of modal body */}
+              <div className="flex gap-2 pt-3 border-t border-slate-100 sticky bottom-0 bg-white">
                 <button
                   type="button"
                   onClick={() => {
                     setShowItemForm(false);
                     setItemImageError(null);
                   }}
-                  className="flex-1 min-h-[44px] py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold cursor-pointer"
+                  className="flex-1 min-h-[44px] py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold cursor-pointer transition-colors"
                 >
                   Batal
                 </button>
                 <button
                   type="submit"
                   disabled={isSavingItem}
-                  className="flex-1 min-h-[44px] py-2 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold shadow-xs cursor-pointer disabled:opacity-50"
+                  className="flex-1 min-h-[44px] py-2.5 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold shadow-xs cursor-pointer transition-colors disabled:opacity-50"
                 >
                   {isSavingItem ? 'Menyimpan...' : 'Simpan Menu'}
                 </button>
