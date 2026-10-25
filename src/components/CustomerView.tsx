@@ -185,9 +185,6 @@ export default function CustomerView({
   const [driverRegSubmitted, setDriverRegSubmitted] = useState<boolean>(false);
   const [isDriverLicUploaded, setIsDriverLicUploaded] = useState<boolean>(false);
 
-  const [isApkModalOpen, setIsApkModalOpen] = useState<boolean>(false);
-  const [apkDownloadProgress, setApkDownloadProgress] = useState<number>(0);
-  const [isApkDownloaded, setIsApkDownloaded] = useState<boolean>(false);
   const [isMapModalOpen, setIsMapModalOpen] = useState<boolean>(false);
 
   // Taksi Lokal States
@@ -363,23 +360,6 @@ export default function CustomerView({
     };
   }, []);
 
-  useEffect(() => {
-    let interval: any;
-    if (isApkModalOpen && apkDownloadProgress < 100 && !isApkDownloaded) {
-      interval = setInterval(() => {
-        setApkDownloadProgress(prev => {
-          if (prev >= 100) {
-            clearInterval(interval);
-            setIsApkDownloaded(true);
-            return 100;
-          }
-          const nextVal = prev + Math.floor(Math.random() * 12) + 8;
-          return nextVal > 100 ? 100 : nextVal;
-        });
-      }, 200);
-    }
-    return () => clearInterval(interval);
-  }, [isApkModalOpen, isApkDownloaded]);
 
   const [merchants, setMerchants] = useState<Merchant[]>([]);
   const [merchantsLoading, setMerchantsLoading] = useState<boolean>(true);
@@ -914,37 +894,31 @@ export default function CustomerView({
   const {
     isInstallable,
     isInstalled: isStandalone,
-    isIOS,
     install: triggerPWAInstall
   } = usePWAInstall('CUSTOMER');
 
-  const [showIOSPrompt, setShowIOSPrompt] = useState(false);
   const [installSuccess, setInstallSuccess] = useState(false);
-  const [showPWAInfo, setShowPWAInfo] = useState(false);
   const [, setIsInstalling] = useState(false);
   const [dismissedPrompt, setDismissedPrompt] = useState(() => {
     return safeStorage.getItem('tumpang_pwa_dismissed') === 'true';
   });
 
   const handleInstallClick = async () => {
-    if (isInstallable) {
-      setIsInstalling(true);
-      try {
-        const choice = await triggerPWAInstall();
-        if (choice.accepted) {
-          setInstallSuccess(true);
-          setTimeout(() => setInstallSuccess(false), 6000);
-        }
-      } catch (err) {
-        console.warn('[Customer PWA] Install error:', err);
-      } finally {
-        setIsInstalling(false);
+    if (!isInstallable) {
+      // If native install prompt event is not available or not supported, exit cleanly without modal popup
+      return;
+    }
+    setIsInstalling(true);
+    try {
+      const choice = await triggerPWAInstall();
+      if (choice.accepted) {
+        setInstallSuccess(true);
+        setTimeout(() => setInstallSuccess(false), 6000);
       }
-    } else if (isIOS) {
-      setShowIOSPrompt(true);
-    } else {
-      // Manual/Fallback explanation
-      setShowPWAInfo(true);
+    } catch (err) {
+      console.warn('[Customer PWA] Install error:', err);
+    } finally {
+      setIsInstalling(false);
     }
   };
 
@@ -1619,7 +1593,7 @@ export default function CustomerView({
             <Logo size={82} className="-my-3" />
           </div>
           <div className="flex items-center gap-1.5">
-            {!isStandalone && (
+            {isInstallable && !isStandalone && (
               <button 
                 onClick={handleInstallClick}
                 className={`text-[10px] px-2.5 py-1.5 rounded-full font-extrabold flex items-center gap-1 cursor-pointer transition-all active:scale-95 ${headerTheme.installBtnClass}`}
@@ -1761,116 +1735,6 @@ export default function CustomerView({
           </div>
         )}
 
-        {/* iOS PWA Install Instruction Modal */}
-        {showIOSPrompt && (
-          <div className="fixed inset-0 bg-slate-900/60 flex items-center justify-center p-4 z-[110] backdrop-blur-sm">
-            <div className="bg-white rounded-3xl p-6 max-w-sm w-full shadow-2xl border border-slate-100">
-              <div className="flex justify-between items-start">
-                <div className="w-10 h-10 rounded-xl bg-rose-50 border border-rose-100 flex items-center justify-center text-rose-600">
-                  <Smartphone className="w-5 h-5" />
-                </div>
-                <button 
-                  onClick={() => setShowIOSPrompt(false)}
-                  className="text-slate-400 hover:text-slate-600 p-1 bg-slate-50 hover:bg-slate-100 rounded-full transition-colors cursor-pointer"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-              
-              <h4 className="font-display font-bold text-base text-slate-800 mt-4">Pasang Tumpang Food di iPhone</h4>
-              <p className="text-slate-500 text-xs mt-1.5 leading-relaxed">
-                Safari di iPhone tidak mendukung instalasi otomatis satu-klik, namun Anda bisa memasangnya secara manual dengan langkah mudah berikut:
-              </p>
-
-              <div className="space-y-3.5 mt-5 text-xs text-slate-700">
-                <div className="flex gap-3">
-                  <div className="w-5 h-5 rounded-full bg-rose-100 text-rose-700 flex items-center justify-center font-bold flex-shrink-0 text-[10px]">1</div>
-                  <p className="leading-relaxed">Buka situs ini menggunakan browser <span className="font-bold text-slate-800">Safari</span> di iPhone Anda.</p>
-                </div>
-                <div className="flex gap-3">
-                  <div className="w-5 h-5 rounded-full bg-rose-100 text-rose-700 flex items-center justify-center font-bold flex-shrink-0 text-[10px]">2</div>
-                  <p className="leading-relaxed flex-1">Ketuk tombol <span className="font-bold text-slate-800 bg-slate-100 px-1.5 py-0.5 rounded text-[10px] inline-flex items-center gap-1">Bagikan (Share) <Share2 className="w-3 h-3 text-blue-500" /></span> di bar navigasi Safari.</p>
-                </div>
-                <div className="flex gap-3">
-                  <div className="w-5 h-5 rounded-full bg-rose-100 text-rose-700 flex items-center justify-center font-bold flex-shrink-0 text-[10px]">3</div>
-                  <p className="leading-relaxed text-slate-700">Gulir ke bawah dan pilih menu <span className="font-bold text-slate-800 bg-slate-100 px-1.5 py-0.5 rounded text-[10px]">Tambahkan ke Layar Utama (Add to Home Screen)</span>.</p>
-                </div>
-                <div className="flex gap-3">
-                  <div className="w-5 h-5 rounded-full bg-rose-100 text-rose-700 flex items-center justify-center font-bold flex-shrink-0 text-[10px]">4</div>
-                  <p className="leading-relaxed">Ketuk <span className="font-bold text-rose-600">Tambah</span> di sudut kanan atas. Selesai! Aplikasi siap dibuka dari layar utama HP.</p>
-                </div>
-              </div>
-
-              <button
-                onClick={() => setShowIOSPrompt(false)}
-                className="w-full mt-6 py-2.5 text-sm font-semibold text-white bg-rose-600 rounded-xl hover:bg-rose-700 transition-colors shadow-lg shadow-rose-600/20 cursor-pointer"
-              >
-                Saya Mengerti
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* Educational Information Modal */}
-        {showPWAInfo && (
-          <div className="fixed inset-0 bg-slate-900/60 flex items-center justify-center p-4 z-[110] backdrop-blur-sm">
-            <div className="bg-white rounded-3xl p-6 max-w-sm w-full shadow-2xl border border-slate-100 max-h-[85vh] overflow-y-auto">
-              <div className="flex justify-between items-start">
-                <div className="w-10 h-10 rounded-xl bg-rose-50 border border-rose-100 flex items-center justify-center text-rose-600">
-                  <Info className="w-5 h-5" />
-                </div>
-                <button 
-                  onClick={() => setShowPWAInfo(false)}
-                  className="text-slate-400 hover:text-slate-600 p-1 bg-slate-50 hover:bg-slate-100 rounded-full transition-colors cursor-pointer"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-              
-              <h4 className="font-display font-bold text-base text-slate-800 mt-4">Cara Memasang Aplikasi tumpangGo</h4>
-              <p className="text-slate-500 text-xs mt-1.5 leading-relaxed">
-                Nikmati kemudahan pesan kuliner lokal langsung dari layar ponsel Anda dengan aplikasi yang sangat ringan dan cepat dibuka.
-              </p>
-
-              <div className="mt-5 space-y-4">
-                <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
-                  <h5 className="font-bold text-xs text-slate-800 flex items-center gap-1.5">
-                    🚀 Ringan &amp; Hemat Memori
-                  </h5>
-                  <p className="text-[11px] text-slate-500 mt-0.5 leading-relaxed">
-                    Tidak perlu mengunduh file besar dari Play Store/App Store. Aplikasi ini terpasang dalam hitungan detik dan sangat hemat kuota data Anda.
-                  </p>
-                </div>
-
-                <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
-                  <h5 className="font-bold text-xs text-slate-800 flex items-center gap-1.5">
-                    📱 Langsung di Layar Utama HP
-                  </h5>
-                  <p className="text-[11px] text-slate-500 mt-0.5 leading-relaxed">
-                    tumpangGo akan memiliki ikon di layar utama ponsel Anda, dapat dibuka sekali ketuk tanpa repot membuka browser atau mengetik alamat web.
-                  </p>
-                </div>
-
-                <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
-                  <h5 className="font-bold text-xs text-slate-800 flex items-center gap-1.5">
-                    ⚙️ Cara Pasang Manual di Browser
-                  </h5>
-                  <p className="text-[11px] text-slate-500 mt-0.5 leading-relaxed">
-                    Jika tombol pasang tidak muncul otomatis, ketuk tombol <span className="font-bold text-slate-800">Titik Tiga (⋮)</span> di kanan atas browser Chrome/Edge Anda, lalu pilih <span className="font-bold text-rose-600">"Instal Aplikasi"</span> atau <span className="font-bold text-rose-600">"Tambahkan ke Layar Utama"</span>.
-                  </p>
-                </div>
-              </div>
-
-              <button
-                onClick={() => setShowPWAInfo(false)}
-                className="w-full mt-6 py-2.5 text-sm font-semibold text-white bg-rose-600 rounded-xl hover:bg-rose-700 transition-colors shadow-lg shadow-rose-600/20 cursor-pointer"
-              >
-                Tutup &amp; Kembali
-              </button>
-            </div>
-          </div>
-        )}
-
         {/* 1. HOME TAB */}
         {activeTab === 'home' && (
           <div className="flex flex-col gap-5">
@@ -1878,7 +1742,7 @@ export default function CustomerView({
             {homeSubView === 'main' && (
               <div className="flex flex-col gap-5 pb-1">
                 {/* Compact Simple Install Bar */}
-                {!isStandalone && !dismissedPrompt && (
+                {isInstallable && !isStandalone && !dismissedPrompt && (
                   <div className="bg-gradient-to-r from-rose-50 to-amber-50 border border-rose-200/80 rounded-xl px-3 py-2 flex items-center justify-between gap-2 shadow-sm">
                     <div className="flex items-center gap-2 min-w-0">
                       <div className="w-7 h-7 rounded-lg bg-rose-600 text-white flex items-center justify-center shrink-0 shadow-sm">
@@ -1900,13 +1764,6 @@ export default function CustomerView({
                       >
                         <Download className="w-3.5 h-3.5" />
                         <span>Install Aplikasi</span>
-                      </button>
-                      <button 
-                        onClick={() => setShowPWAInfo(true)}
-                        className="text-slate-400 hover:text-slate-600 p-1 rounded-lg transition-colors cursor-pointer"
-                        title="Info Install Aplikasi"
-                      >
-                        <Info className="w-3.5 h-3.5" />
                       </button>
                       <button 
                         onClick={dismissInstallPrompt}
@@ -3067,112 +2924,6 @@ export default function CustomerView({
               </div>
             )}
 
-            {/* APK DOWNLOAD / INSTALLER MODAL */}
-            {isApkModalOpen && (
-              <div className="fixed inset-0 z-[100] bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
-                <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden border border-slate-150 animate-in zoom-in-95 duration-200">
-                  {/* Android Style Header */}
-                  <div className="bg-[#A4C639] text-white p-5 flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <Smartphone className="w-8 h-8 text-white animate-pulse" />
-                      <div>
-                        <h4 className="font-sans font-black text-sm uppercase tracking-wider">tumpangGo APK Installer</h4>
-                        <p className="text-[10px] text-white/90">Aplikasi Resmi Paguyuban Otonom</p>
-                      </div>
-                    </div>
-                    <button 
-                      onClick={() => {
-                        setIsApkModalOpen(false);
-                        setApkDownloadProgress(0);
-                        setIsApkDownloaded(false);
-                      }}
-                      className="p-1.5 rounded-full bg-black/10 hover:bg-black/25 text-white transition-colors cursor-pointer"
-                    >
-                      <X className="w-4 h-4" />
-                    </button>
-                  </div>
-
-                  <div className="p-6 flex flex-col items-center text-center">
-                    {!isApkDownloaded ? (
-                      /* Downloading Screen */
-                      <div className="w-full py-4">
-                        <div className="w-16 h-16 rounded-2xl bg-amber-50 text-amber-500 flex items-center justify-center text-2xl shadow-sm mb-4 mx-auto animate-bounce">
-                          📥
-                        </div>
-                        <h5 className="font-sans font-black text-xs text-slate-700 uppercase tracking-wider">Mengunduh File APK...</h5>
-                        <p className="text-[10px] text-slate-400 font-semibold mt-1">TumpangGo_v2.4_Official.apk (18.4 MB)</p>
-                        
-                        {/* Progress Bar */}
-                        <div className="w-full bg-slate-100 rounded-full h-3.5 overflow-hidden mt-5 mb-2 border border-slate-200/50">
-                          <div 
-                            className="bg-gradient-to-r from-[#A4C639] to-emerald-500 h-full transition-all duration-300"
-                            style={{ width: `${apkDownloadProgress}%` }}
-                          ></div>
-                        </div>
-                        <div className="flex justify-between items-center text-[10px] text-slate-400 font-bold px-1">
-                          <span>Progress: {apkDownloadProgress}%</span>
-                          <span>{apkDownloadProgress === 100 ? 'Selesai' : 'Sedang mengunduh...'}</span>
-                        </div>
-                      </div>
-                    ) : (
-                      /* Install Screen */
-                      <div className="w-full py-3">
-                        <div className="w-16 h-16 rounded-2xl bg-emerald-50 text-emerald-500 flex items-center justify-center text-2xl shadow-sm mb-4 mx-auto">
-                          🤖
-                        </div>
-                        <h5 className="font-sans font-black text-sm text-slate-800 uppercase tracking-tight">Unduhan Selesai!</h5>
-                        <p className="text-[10px] text-slate-500 font-medium leading-relaxed max-w-xs mt-1.5">
-                          File APK resmi tumpangGo berhasil diunduh ke penyimpanan internal HP Anda. Silakan pasang aplikasi untuk menikmati akses langsung yang lebih cepat.
-                        </p>
-
-                        <div className="bg-slate-50 rounded-2xl p-4 my-4 border border-slate-100 flex flex-col gap-2.5 text-left text-xs font-bold text-slate-600">
-                          <div className="flex justify-between items-center text-[9px] text-slate-400 font-black uppercase">
-                            <span>Informasi File:</span>
-                            <span className="text-emerald-700 font-black">AMANKAN BY PLAY PROTECT</span>
-                          </div>
-                          <div className="flex justify-between items-center pt-1">
-                            <span>Nama File:</span>
-                            <span className="text-slate-900 font-bold">TumpangGo_v2.4.apk</span>
-                          </div>
-                          <div className="flex justify-between items-center">
-                            <span>Ukuran:</span>
-                            <span className="text-slate-900 font-bold">18.4 MB</span>
-                          </div>
-                          <div className="flex justify-between items-center">
-                            <span>Versi OS:</span>
-                            <span className="text-slate-900 font-bold">Android 5.0 atau terbaru</span>
-                          </div>
-                        </div>
-
-                        <div className="flex gap-2.5 mt-5">
-                          <button 
-                            onClick={() => {
-                              setIsApkModalOpen(false);
-                              setApkDownloadProgress(0);
-                              setIsApkDownloaded(false);
-                            }}
-                            className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold py-3 rounded-xl text-xs transition-colors cursor-pointer"
-                          >
-                            Batal
-                          </button>
-                          <button 
-                            onClick={() => {
-                              alert('Aplikasi tumpangGo berhasil diinstal di smartphone Anda! Silakan cek menu utama HP Anda.');
-                              setIsApkModalOpen(false);
-                              setApkDownloadProgress(0);
-                              setIsApkDownloaded(false);
-                            }}
-                            className="flex-1 bg-[#A4C639] hover:bg-[#92b232] text-white font-black py-3 rounded-xl text-xs uppercase tracking-wider transition-colors cursor-pointer"
-                          >
-                            Instal Sekarang
-                          </button>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </div>
-            )}
 
             {/* HEADQUARTERS MAP MODAL */}
             {isMapModalOpen && (

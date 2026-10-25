@@ -294,15 +294,24 @@
           var isIframe = false;
           try { isIframe = window.self !== window.top; } catch (e) { isIframe = true; }
           if (!isIframe) {
-            window.addEventListener('load', function() {
+            var swRegistered = false;
+            var doRegister = function() {
+              if (swRegistered) return;
+              swRegistered = true;
               navigator.serviceWorker.register('/sw.js', { scope: '/' })
                 .then(function(reg) {
                   console.log('[TumpangGo PWA] Service Worker terdaftar:', reg.scope);
                 })
                 .catch(function(err) {
-                  console.warn('[TumpangGo PWA] Service Worker bypass:', err);
+                  console.warn('[TumpangGo PWA] Service Worker registration notice:', err);
                 });
-            });
+            };
+            if (document.readyState === 'loading') {
+              window.addEventListener('DOMContentLoaded', doRegister);
+              window.addEventListener('load', doRegister);
+            } else {
+              doRegister();
+            }
           }
         }
       } catch (swErr) {

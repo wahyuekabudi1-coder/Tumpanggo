@@ -18,13 +18,13 @@ export interface BeforeInstallPromptEvent extends Event {
 export type PWARole = 'CUSTOMER' | 'MERCHANT' | 'DRIVER' | 'ADMIN';
 
 export function detectCurrentPWARole(): PWARole {
-  if (typeof window === 'undefined') return 'CUSTOMER';
-  const pathname = window.location.pathname.toLowerCase();
+  if (typeof window === 'undefined' || !window.location) return 'CUSTOMER';
+  const pathname = (window.location.pathname || '').toLowerCase();
   if (pathname === '/merchant' || pathname.startsWith('/merchant/')) return 'MERCHANT';
   if (pathname === '/driver' || pathname.startsWith('/driver/')) return 'DRIVER';
   if (pathname === '/admin' || pathname.startsWith('/admin/')) return 'ADMIN';
 
-  const search = window.location.search.toLowerCase();
+  const search = (window.location.search || '').toLowerCase();
   if (search.includes('role=merchant') || search.includes('portal=merchant')) return 'MERCHANT';
   if (search.includes('role=driver') || search.includes('portal=driver')) return 'DRIVER';
   if (search.includes('role=admin') || search.includes('portal=admin')) return 'ADMIN';
@@ -65,12 +65,12 @@ function notifyListeners() {
 }
 
 export function getHostPWARole(): PWARole | null {
-  if (typeof window === 'undefined') return null;
+  if (typeof window === 'undefined' || !window.location) return null;
   const isStandalone = Boolean(
     window.matchMedia('(display-mode: standalone)').matches ||
     (window.navigator as any).standalone === true ||
-    document.referrer.includes('android-app://') ||
-    (new URLSearchParams(window.location.search).get('source') || '').includes('pwa')
+    (typeof document !== 'undefined' && document?.referrer ? document.referrer.includes('android-app://') : false) ||
+    (new URLSearchParams(window.location.search || '').get('source') || '').includes('pwa')
   );
   if (!isStandalone) return null;
 
@@ -81,7 +81,7 @@ export function getHostPWARole(): PWARole | null {
     }
   } catch {}
 
-  const path = window.location.pathname.toLowerCase();
+  const path = (window.location.pathname || '').toLowerCase();
   let hostRole: PWARole = 'CUSTOMER';
   if (path === '/merchant' || path.startsWith('/merchant/')) {
     hostRole = 'MERCHANT';
@@ -98,12 +98,12 @@ export function getHostPWARole(): PWARole | null {
 }
 
 export function checkIsStandalone(targetRole?: PWARole): boolean {
-  if (typeof window === 'undefined') return false;
+  if (typeof window === 'undefined' || !window.location) return false;
   const isStandalone = Boolean(
     window.matchMedia('(display-mode: standalone)').matches ||
     (window.navigator as any).standalone === true ||
-    document.referrer.includes('android-app://') ||
-    (new URLSearchParams(window.location.search).get('source') || '').includes('pwa')
+    (typeof document !== 'undefined' && document?.referrer ? document.referrer.includes('android-app://') : false) ||
+    (new URLSearchParams(window.location.search || '').get('source') || '').includes('pwa')
   );
 
   if (!isStandalone) return false;
@@ -199,7 +199,7 @@ export function getPromptForRole(role: PWARole): BeforeInstallPromptEvent | null
   // 3. Fallback: Check window.__tumpang_install_prompt only if role matches
   const singlePrompt = (window as any).__tumpang_install_prompt || globalDeferredPrompt;
   if (singlePrompt) {
-    const promptRole = (singlePrompt as any).__tumpang_role || detectCurrentPWARole();
+    const promptRole = (singlePrompt as any).__tumpang_role || (role === 'CUSTOMER' ? 'CUSTOMER' : detectCurrentPWARole());
     if (promptRole === role) {
       rolePrompts[role] = singlePrompt;
       return singlePrompt;
@@ -251,6 +251,9 @@ if (typeof window !== 'undefined') {
     e.preventDefault();
     const capturedRole = detectCurrentPWARole();
     try { (e as any).__tumpang_role = capturedRole; } catch {}
+    // If browser emits install prompt, the app is not installed in this browser profile
+    roleInstalledMap[capturedRole] = false;
+    setRoleInstalledToStorage(capturedRole, false);
     rolePrompts[capturedRole] = e as BeforeInstallPromptEvent;
     globalDeferredPrompt = e as BeforeInstallPromptEvent;
     (window as any).__tumpang_prompts = (window as any).__tumpang_prompts || {};
@@ -291,6 +294,18 @@ if (typeof window !== 'undefined') {
   } catch {}
 }
 
+export function computeIsInstalled(targetRole: PWARole): boolean {
+  if (typeof window === 'undefined') return false;
+  // 1. Definite proof: Currently running in standalone PWA window for this role
+  if (checkIsStandalone(targetRole)) return true;
+  // 2. Definite proof: Current session received appinstalled event or user accepted prompt
+  if (roleInstalledMap[targetRole]) return true;
+  // 3. In a standard browser tab, if not running in standalone mode, any stored "installed" flag is stale or untrustworthy.
+  // Purge the stale flag so it doesn't falsely suppress the install button or claim installed.
+  setRoleInstalledToStorage(targetRole, false);
+  return false;
+}
+
 export function usePWAInstall(role?: PWARole) {
   const targetRole: PWARole = role || detectCurrentPWARole();
 
@@ -299,14 +314,7 @@ export function usePWAInstall(role?: PWARole) {
   });
 
   const [isInstalled, setIsInstalled] = useState<boolean>(() => {
-    if (typeof window !== 'undefined') {
-      return (
-        checkIsStandalone(targetRole) ||
-        roleInstalledMap[targetRole] ||
-        getRoleInstalledFromStorage(targetRole)
-      );
-    }
-    return false;
+    return computeIsInstalled(targetRole);
   });
 
   const [isIOS] = useState<boolean>(() => checkIsIOS());
@@ -323,11 +331,7 @@ export function usePWAInstall(role?: PWARole) {
     const updateState = () => {
       const activePrompt = getPromptForRole(targetRole);
       setDeferredPrompt(activePrompt);
-      const installed =
-        checkIsStandalone(targetRole) ||
-        roleInstalledMap[targetRole] ||
-        getRoleInstalledFromStorage(targetRole);
-      setIsInstalled(installed);
+      setIsInstalled(computeIsInstalled(targetRole));
     };
 
     updateState();
@@ -389,6 +393,7 @@ export function usePWAInstall(role?: PWARole) {
 
       if (choice.outcome === 'accepted') {
         roleInstalledMap[targetRole] = true;
+        setRoleInstalledToStorage(targetRole, true);
         setIsInstalled(true);
       }
       notifyListeners();

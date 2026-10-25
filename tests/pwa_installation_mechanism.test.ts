@@ -186,6 +186,47 @@ mockWindow.__tumpang_install_prompt = null;
 assert(mockWindow.__tumpang_app_installed === true, 'appinstalled correctly sets installed status');
 assert(mockWindow.__tumpang_prompts['MERCHANT'] === null, 'Consumed Merchant install prompt is cleared');
 
+// Test Simulated Lifecycle Scenario 4: Customer Direct Install Lifecycle (Accepted)
+console.log('\n--- Scenario 4: Customer direct install prompt execution & acceptance ---');
+const customerPromptAccepted = new MockBeforeInstallPromptEvent('accepted');
+(customerPromptAccepted as any).__tumpang_role = 'CUSTOMER';
+mockWindow.__tumpang_prompts['CUSTOMER'] = customerPromptAccepted;
+assert(mockWindow.__tumpang_prompts['CUSTOMER'] !== null, 'Customer install prompt event is available in event store');
+await mockWindow.__tumpang_prompts['CUSTOMER'].prompt();
+assert(customerPromptAccepted.promptCallCount === 1, 'Customer native prompt() was called directly without modal popup');
+const customerChoice = await customerPromptAccepted.userChoice;
+assert(customerChoice.outcome === 'accepted', 'Customer install outcome is "accepted"');
+mockWindow.__tumpang_prompts['CUSTOMER'] = null;
+assert(mockWindow.__tumpang_prompts['CUSTOMER'] === null, 'Customer prompt consumed and cleared to prevent reuse of expired event');
+
+// Test Simulated Lifecycle Scenario 5: Customer User Dismissal (Cancel)
+console.log('\n--- Scenario 5: Customer install cancellation (dismissed) without fake install ---');
+const customerPromptDismissed = new MockBeforeInstallPromptEvent('dismissed');
+(customerPromptDismissed as any).__tumpang_role = 'CUSTOMER';
+await customerPromptDismissed.prompt();
+const dismissedChoice = await customerPromptDismissed.userChoice;
+assert(dismissedChoice.outcome === 'dismissed', 'Customer cancellation correctly resolves to "dismissed"');
+assert(customerPromptDismissed.promptCallCount === 1, 'Dismissed prompt called exactly once');
+
+// Test Simulated Lifecycle Scenario 6: Stale LocalStorage Self-Healing & Purge
+console.log('\n--- Scenario 6: Stale localStorage flag self-healing when beforeinstallprompt arrives ---');
+const storageMock: Record<string, string> = {};
+(global as any).window = mockWindow;
+(global as any).localStorage = {
+  getItem: (k: string) => storageMock[k] || null,
+  setItem: (k: string, v: string) => { storageMock[k] = v; },
+  removeItem: (k: string) => { delete storageMock[k]; }
+};
+
+const { computeIsInstalled, setRoleInstalledToStorage, getRoleInstalledFromStorage } = await import('../src/hooks/usePWAInstall');
+// Simulate a stale flag in storage
+setRoleInstalledToStorage('CUSTOMER', true);
+assert(getRoleInstalledFromStorage('CUSTOMER') === true, 'Simulated stale storage flag initially exists');
+// When beforeinstallprompt is active, computeIsInstalled must purge stale storage and return false
+const isInstalledWithPrompt = computeIsInstalled('CUSTOMER');
+assert(isInstalledWithPrompt === false, 'computeIsInstalled returns false when running in browser mode and does not falsely claim app is installed');
+assert(getRoleInstalledFromStorage('CUSTOMER') === false, 'Stale localStorage flag was successfully purged');
+
 // -----------------------------------------------------------------------------
 // 4. VERIFY INTEGRATION IN PORTAL COMPONENTS
 // -----------------------------------------------------------------------------
@@ -194,6 +235,10 @@ console.log('\n--- 4. AUDIT PORTAL COMPONENT INTEGRATION ---');
 const customerPath = path.resolve(process.cwd(), 'src/components/CustomerView.tsx');
 const customerContent = fs.readFileSync(customerPath, 'utf-8');
 assert(customerContent.includes("usePWAInstall('CUSTOMER')"), 'CustomerView is wired to usePWAInstall("CUSTOMER")');
+assert(!customerContent.includes('showPWAInfo'), 'CustomerView does NOT contain showPWAInfo manual guide modal');
+assert(!customerContent.includes('isApkModalOpen'), 'CustomerView does NOT contain isApkModalOpen fake APK installer');
+assert(!customerContent.includes('TumpangGo_v2.4'), 'CustomerView does NOT contain any fake APK filename references');
+assert(customerContent.includes('isInstallable && !isStandalone'), 'CustomerView install buttons strictly require isInstallable && !isStandalone');
 
 const merchantPath = path.resolve(process.cwd(), 'src/components/MerchantView.tsx');
 const merchantContent = fs.readFileSync(merchantPath, 'utf-8');
