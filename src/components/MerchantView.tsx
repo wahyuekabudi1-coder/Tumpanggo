@@ -11,7 +11,7 @@
  * 2. Pesanan Masuk (Operasional: Perlu Masak, Dimasak, Siap Diambil)
  * 3. Riwayat Pesanan (Selesai, Dalam Pengantaran, Dibatalkan)
  * 4. Produk / Menu (Katalog Menu, File Upload Foto, Kategori Resmi Admin Pusat)
- * 5. Profil & Jam Operasional (Identitas Toko, Jam Buka/Tutup, Rekening Bank, QRIS Statis)
+ * 5. Profil & Jam Operasional (Identitas Toko, Jam Buka/Tutup, Rekening Bank Pencairan)
  */
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
@@ -25,7 +25,7 @@ import {
   Store, ClipboardList, Utensils, TrendingUp, Clock,
   Settings, LogOut, Plus, Check, X, Edit, Trash2,
   Phone, MapPin, AlertCircle, ChefHat, RefreshCw, Upload,
-  QrCode, ZoomIn, Receipt, Search,
+  CreditCard, Receipt, Search,
   CheckCircle2, AlertTriangle, Volume2, VolumeX, Bell, BellRing,
   Menu as MenuIcon, ChevronRight, ArrowRight, Image as ImageIcon
 } from 'lucide-react';
