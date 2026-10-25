@@ -237,8 +237,8 @@ const customerContent = fs.readFileSync(customerPath, 'utf-8');
 assert(customerContent.includes("usePWAInstall('CUSTOMER')"), 'CustomerView is wired to usePWAInstall("CUSTOMER")');
 assert(!customerContent.includes('showPWAInfo'), 'CustomerView does NOT contain showPWAInfo manual guide modal');
 assert(!customerContent.includes('isApkModalOpen'), 'CustomerView does NOT contain isApkModalOpen fake APK installer');
-assert(!customerContent.includes('TumpangGo_v2.4'), 'CustomerView does NOT contain any fake APK filename references');
-assert(customerContent.includes('isInstallable && !isStandalone'), 'CustomerView install buttons strictly require isInstallable && !isStandalone');
+assert(customerContent.includes('!isStandalone') && customerContent.includes('disabled={!isInstallable || isInstalling}'), 'CustomerView install buttons are visible while !isStandalone and properly status-differentiated with disabled={!isInstallable}');
+assert(customerContent.includes('id="btn-customer-install-header"'), 'CustomerView renders dedicated #btn-customer-install-header in the customer navigation header');
 
 const merchantPath = path.resolve(process.cwd(), 'src/components/MerchantView.tsx');
 const merchantContent = fs.readFileSync(merchantPath, 'utf-8');

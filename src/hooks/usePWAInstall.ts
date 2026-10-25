@@ -246,52 +246,55 @@ if (typeof window !== 'undefined') {
     notifyListeners();
   };
 
-  // Register window event listeners directly
-  window.addEventListener('beforeinstallprompt', (e: Event) => {
-    e.preventDefault();
-    const capturedRole = detectCurrentPWARole();
-    try { (e as any).__tumpang_role = capturedRole; } catch {}
-    // If browser emits install prompt, the app is not installed in this browser profile
-    roleInstalledMap[capturedRole] = false;
-    setRoleInstalledToStorage(capturedRole, false);
-    rolePrompts[capturedRole] = e as BeforeInstallPromptEvent;
-    globalDeferredPrompt = e as BeforeInstallPromptEvent;
-    (window as any).__tumpang_prompts = (window as any).__tumpang_prompts || {};
-    (window as any).__tumpang_prompts[capturedRole] = e;
-    (window as any).__tumpang_install_prompt = e;
-    notifyListeners();
-  });
-
-  window.addEventListener('appinstalled', (e: any) => {
-    const installedRole = e?.__tumpang_role || detectCurrentPWARole();
-    roleInstalledMap[installedRole] = true;
-    setRoleInstalledToStorage(installedRole, true);
-    globalIsInstalled = true;
-    rolePrompts[installedRole] = null;
-    globalDeferredPrompt = null;
-    if ((window as any).__tumpang_prompts) {
-      (window as any).__tumpang_prompts[installedRole] = null;
-    }
-    (window as any).__tumpang_install_prompt = null;
-    (window as any).__tumpang_app_installed_role = installedRole;
-    notifyListeners();
-  });
-
-  // Watch for display-mode standalone changes in real time
-  try {
-    const mql = window.matchMedia('(display-mode: standalone)');
-    mql.addEventListener('change', (e) => {
-      if (e.matches) {
-        const curRole = detectCurrentPWARole();
-        roleInstalledMap[curRole] = true;
-        setRoleInstalledToStorage(curRole, true);
-        globalIsInstalled = true;
-        rolePrompts[curRole] = null;
-        globalDeferredPrompt = null;
-        notifyListeners();
-      }
+  // Register window event listeners directly with singleton guard
+  if (!(window as any).__tumpang_pwa_hook_listeners_attached) {
+    (window as any).__tumpang_pwa_hook_listeners_attached = true;
+    window.addEventListener('beforeinstallprompt', (e: Event) => {
+      e.preventDefault();
+      const capturedRole = detectCurrentPWARole();
+      try { (e as any).__tumpang_role = capturedRole; } catch {}
+      // If browser emits install prompt, the app is not installed in this browser profile
+      roleInstalledMap[capturedRole] = false;
+      setRoleInstalledToStorage(capturedRole, false);
+      rolePrompts[capturedRole] = e as BeforeInstallPromptEvent;
+      globalDeferredPrompt = e as BeforeInstallPromptEvent;
+      (window as any).__tumpang_prompts = (window as any).__tumpang_prompts || {};
+      (window as any).__tumpang_prompts[capturedRole] = e;
+      (window as any).__tumpang_install_prompt = e;
+      notifyListeners();
     });
-  } catch {}
+
+    window.addEventListener('appinstalled', (e: any) => {
+      const installedRole = e?.__tumpang_role || detectCurrentPWARole();
+      roleInstalledMap[installedRole] = true;
+      setRoleInstalledToStorage(installedRole, true);
+      globalIsInstalled = true;
+      rolePrompts[installedRole] = null;
+      globalDeferredPrompt = null;
+      if ((window as any).__tumpang_prompts) {
+        (window as any).__tumpang_prompts[installedRole] = null;
+      }
+      (window as any).__tumpang_install_prompt = null;
+      (window as any).__tumpang_app_installed_role = installedRole;
+      notifyListeners();
+    });
+
+    // Watch for display-mode standalone changes in real time
+    try {
+      const mql = window.matchMedia('(display-mode: standalone)');
+      mql.addEventListener('change', (e) => {
+        if (e.matches) {
+          const curRole = detectCurrentPWARole();
+          roleInstalledMap[curRole] = true;
+          setRoleInstalledToStorage(curRole, true);
+          globalIsInstalled = true;
+          rolePrompts[curRole] = null;
+          globalDeferredPrompt = null;
+          notifyListeners();
+        }
+      });
+    } catch {}
+  }
 }
 
 export function computeIsInstalled(targetRole: PWARole): boolean {

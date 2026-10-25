@@ -898,7 +898,7 @@ export default function CustomerView({
   } = usePWAInstall('CUSTOMER');
 
   const [installSuccess, setInstallSuccess] = useState(false);
-  const [, setIsInstalling] = useState(false);
+  const [isInstalling, setIsInstalling] = useState(false);
   const [dismissedPrompt, setDismissedPrompt] = useState(() => {
     return safeStorage.getItem('tumpang_pwa_dismissed') === 'true';
   });
@@ -1593,14 +1593,26 @@ export default function CustomerView({
             <Logo size={82} className="-my-3" />
           </div>
           <div className="flex items-center gap-1.5">
-            {isInstallable && !isStandalone && (
+            {!isStandalone && (
               <button 
+                id="btn-customer-install-header"
+                type="button"
                 onClick={handleInstallClick}
-                className={`text-[10px] px-2.5 py-1.5 rounded-full font-extrabold flex items-center gap-1 cursor-pointer transition-all active:scale-95 ${headerTheme.installBtnClass}`}
-                title="Install Aplikasi tumpangGo di Layar Utama"
+                disabled={!isInstallable || isInstalling}
+                aria-disabled={!isInstallable || isInstalling}
+                className={`text-[10px] px-2.5 py-1.5 rounded-full font-extrabold flex items-center gap-1 transition-all ${
+                  isInstallable
+                    ? `cursor-pointer active:scale-95 ${headerTheme.installBtnClass}`
+                    : 'bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed opacity-75 select-none'
+                }`}
+                title={
+                  isInstallable 
+                    ? 'Install Aplikasi tumpangGo di Layar Utama' 
+                    : 'Instalasi akan aktif saat didukung oleh browser...'
+                }
               >
-                <Download className="w-3 h-3 animate-bounce" />
-                <span>Install tumpangGo</span>
+                <Download className={`w-3 h-3 ${isInstallable ? 'animate-bounce' : 'opacity-60'}`} />
+                <span>{isInstalling ? 'Memasang...' : isInstallable ? 'Install tumpangGo' : 'Install Aplikasi'}</span>
               </button>
             )}
             {/* Service text badges cleared as requested */}
@@ -1742,7 +1754,7 @@ export default function CustomerView({
             {homeSubView === 'main' && (
               <div className="flex flex-col gap-5 pb-1">
                 {/* Compact Simple Install Bar */}
-                {isInstallable && !isStandalone && !dismissedPrompt && (
+                {!isStandalone && !dismissedPrompt && (
                   <div className="bg-gradient-to-r from-rose-50 to-amber-50 border border-rose-200/80 rounded-xl px-3 py-2 flex items-center justify-between gap-2 shadow-sm">
                     <div className="flex items-center gap-2 min-w-0">
                       <div className="w-7 h-7 rounded-lg bg-rose-600 text-white flex items-center justify-center shrink-0 shadow-sm">
@@ -1759,11 +1771,20 @@ export default function CustomerView({
                     </div>
                     <div className="flex items-center gap-1.5 shrink-0">
                       <button 
+                        id="btn-customer-install-banner"
+                        type="button"
                         onClick={handleInstallClick}
-                        className="bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold px-3 py-1.5 rounded-lg shadow-sm flex items-center gap-1 transition-all cursor-pointer active:scale-95"
+                        disabled={!isInstallable || isInstalling}
+                        aria-disabled={!isInstallable || isInstalling}
+                        className={`text-xs font-bold px-3 py-1.5 rounded-lg shadow-sm flex items-center gap-1 transition-all ${
+                          isInstallable 
+                            ? 'bg-rose-600 hover:bg-rose-700 text-white cursor-pointer active:scale-95' 
+                            : 'bg-slate-200 text-slate-400 cursor-not-allowed opacity-75'
+                        }`}
+                        title={isInstallable ? 'Install Aplikasi' : 'Instalasi akan aktif saat didukung oleh browser...'}
                       >
-                        <Download className="w-3.5 h-3.5" />
-                        <span>Install Aplikasi</span>
+                        <Download className={`w-3.5 h-3.5 ${isInstallable ? 'animate-bounce' : 'opacity-60'}`} />
+                        <span>{isInstalling ? 'Memasang...' : 'Install Aplikasi'}</span>
                       </button>
                       <button 
                         onClick={dismissInstallPrompt}
