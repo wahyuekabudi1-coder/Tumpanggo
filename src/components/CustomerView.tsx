@@ -1546,7 +1546,7 @@ export default function CustomerView({
       {/* Bottom Green Section - Hijau Adventure */}
       <div className="bg-[#224B33] text-white py-3 px-4 flex flex-col items-center justify-center text-center">
         <p className="text-xs text-emerald-50 font-medium max-w-sm leading-snug">
-          Super-App lokal Kecamatan Tumpang untuk UMKM, kurir instan, dan layanan digital.
+          Super App Lokal Kecamatan Tumpang untuk UMKM.
         </p>
 
         {/* Plain Copyright text - completely normal, no hover effects or glow */}

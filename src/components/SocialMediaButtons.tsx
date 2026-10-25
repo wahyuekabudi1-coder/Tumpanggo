@@ -9,15 +9,18 @@
  * 3. Facebook
  * 
  * Complies with strict privacy & anti-hallucination rules:
- * - Clear platform names and official brand SVG icons.
- * - If official URLs are not yet configured, shows an accessible modal informing
- *   the user that the channel is under preparation/verification, instead of
- *   redirecting to fictitious usernames or 404 pages.
- * - Accessible screen reader labels and full responsive keyboard navigation.
+ * - Only verified channels: TikTok, Instagram, and Facebook.
+ * - Uses verified URLs from config or environment variables if present.
+ * - If official specific handles are pending verification, cleanly links to
+ *   the official platform's homepage with transparent disclosure, preventing
+ *   unauthorized or fictitious accounts.
+ * - Always opens links in a new tab with rel="noopener noreferrer" and target="_blank".
+ * - Fully clickable and accessible on both desktop and mobile devices.
+ * - Retains exact brand colors, SVG icons, sizing, and design system alignment.
  */
 
 import React, { useState } from 'react';
-import { Info, X, ShieldCheck } from 'lucide-react';
+import { Info, X, ShieldCheck, ExternalLink } from 'lucide-react';
 
 export interface SocialMediaConfig {
   tiktokUrl?: string;
@@ -59,8 +62,17 @@ export function validateSocialUrl(platform: 'tiktok' | 'instagram' | 'facebook',
   }
 }
 
-// Default configuration: empty strings signify pending official handle verification.
-// Can also be configured via environment variables (VITE_TIKTOK_URL, VITE_INSTAGRAM_URL, VITE_FACEBOOK_URL).
+/**
+ * Fallback resmi ke beranda platform jika akun spesifik belum dikonfigurasi di environment.
+ * Menghindari klaim username fiktif atau link 404.
+ */
+export const DEFAULT_PLATFORM_FALLBACKS: Record<'tiktok' | 'instagram' | 'facebook', string> = {
+  tiktok: 'https://www.tiktok.com',
+  instagram: 'https://www.instagram.com',
+  facebook: 'https://www.facebook.com',
+};
+
+// Default configuration: loads environment variables if present (VITE_TIKTOK_URL, VITE_INSTAGRAM_URL, VITE_FACEBOOK_URL).
 export const OFFICIAL_SOCIAL_CONFIG: SocialMediaConfig = {
   tiktokUrl: (typeof import.meta !== 'undefined' && import.meta.env?.VITE_TIKTOK_URL) || '',
   instagramUrl: (typeof import.meta !== 'undefined' && import.meta.env?.VITE_INSTAGRAM_URL) || '',
@@ -76,11 +88,13 @@ interface SocialMediaButtonsProps {
 interface SocialChannelItem {
   id: 'tiktok' | 'instagram' | 'facebook';
   name: string;
-  url?: string;
+  url: string;
+  isCustomConfigured: boolean;
   colorClass: string;
   hoverClass: string;
   iconBgClass: string;
   ariaLabel: string;
+  title: string;
   renderIcon: () => React.ReactNode;
 }
 
@@ -91,15 +105,25 @@ export const SocialMediaButtons: React.FC<SocialMediaButtonsProps> = ({
 }) => {
   const [activeNoticeChannel, setActiveNoticeChannel] = useState<string | null>(null);
 
+  const validatedTikTok = validateSocialUrl('tiktok', config.tiktokUrl);
+  const validatedInstagram = validateSocialUrl('instagram', config.instagramUrl);
+  const validatedFacebook = validateSocialUrl('facebook', config.facebookUrl);
+
   const channels: SocialChannelItem[] = [
     {
       id: 'tiktok',
       name: 'TikTok',
-      url: validateSocialUrl('tiktok', config.tiktokUrl) || undefined,
+      url: validatedTikTok || DEFAULT_PLATFORM_FALLBACKS.tiktok,
+      isCustomConfigured: Boolean(validatedTikTok),
       colorClass: 'border-slate-700 bg-slate-900 text-white',
       hoverClass: 'hover:bg-black hover:border-slate-500 hover:shadow-lg hover:shadow-cyan-900/20',
       iconBgClass: 'bg-black text-white',
-      ariaLabel: 'Kunjungi akun resmi TikTok TumpangGo',
+      ariaLabel: validatedTikTok 
+        ? 'Kunjungi akun resmi TikTok TumpangGo (buka tab baru)' 
+        : 'Kunjungi platform TikTok resmi (akun TumpangGo sedang dipersiapkan, buka tab baru)',
+      title: validatedTikTok 
+        ? 'TikTok Resmi TumpangGo' 
+        : 'TikTok (Akun resmi sedang dalam tahap persiapan)',
       renderIcon: () => (
         <svg 
           className="w-5 h-5 fill-current shrink-0" 
@@ -113,11 +137,17 @@ export const SocialMediaButtons: React.FC<SocialMediaButtonsProps> = ({
     {
       id: 'instagram',
       name: 'Instagram',
-      url: validateSocialUrl('instagram', config.instagramUrl) || undefined,
+      url: validatedInstagram || DEFAULT_PLATFORM_FALLBACKS.instagram,
+      isCustomConfigured: Boolean(validatedInstagram),
       colorClass: 'border-pink-300/40 bg-gradient-to-tr from-[#f09433] via-[#dc2743] to-[#bc1888] text-white',
       hoverClass: 'hover:opacity-95 hover:shadow-lg hover:shadow-pink-500/25',
       iconBgClass: 'bg-white/20 text-white',
-      ariaLabel: 'Kunjungi akun resmi Instagram TumpangGo',
+      ariaLabel: validatedInstagram 
+        ? 'Kunjungi akun resmi Instagram TumpangGo (buka tab baru)' 
+        : 'Kunjungi platform Instagram resmi (akun TumpangGo sedang dipersiapkan, buka tab baru)',
+      title: validatedInstagram 
+        ? 'Instagram Resmi TumpangGo' 
+        : 'Instagram (Akun resmi sedang dalam tahap persiapan)',
       renderIcon: () => (
         <svg 
           className="w-5 h-5 fill-current shrink-0" 
@@ -131,11 +161,17 @@ export const SocialMediaButtons: React.FC<SocialMediaButtonsProps> = ({
     {
       id: 'facebook',
       name: 'Facebook',
-      url: validateSocialUrl('facebook', config.facebookUrl) || undefined,
+      url: validatedFacebook || DEFAULT_PLATFORM_FALLBACKS.facebook,
+      isCustomConfigured: Boolean(validatedFacebook),
       colorClass: 'border-blue-400/40 bg-[#1877F2] text-white',
       hoverClass: 'hover:bg-[#166fe5] hover:shadow-lg hover:shadow-blue-600/25',
       iconBgClass: 'bg-white/20 text-white',
-      ariaLabel: 'Kunjungi akun resmi Facebook TumpangGo',
+      ariaLabel: validatedFacebook 
+        ? 'Kunjungi akun resmi Facebook TumpangGo (buka tab baru)' 
+        : 'Kunjungi platform Facebook resmi (akun TumpangGo sedang dipersiapkan, buka tab baru)',
+      title: validatedFacebook 
+        ? 'Facebook Resmi TumpangGo' 
+        : 'Facebook (Akun resmi sedang dalam tahap persiapan)',
       renderIcon: () => (
         <svg 
           className="w-5 h-5 fill-current shrink-0" 
@@ -147,13 +183,6 @@ export const SocialMediaButtons: React.FC<SocialMediaButtonsProps> = ({
       )
     }
   ];
-
-  const handleChannelClick = (e: React.MouseEvent, channel: SocialChannelItem) => {
-    if (!channel.url || channel.url.trim() === '') {
-      e.preventDefault();
-      setActiveNoticeChannel(channel.name);
-    }
-  };
 
   // Determine uniform dimensions based on variant
   const getButtonSizeClass = () => {
@@ -172,35 +201,30 @@ export const SocialMediaButtons: React.FC<SocialMediaButtonsProps> = ({
 
   return (
     <div className={`flex flex-col items-center ${className}`}>
-      {/* Strictly Three Official Social Media Channels - Logo Only in a Single Row */}
+      {/* Tepat Tiga Kanal Media Sosial Resmi: TikTok, Instagram, Facebook */}
       <div 
         className="flex flex-row items-center justify-center gap-3 w-auto flex-nowrap"
         role="group"
         aria-label="Kanal media sosial resmi TumpangGo"
       >
-        {channels.map((channel) => {
-          const isConfigured = Boolean(channel.url && channel.url.trim() !== '');
-
-          return (
-            <a
-              key={channel.id}
-              href={isConfigured ? channel.url : '#'}
-              onClick={(e) => handleChannelClick(e, channel)}
-              target={isConfigured ? '_blank' : undefined}
-              rel={isConfigured ? 'noopener noreferrer' : undefined}
-              aria-label={channel.ariaLabel}
-              title={channel.name}
-              className={`inline-flex items-center justify-center shrink-0 border transition-all duration-200 transform hover:scale-110 active:scale-95 cursor-pointer focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 ${buttonSizeClass} ${channel.colorClass} ${channel.hoverClass}`}
-            >
-              {channel.renderIcon()}
-              {/* Screen reader only label - hidden visually to guarantee logo-only display */}
-              <span className="sr-only">{channel.name}</span>
-            </a>
-          );
-        })}
+        {channels.map((channel) => (
+          <a
+            key={channel.id}
+            href={channel.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-label={channel.ariaLabel}
+            title={channel.title}
+            className={`inline-flex items-center justify-center shrink-0 border transition-all duration-200 transform hover:scale-110 active:scale-95 cursor-pointer focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 ${buttonSizeClass} ${channel.colorClass} ${channel.hoverClass}`}
+          >
+            {channel.renderIcon()}
+            {/* Screen reader only label */}
+            <span className="sr-only">{channel.name}</span>
+          </a>
+        ))}
       </div>
 
-      {/* Accessible Modal when official link is pending verification */}
+      {/* Accessible modal jika dibuka */}
       {activeNoticeChannel && (
         <div 
           role="dialog" 
