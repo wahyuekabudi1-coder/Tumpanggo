@@ -41,6 +41,12 @@ assert(merchantViewSrc.includes('flex items-center gap-2 min-w-0 flex-1'), 'Stor
 assert(merchantViewSrc.includes('truncate') && merchantViewSrc.includes('Portal Toko'), 'Store title has truncation escape hatch');
 assert(merchantViewSrc.includes('w-10 h-10 min-w-[40px]'), 'Hamburger and Audio buttons have >= 40px touch targets');
 
+// Store Logo in Header & Identity
+assert(merchantViewSrc.includes('function MerchantStoreLogo'), 'MerchantStoreLogo component is defined');
+assert(merchantViewSrc.includes('function getStoreInitials'), 'getStoreInitials extracts authentic initials per merchant');
+assert(merchantViewSrc.includes('<MerchantStoreLogo merchant={merchant} size="md" />'), 'Store logo is rendered in mobile header next to store name');
+assert(merchantViewSrc.includes('alt={merchant?.name ? `Logo ${merchant.name}` : \'Logo Toko\'}'), 'Store logo has descriptive accessibility alt text');
+
 // Safe Area & Bottom Nav
 assert(merchantViewSrc.includes('env(safe-area-inset-bottom'), 'Bottom navigation bar incorporates device safe area insets');
 assert(merchantViewSrc.includes('pb-[calc(env(safe-area-inset-bottom,0px)+5.5rem)]'), 'Main content body includes safe bottom clearance for mobile bar');
@@ -67,7 +73,10 @@ assert(merchantViewSrc.includes('flex flex-col sm:flex-row sm:items-center justi
 // -----------------------------------------------------------------------------
 console.log('\n--- 3. AUDITING PESANAN MASUK & KITCHEN OPERATIONAL ---');
 
-assert(merchantViewSrc.includes('min-w-[95px] min-h-[40px]'), 'Kitchen sub-tabs (Perlu Dimasak, Sedang Dimasak, Siap) have >= 40px touch targets');
+assert(merchantViewSrc.includes('grid grid-cols-3 gap-1'), 'Kitchen sub-tabs arranged in 1 neat segmented row');
+assert(merchantViewSrc.includes('Perlu Masak') && merchantViewSrc.includes('Dimasak') && merchantViewSrc.includes('Siap Diambil'), 'Kitchen sub-tabs use concise labels: Perlu Masak, Dimasak, Siap Diambil');
+assert(merchantViewSrc.includes('min-h-[42px]'), 'Kitchen sub-tabs have comfortable >= 40px touch targets');
+assert(merchantViewSrc.includes('overflow-x-auto scrollbar-none'), 'Kitchen sub-tabs protected against horizontal text overflow on narrow screens');
 assert(merchantViewSrc.includes('grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-3.5 sm:gap-5'), 'Incoming, cooking, and ready orders use spacious 1 col on mobile & tablet portrait, 2 cols on landscape, 3 cols on desktop');
 assert(merchantViewSrc.includes('min-h-[44px] py-2 px-3 rounded-xl bg-emerald-700'), 'Konfirmasi Masak action button meets 44px touch target');
 assert(merchantViewSrc.includes('min-h-[44px] py-2.5 px-3 rounded-xl bg-emerald-600'), 'Makanan Siap Diambil action button meets 44px touch target');

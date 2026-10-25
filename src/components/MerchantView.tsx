@@ -8,7 +8,7 @@
  * 
  * Struktur Menu:
  * 1. Dashboard Recap (Default Landing)
- * 2. Pesanan Masuk (Operasional: Perlu Dimasak, Sedang Dimasak, Siap Diambil)
+ * 2. Pesanan Masuk (Operasional: Perlu Masak, Dimasak, Siap Diambil)
  * 3. Riwayat Pesanan (Selesai, Dalam Pengantaran, Dibatalkan)
  * 4. Produk / Menu (Katalog Menu, File Upload Foto, Kategori Resmi Admin Pusat)
  * 5. Profil & Jam Operasional (Identitas Toko, Jam Buka/Tutup, Rekening Bank, QRIS Statis)
@@ -41,6 +41,64 @@ import {
 import { useCookingTicker } from '../hooks/useCookingCountdown.ts';
 import { useOrderRingtone } from '../hooks/useOrderRingtone.ts';
 import { useWebPush } from '../hooks/useWebPush.ts';
+
+// Helper to extract clean initials from store name (e.g., "Warung Ombe" -> "WO", "Bakso Cak Ahmad" -> "BC")
+function getStoreInitials(name?: string): string {
+  if (!name || !name.trim()) return 'TG';
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 1) {
+    return parts[0].slice(0, 2).toUpperCase();
+  }
+  return (parts[0][0] + parts[1][0]).toUpperCase();
+}
+
+// Store Logo Component: renders verified merchant photo/logo if available, or personalized initials fallback
+function MerchantStoreLogo({
+  merchant,
+  size = 'md'
+}: {
+  merchant: Merchant | null;
+  size?: 'sm' | 'md' | 'lg';
+}) {
+  const [imgError, setImgError] = useState(false);
+  const logoUrl = merchant?.image?.trim() || merchant?.businessPhoto?.trim() || '';
+  const initials = getStoreInitials(merchant?.name);
+
+  // Reset imgError if merchant or logo changes
+  useEffect(() => {
+    setImgError(false);
+  }, [logoUrl]);
+
+  const sizeClass = {
+    sm: 'w-8 h-8 min-w-[32px] text-[11px]',
+    md: 'w-10 h-10 min-w-[40px] text-xs sm:text-sm',
+    lg: 'w-12 h-12 min-w-[48px] text-base'
+  }[size];
+
+  if (logoUrl && !imgError) {
+    return (
+      <div className={`${sizeClass} rounded-xl overflow-hidden border border-slate-200/90 bg-slate-100 shadow-2xs shrink-0 flex items-center justify-center select-none`}>
+        <img
+          src={logoUrl}
+          alt={merchant?.name ? `Logo ${merchant.name}` : 'Logo Toko'}
+          className="w-full h-full object-cover"
+          referrerPolicy="no-referrer"
+          onError={() => setImgError(true)}
+        />
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className={`${sizeClass} rounded-xl bg-gradient-to-br from-emerald-600 to-teal-800 text-white font-display font-black shadow-2xs border border-emerald-900/10 shrink-0 flex items-center justify-center tracking-wider select-none`}
+      aria-label={merchant?.name ? `Inisial ${merchant.name}` : 'Logo Toko'}
+      title={merchant?.name || 'Toko Mitra'}
+    >
+      {initials}
+    </div>
+  );
+}
 
 // Cooking Card Component with live countdown
 function MerchantCookingCard({
@@ -962,9 +1020,7 @@ export default function MerchantView({ merchantId: rawMerchantId, onLogout, onSe
         {/* Sidebar Header */}
         <div className="p-4 border-b border-slate-100 flex items-center justify-between">
           <div className="flex items-center gap-2.5 min-w-0">
-            <div className="w-9 h-9 rounded-xl bg-emerald-700 text-white flex items-center justify-center shadow-xs shrink-0 font-display font-black text-sm">
-              TG
-            </div>
+            <MerchantStoreLogo merchant={merchant} size="md" />
             <div className="min-w-0">
               <h1 className="font-display font-bold text-sm text-slate-900 truncate">
                 {merchant?.name || 'Portal Toko'}
@@ -1101,9 +1157,7 @@ export default function MerchantView({ merchantId: rawMerchantId, onLogout, onSe
               {/* Drawer Header */}
               <div className="p-4 border-b border-slate-100 flex items-center justify-between bg-slate-50">
                 <div className="flex items-center gap-2.5 min-w-0">
-                  <div className="w-9 h-9 rounded-xl bg-emerald-700 text-white flex items-center justify-center font-black text-sm shrink-0">
-                    TG
-                  </div>
+                  <MerchantStoreLogo merchant={merchant} size="md" />
                   <div className="min-w-0">
                     <h2 className="font-display font-bold text-sm text-slate-900 truncate">
                       {merchant?.name || 'Portal Toko'}
@@ -1224,7 +1278,7 @@ export default function MerchantView({ merchantId: rawMerchantId, onLogout, onSe
         
         {/* Mobile Header (< md) — Ringkas, Proporsional, Tanpa Elemen Bertumpuk */}
         <header className="md:hidden bg-white border-b border-slate-200/90 sticky top-0 z-30 shadow-xs min-h-[56px] py-1.5 px-3 flex items-center justify-between gap-2 select-none">
-          {/* Left: Hamburger & Store Identity */}
+          {/* Left: Hamburger & Store Identity with Store Logo */}
           <div className="flex items-center gap-2 min-w-0 flex-1">
             <button
               onClick={() => setIsMobileDrawerOpen(true)}
@@ -1233,11 +1287,17 @@ export default function MerchantView({ merchantId: rawMerchantId, onLogout, onSe
             >
               <MenuIcon className="w-5 h-5" />
             </button>
+
+            {/* Logo Warung Asli / Inisial Toko */}
+            <MerchantStoreLogo merchant={merchant} size="md" />
+
             <div className="min-w-0 flex-1">
-              <h1 className="font-display font-bold text-xs sm:text-sm text-slate-900 truncate" title={merchant?.name || 'Portal Toko'}>
+              <h1 className="font-display font-bold text-xs sm:text-sm text-slate-900 truncate leading-tight" title={merchant?.name || 'Portal Toko'}>
                 {merchant?.name || 'Portal Toko'}
               </h1>
-              <div className="flex items-center gap-1 text-[10px]">
+              <div className="flex items-center gap-1.5 text-[10px] leading-none mt-0.5">
+                <span className="text-slate-400 font-medium hidden sm:inline">Merchant</span>
+                <span className="text-slate-300 hidden sm:inline">·</span>
                 <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${merchant?.active ? 'bg-emerald-500' : 'bg-slate-400'}`} />
                 <span className={`font-semibold truncate ${merchant?.active ? 'text-emerald-700' : 'text-slate-400'}`}>
                   {merchant?.active ? 'Buka' : 'Tutup'}
@@ -1274,7 +1334,7 @@ export default function MerchantView({ merchantId: rawMerchantId, onLogout, onSe
                   setOperationalSubTab('perlu_masak');
                 }}
                 className="relative min-h-[40px] px-2.5 sm:px-3 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-extrabold text-[11px] flex items-center gap-1 animate-pulse shadow-xs cursor-pointer shrink-0"
-                title={`${incomingOrders.length} Pesanan Masuk Perlu Dimasak`}
+                title={`${incomingOrders.length} Pesanan Masuk Perlu Masak`}
               >
                 <BellRing className="w-3.5 h-3.5" />
                 <span>{incomingOrders.length}</span>
@@ -1297,17 +1357,26 @@ export default function MerchantView({ merchantId: rawMerchantId, onLogout, onSe
 
         {/* Desktop Top Header Bar (md:) */}
         <header className="hidden md:flex bg-white border-b border-slate-200/80 px-6 lg:px-8 py-3.5 items-center justify-between sticky top-0 z-10 shadow-2xs">
-          <div>
-            <h2 className="font-display font-bold text-base text-slate-900">
-              {activeTab === 'dashboard' && 'Dashboard Rekap Penjualan'}
-              {activeTab === 'incoming' && 'Pesanan Masuk & Operasional Dapur'}
-              {activeTab === 'history' && 'Riwayat & Arsip Pesanan'}
-              {activeTab === 'menu' && 'Katalog Produk & Menu'}
-              {activeTab === 'profile' && 'Profil Outlet & Jam Operasional'}
-            </h2>
-            <p className="text-xs text-slate-400">
-              TumpangGo Merchant • Real-time sync • Update: {lastRefreshedAt.toLocaleTimeString('id-ID')} WIB
-            </p>
+          <div className="flex items-center gap-3">
+            <MerchantStoreLogo merchant={merchant} size="md" />
+            <div>
+              <div className="flex items-center gap-2">
+                <h2 className="font-display font-bold text-base text-slate-900">
+                  {merchant?.name || 'Dashboard Merchant'}
+                </h2>
+                <span className="text-xs text-slate-400">·</span>
+                <span className="text-xs font-semibold text-slate-600">
+                  {activeTab === 'dashboard' && 'Dashboard Rekap Penjualan'}
+                  {activeTab === 'incoming' && 'Pesanan Masuk & Operasional Dapur'}
+                  {activeTab === 'history' && 'Riwayat & Arsip Pesanan'}
+                  {activeTab === 'menu' && 'Katalog Produk & Menu'}
+                  {activeTab === 'profile' && 'Profil Outlet & Jam Operasional'}
+                </span>
+              </div>
+              <p className="text-xs text-slate-400">
+                TumpangGo Merchant • Real-time sync • Update: {lastRefreshedAt.toLocaleTimeString('id-ID')} WIB
+              </p>
+            </div>
           </div>
 
           <div className="flex items-center gap-3">
@@ -1671,58 +1740,73 @@ export default function MerchantView({ merchantId: rawMerchantId, onLogout, onSe
                   </button>
                 </div>
 
-                {/* Segmented Operational Sub-tabs — Responsive Touch Targets */}
-                <div className="flex space-x-1 p-1 bg-slate-100 rounded-xl overflow-x-auto scrollbar-none">
-                  <button
-                    type="button"
-                    onClick={() => setOperationalSubTab('perlu_masak')}
-                    className={`flex-1 min-w-[95px] min-h-[40px] px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap flex items-center justify-center gap-1.5 ${
-                      operationalSubTab === 'perlu_masak'
-                        ? 'bg-white text-slate-900 shadow-xs'
-                        : 'text-slate-600 hover:text-slate-900'
-                    }`}
-                  >
-                    <span>Perlu Dimasak</span>
-                    <span className={`text-[10px] font-extrabold px-1.5 py-0.2 rounded-full ${
-                      incomingOrders.length > 0 ? 'bg-amber-100 text-amber-900 animate-pulse' : 'bg-slate-200 text-slate-700'
-                    }`}>
-                      {incomingOrders.length}
-                    </span>
-                  </button>
+                {/* Segmented Operational Sub-tabs — Mobile First, 1 Baris Rapi & Proporsional */}
+                <div className="w-full bg-slate-100/90 p-1 rounded-xl sm:rounded-2xl border border-slate-200/60 overflow-x-auto scrollbar-none">
+                  <div className="grid grid-cols-3 gap-1 min-w-[280px] sm:min-w-0">
+                    {/* Tab 1: Perlu Masak */}
+                    <button
+                      type="button"
+                      onClick={() => setOperationalSubTab('perlu_masak')}
+                      className={`min-h-[42px] px-2 sm:px-3 py-1.5 rounded-lg sm:rounded-xl text-[11px] sm:text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1 sm:gap-1.5 select-none ${
+                        operationalSubTab === 'perlu_masak'
+                          ? 'bg-white text-slate-900 shadow-xs font-black ring-1 ring-slate-200/80'
+                          : 'text-slate-600 hover:text-slate-900 hover:bg-white/60'
+                      }`}
+                    >
+                      <span className="truncate">Perlu Masak</span>
+                      <span className={`text-[10px] font-mono font-black px-1.5 py-0.5 rounded-full shrink-0 ${
+                        incomingOrders.length > 0 
+                          ? (operationalSubTab === 'perlu_masak' ? 'bg-amber-100 text-amber-900 ring-1 ring-amber-300/60' : 'bg-amber-500 text-white animate-pulse') 
+                          : 'bg-slate-200/80 text-slate-600'
+                      }`}>
+                        {incomingOrders.length}
+                      </span>
+                    </button>
 
-                  <button
-                    type="button"
-                    onClick={() => setOperationalSubTab('cooking')}
-                    className={`flex-1 min-w-[95px] min-h-[40px] px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap flex items-center justify-center gap-1.5 ${
-                      operationalSubTab === 'cooking'
-                        ? 'bg-white text-slate-900 shadow-xs'
-                        : 'text-slate-600 hover:text-slate-900'
-                    }`}
-                  >
-                    <span>Sedang Dimasak</span>
-                    <span className="text-[10px] font-extrabold px-1.5 py-0.2 rounded-full bg-slate-200 text-slate-700">
-                      {cookingOrders.length}
-                    </span>
-                  </button>
+                    {/* Tab 2: Dimasak */}
+                    <button
+                      type="button"
+                      onClick={() => setOperationalSubTab('cooking')}
+                      className={`min-h-[42px] px-2 sm:px-3 py-1.5 rounded-lg sm:rounded-xl text-[11px] sm:text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1 sm:gap-1.5 select-none ${
+                        operationalSubTab === 'cooking'
+                          ? 'bg-white text-slate-900 shadow-xs font-black ring-1 ring-slate-200/80'
+                          : 'text-slate-600 hover:text-slate-900 hover:bg-white/60'
+                      }`}
+                    >
+                      <span className="truncate">Dimasak</span>
+                      <span className={`text-[10px] font-mono font-black px-1.5 py-0.5 rounded-full shrink-0 ${
+                        cookingOrders.length > 0
+                          ? (operationalSubTab === 'cooking' ? 'bg-blue-100 text-blue-900 ring-1 ring-blue-300/60' : 'bg-blue-600 text-white')
+                          : 'bg-slate-200/80 text-slate-600'
+                      }`}>
+                        {cookingOrders.length}
+                      </span>
+                    </button>
 
-                  <button
-                    type="button"
-                    onClick={() => setOperationalSubTab('ready')}
-                    className={`flex-1 min-w-[95px] min-h-[40px] px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap flex items-center justify-center gap-1.5 ${
-                      operationalSubTab === 'ready'
-                        ? 'bg-white text-slate-900 shadow-xs'
-                        : 'text-slate-600 hover:text-slate-900'
-                    }`}
-                  >
-                    <span>Siap Diambil</span>
-                    <span className="text-[10px] font-extrabold px-1.5 py-0.2 rounded-full bg-slate-200 text-slate-700">
-                      {readyOrders.length}
-                    </span>
-                  </button>
+                    {/* Tab 3: Siap Diambil */}
+                    <button
+                      type="button"
+                      onClick={() => setOperationalSubTab('ready')}
+                      className={`min-h-[42px] px-2 sm:px-3 py-1.5 rounded-lg sm:rounded-xl text-[11px] sm:text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1 sm:gap-1.5 select-none ${
+                        operationalSubTab === 'ready'
+                          ? 'bg-white text-slate-900 shadow-xs font-black ring-1 ring-slate-200/80'
+                          : 'text-slate-600 hover:text-slate-900 hover:bg-white/60'
+                      }`}
+                    >
+                      <span className="truncate">Siap Diambil</span>
+                      <span className={`text-[10px] font-mono font-black px-1.5 py-0.5 rounded-full shrink-0 ${
+                        readyOrders.length > 0
+                          ? (operationalSubTab === 'ready' ? 'bg-emerald-100 text-emerald-900 ring-1 ring-emerald-300/60' : 'bg-emerald-600 text-white')
+                          : 'bg-slate-200/80 text-slate-600'
+                      }`}>
+                        {readyOrders.length}
+                      </span>
+                    </button>
+                  </div>
                 </div>
               </div>
 
-              {/* 2A. SUB-TAB: PERLU DIMASAK */}
+              {/* 2A. SUB-TAB: PERLU MASAK */}
               {operationalSubTab === 'perlu_masak' && (
                 <div className="space-y-4">
                   {incomingOrders.length === 0 ? (
@@ -1892,7 +1976,7 @@ export default function MerchantView({ merchantId: rawMerchantId, onLogout, onSe
                 </div>
               )}
 
-              {/* 2B. SUB-TAB: SEDANG DIMASAK */}
+              {/* 2B. SUB-TAB: DIMASAK */}
               {operationalSubTab === 'cooking' && (
                 <div>
                   {cookingOrders.length === 0 ? (
@@ -1902,7 +1986,7 @@ export default function MerchantView({ merchantId: rawMerchantId, onLogout, onSe
                         Tidak Ada Pesanan yang Sedang Dimasak
                       </h3>
                       <p className="text-xs text-slate-500 mt-1 max-w-sm mx-auto leading-relaxed">
-                        Pesanan yang Anda konfirmasi dari daftar &ldquo;Perlu Dimasak&rdquo; akan berjalan di sini dengan hitung mundur timer.
+                        Pesanan yang Anda konfirmasi dari daftar &ldquo;Perlu Masak&rdquo; akan berjalan di sini dengan hitung mundur timer.
                       </p>
                     </div>
                   ) : (
@@ -2301,9 +2385,16 @@ export default function MerchantView({ merchantId: rawMerchantId, onLogout, onSe
               
               {/* Left: Store Profile Form */}
               <div className="lg:col-span-2 bg-white rounded-2xl border border-slate-200/90 p-4 sm:p-6 shadow-xs space-y-4">
-                <div>
-                  <h2 className="font-display font-bold text-base sm:text-lg text-slate-900">Profil &amp; Jam Operasional</h2>
-                  <p className="text-xs text-slate-500 mt-0.5">Atur jam buka/tutup, nomor kontak WhatsApp, dan rekening bank pencairan.</p>
+                <div className="flex items-center gap-3 pb-3 border-b border-slate-100">
+                  <MerchantStoreLogo merchant={merchant} size="lg" />
+                  <div className="min-w-0 flex-1">
+                    <h2 className="font-display font-bold text-base sm:text-lg text-slate-900 truncate">
+                      {merchant?.name || 'Profil & Jam Operasional'}
+                    </h2>
+                    <p className="text-xs text-slate-500 mt-0.5 truncate">
+                      Atur jam buka/tutup, nomor kontak WhatsApp, dan rekening bank pencairan.
+                    </p>
+                  </div>
                 </div>
 
                 {profileSaveSuccess && (
