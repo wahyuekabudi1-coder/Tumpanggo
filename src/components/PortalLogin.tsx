@@ -123,6 +123,16 @@ export default function PortalLogin({ role, targetMerchantId, targetDriverId, in
       if (saved && !emailInput) {
         setEmailInput(saved);
       }
+    } else if (role === 'DRIVER') {
+      const saved = safeStorage.getItem('tumpang_remembered_driver_login');
+      if (saved && !emailInput) {
+        setEmailInput(saved);
+      }
+    } else if (role === 'ADMIN') {
+      const saved = safeStorage.getItem('tumpang_remembered_admin_login');
+      if (saved && !emailInput) {
+        setEmailInput(saved);
+      }
     }
   }, [role]);
 
@@ -342,6 +352,18 @@ export default function PortalLogin({ role, targetMerchantId, targetDriverId, in
           } else {
             safeStorage.removeItem('tumpang_remembered_merchant_login');
           }
+        } else if (role === 'DRIVER') {
+          if (rememberMe) {
+            safeStorage.setItem('tumpang_remembered_driver_login', userEmail);
+          } else {
+            safeStorage.removeItem('tumpang_remembered_driver_login');
+          }
+        } else if (role === 'ADMIN') {
+          if (rememberMe) {
+            safeStorage.setItem('tumpang_remembered_admin_login', userEmail);
+          } else {
+            safeStorage.removeItem('tumpang_remembered_admin_login');
+          }
         }
 
         safeStorage.setItem('tumpang_auth_email', userEmail);
@@ -489,13 +511,15 @@ export default function PortalLogin({ role, targetMerchantId, targetDriverId, in
     }
   };
 
-  // Specialized 2-Column Layout for Merchant Portal (conforming to official mockup)
-  if (role === 'MERCHANT' && !isActivationMode && activeTab !== 'register') {
+  // Specialized 2-Column Layout for Merchant, Driver & Admin Portal (conforming to official branding mockup)
+  if ((role === 'MERCHANT' || role === 'DRIVER' || role === 'ADMIN') && !isActivationMode && activeTab !== 'register') {
+    const isDriver = role === 'DRIVER';
+    const isAdmin = role === 'ADMIN';
     return (
       <div className="fixed inset-0 bg-slate-900/60 flex items-center justify-center p-3 sm:p-5 z-[100] backdrop-blur-md animate-fadeIn font-sans overflow-y-auto">
         <div className="bg-white rounded-3xl max-w-4xl w-full shadow-2xl border border-slate-100 flex flex-col md:flex-row my-auto max-h-[94vh] overflow-hidden">
           
-          {/* Left Column: Dark Forest Green Background with Headline, UMKM Photo & Benefits (NO logo) */}
+          {/* Left Column: Dark Forest Green Background with Headline, Activity Photo & Value Badges */}
           <div className="hidden md:flex md:w-5/12 bg-gradient-to-br from-[#064e3b] via-[#053d2e] to-[#03261c] p-6 lg:p-7 flex-col justify-between text-white relative overflow-hidden select-none">
             {/* Ambient subtle glow */}
             <div className="absolute -top-16 -left-16 w-48 h-48 bg-emerald-400/10 rounded-full blur-3xl pointer-events-none" />
@@ -504,25 +528,33 @@ export default function PortalLogin({ role, targetMerchantId, targetDriverId, in
             <div>
               {/* Headline */}
               <h2 className="text-2xl lg:text-[28px] font-extrabold text-white tracking-tight leading-snug">
-                Bersama Majukan UMKM Tumpang
+                {isAdmin
+                  ? 'Pusat Kendali Ekosistem TumpangGo'
+                  : isDriver 
+                    ? 'Kurir Andal Penggerak Usaha Lokal' 
+                    : 'Bersama Majukan UMKM Tumpang'}
               </h2>
 
               {/* Deskripsi Singkat */}
               <p className="text-emerald-100/90 text-xs sm:text-[13px] mt-2.5 leading-relaxed">
-                Kelola usaha Anda lebih mudah, jangkau lebih banyak pelanggan, dan berkembang bersama TumpangGo.
+                {isAdmin
+                  ? 'Kelola pesanan, verifikasi pembayaran QRIS, pantau mitra UMKM, dan awasi operasional kurir secara real-time.'
+                  : isDriver 
+                    ? 'Antarkan aneka kuliner lokal Tumpang dengan aman, cepat, dan rapi langsung ke tangan pelanggan.'
+                    : 'Kelola usaha Anda lebih mudah, jangkau lebih banyak pelanggan, dan berkembang bersama TumpangGo.'}
               </p>
 
-              {/* Gambar Aktivitas UMKM */}
+              {/* Gambar Aktivitas */}
               <div className="mt-4 rounded-2xl overflow-hidden shadow-xl border border-emerald-500/20 aspect-[16/10] bg-emerald-950/50 relative">
                 <img 
                   src="/umkm-activity.jpg" 
-                  alt="Aktivitas Mitra UMKM TumpangGo" 
+                  alt={isAdmin ? "Aktivitas Operasional Administrator TumpangGo" : isDriver ? "Aktivitas Kurir Driver TumpangGo" : "Aktivitas Mitra UMKM TumpangGo"} 
                   className="w-full h-full object-cover"
                 />
                 <div className="absolute inset-0 bg-gradient-to-t from-black/55 via-black/10 to-transparent pointer-events-none" />
                 <div className="absolute bottom-2.5 left-3 right-3 flex items-center justify-between text-[11px] text-white font-semibold">
                   <span className="bg-[#064e3b]/90 backdrop-blur-xs px-2.5 py-0.5 rounded-lg border border-emerald-400/30 text-[10px] shadow-xs">
-                    Mitra Kuliner Lokal
+                    {isAdmin ? 'Administrator Pusat' : isDriver ? 'Kurir Pengantaran Resmi' : 'Mitra Kuliner Lokal'}
                   </span>
                   <span className="text-emerald-200 text-[10px] font-medium drop-shadow-xs">
                     Kecamatan Tumpang
@@ -531,36 +563,94 @@ export default function PortalLogin({ role, targetMerchantId, targetDriverId, in
               </div>
             </div>
 
-            {/* Value Badges at bottom matching mockup */}
+            {/* Value Badges at bottom matching official mockup */}
             <div className="mt-4 bg-white/95 backdrop-blur-md rounded-2xl p-2.5 sm:p-3 text-slate-800 shadow-lg border border-white/40 grid grid-cols-3 gap-2">
-              <div className="flex items-center gap-1.5 text-left">
-                <div className="w-6 h-6 rounded-lg bg-emerald-100 text-[#064e3b] flex items-center justify-center shrink-0">
-                  <Store className="w-3.5 h-3.5" />
-                </div>
-                <span className="text-[10px] font-bold text-slate-800 leading-tight">
-                  Pendaftaran Gratis
-                </span>
-              </div>
-              <div className="flex items-center gap-1.5 text-left border-l border-slate-200/80 pl-1.5">
-                <div className="w-6 h-6 rounded-lg bg-emerald-100 text-[#064e3b] flex items-center justify-center shrink-0">
-                  <BarChart3 className="w-3.5 h-3.5" />
-                </div>
-                <span className="text-[10px] font-bold text-slate-800 leading-tight">
-                  Kelola Menu & Pesanan
-                </span>
-              </div>
-              <div className="flex items-center gap-1.5 text-left border-l border-slate-200/80 pl-1.5">
-                <div className="w-6 h-6 rounded-lg bg-emerald-100 text-[#064e3b] flex items-center justify-center shrink-0">
-                  <Users className="w-3.5 h-3.5" />
-                </div>
-                <span className="text-[10px] font-bold text-slate-800 leading-tight">
-                  Jangkau Pelanggan
-                </span>
-              </div>
+              {isAdmin ? (
+                <>
+                  <div className="flex items-center gap-1.5 text-left">
+                    <div className="w-6 h-6 rounded-lg bg-emerald-100 text-[#064e3b] flex items-center justify-center shrink-0">
+                      <ShieldCheck className="w-3.5 h-3.5" />
+                    </div>
+                    <span className="text-[10px] font-bold text-slate-800 leading-tight">
+                      Verifikasi Pembayaran
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-1.5 text-left border-l border-slate-200/80 pl-1.5">
+                    <div className="w-6 h-6 rounded-lg bg-emerald-100 text-[#064e3b] flex items-center justify-center shrink-0">
+                      <Store className="w-3.5 h-3.5" />
+                    </div>
+                    <span className="text-[10px] font-bold text-slate-800 leading-tight">
+                      Tata Kelola Mitra
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-1.5 text-left border-l border-slate-200/80 pl-1.5">
+                    <div className="w-6 h-6 rounded-lg bg-emerald-100 text-[#064e3b] flex items-center justify-center shrink-0">
+                      <BarChart3 className="w-3.5 h-3.5" />
+                    </div>
+                    <span className="text-[10px] font-bold text-slate-800 leading-tight">
+                      Laporan Terpusat
+                    </span>
+                  </div>
+                </>
+              ) : isDriver ? (
+                <>
+                  <div className="flex items-center gap-1.5 text-left">
+                    <div className="w-6 h-6 rounded-lg bg-emerald-100 text-[#064e3b] flex items-center justify-center shrink-0">
+                      <Bike className="w-3.5 h-3.5" />
+                    </div>
+                    <span className="text-[10px] font-bold text-slate-800 leading-tight">
+                      Ongkir Flat Rp 5.000
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-1.5 text-left border-l border-slate-200/80 pl-1.5">
+                    <div className="w-6 h-6 rounded-lg bg-emerald-100 text-[#064e3b] flex items-center justify-center shrink-0">
+                      <MapPin className="w-3.5 h-3.5" />
+                    </div>
+                    <span className="text-[10px] font-bold text-slate-800 leading-tight">
+                      Panduan Rute Peta
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-1.5 text-left border-l border-slate-200/80 pl-1.5">
+                    <div className="w-6 h-6 rounded-lg bg-emerald-100 text-[#064e3b] flex items-center justify-center shrink-0">
+                      <ShieldCheck className="w-3.5 h-3.5" />
+                    </div>
+                    <span className="text-[10px] font-bold text-slate-800 leading-tight">
+                      Hasil Transparan
+                    </span>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="flex items-center gap-1.5 text-left">
+                    <div className="w-6 h-6 rounded-lg bg-emerald-100 text-[#064e3b] flex items-center justify-center shrink-0">
+                      <Store className="w-3.5 h-3.5" />
+                    </div>
+                    <span className="text-[10px] font-bold text-slate-800 leading-tight">
+                      Pendaftaran Gratis
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-1.5 text-left border-l border-slate-200/80 pl-1.5">
+                    <div className="w-6 h-6 rounded-lg bg-emerald-100 text-[#064e3b] flex items-center justify-center shrink-0">
+                      <BarChart3 className="w-3.5 h-3.5" />
+                    </div>
+                    <span className="text-[10px] font-bold text-slate-800 leading-tight">
+                      Kelola Menu &amp; Pesanan
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-1.5 text-left border-l border-slate-200/80 pl-1.5">
+                    <div className="w-6 h-6 rounded-lg bg-emerald-100 text-[#064e3b] flex items-center justify-center shrink-0">
+                      <Users className="w-3.5 h-3.5" />
+                    </div>
+                    <span className="text-[10px] font-bold text-slate-800 leading-tight">
+                      Jangkau Pelanggan
+                    </span>
+                  </div>
+                </>
+              )}
             </div>
           </div>
 
-          {/* Right Column: Portal Mitra Form with Single Official Logo at Top */}
+          {/* Right Column: Portal Form with Single Official Logo at Top */}
           <div className="flex-1 p-5 sm:p-7 lg:p-8 flex flex-col justify-between overflow-y-auto max-h-[94vh] bg-white relative">
             <div>
               {/* Close Button top-right */}
@@ -582,10 +672,14 @@ export default function PortalLogin({ role, targetMerchantId, targetDriverId, in
               {/* Title & Subtitle */}
               <div className="mb-4 sm:mb-5">
                 <h1 className="font-display font-black text-xl sm:text-2xl text-slate-900 tracking-tight">
-                  Masuk ke Portal Mitra
+                  {isAdmin ? 'Masuk ke Dashboard Admin Pusat' : isDriver ? 'Masuk ke Portal Driver Pengiriman' : 'Masuk ke Portal Mitra'}
                 </h1>
                 <p className="text-xs sm:text-sm text-slate-500 mt-1.5 leading-relaxed">
-                  Kelola usaha Anda di TumpangGo dengan mudah dan aman.
+                  {isAdmin
+                    ? 'Kelola seluruh aktivitas dan tata kelola platform TumpangGo.'
+                    : isDriver 
+                      ? (targetDriver ? `Portal khusus untuk Driver: ${targetDriver.name}` : 'Kelola tugas pengantaran pesanan kuliner TumpangGo dengan mudah.')
+                      : 'Kelola usaha Anda di TumpangGo dengan mudah dan aman.'}
                 </p>
               </div>
 
@@ -595,19 +689,25 @@ export default function PortalLogin({ role, targetMerchantId, targetDriverId, in
                   <div className="flex items-start gap-2">
                     <AlertCircle className="w-4 h-4 text-red-600 shrink-0 mt-0.5" />
                     <div className="flex-1 font-bold text-red-800 leading-relaxed">
-                      Email/Nomor belum terdaftar di sistem. Silakan daftar menjadi mitra terlebih dahulu.
+                      {isAdmin
+                        ? 'Akun administrator belum terdaftar di sistem TumpangGo.'
+                        : isDriver 
+                          ? 'Email/Nomor belum terdaftar sebagai driver TumpangGo. Hubungi Admin Pusat untuk pendaftaran.'
+                          : 'Email/Nomor belum terdaftar di sistem. Silakan daftar menjadi mitra terlebih dahulu.'}
                     </div>
                   </div>
-                  <div className="pl-6 pt-0.5">
-                    <button
-                      type="button"
-                      onClick={handleRegisterClick}
-                      className="inline-flex items-center gap-1 text-xs font-black text-red-900 hover:underline cursor-pointer"
-                    >
-                      <span>Daftar Menjadi Mitra Sekarang</span>
-                      <ArrowRight className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
+                  {!isDriver && !isAdmin && (
+                    <div className="pl-6 pt-0.5">
+                      <button
+                        type="button"
+                        onClick={handleRegisterClick}
+                        className="inline-flex items-center gap-1 text-xs font-black text-red-900 hover:underline cursor-pointer"
+                      >
+                        <span>Daftar Menjadi Mitra Sekarang</span>
+                        <ArrowRight className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -621,14 +721,18 @@ export default function PortalLogin({ role, targetMerchantId, targetDriverId, in
                     <button
                       type="button"
                       onClick={() => {
-                        setShowForgotPasswordModal(true);
-                        setForgotPasswordInput(emailInput || '');
-                        setForgotPasswordMsg(null);
-                        setForgotPasswordError('');
+                        if (isAdmin) {
+                          setShowRecoveryModal(true);
+                        } else {
+                          setShowForgotPasswordModal(true);
+                          setForgotPasswordInput(emailInput || '');
+                          setForgotPasswordMsg(null);
+                          setForgotPasswordError('');
+                        }
                       }}
                       className="text-[11px] font-bold text-red-900 hover:underline mt-1 block cursor-pointer"
                     >
-                      Lupa password? Klik di sini untuk bantuan pemulihan.
+                      {isAdmin ? 'Butuh pemulihan master account? Klik di sini.' : 'Lupa password? Klik di sini untuk bantuan pemulihan.'}
                     </button>
                   </div>
                 </div>
@@ -652,15 +756,21 @@ export default function PortalLogin({ role, targetMerchantId, targetDriverId, in
               <form onSubmit={handlePasswordLogin} className="flex flex-col gap-3.5">
                 <div>
                   <label className="text-xs font-bold text-slate-800 block mb-1">
-                    Email atau Nomor Handphone <span className="text-rose-500">*</span>
+                    {isAdmin ? 'Email / Akun Administrator' : isDriver ? 'No. WhatsApp atau Email Driver' : 'Email atau Nomor Handphone'} <span className="text-rose-500">*</span>
                   </label>
                   <div className="relative">
-                    <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                    {isDriver ? (
+                      <Phone className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                    ) : isAdmin ? (
+                      <ShieldCheck className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                    ) : (
+                      <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                    )}
                     <input
                       type="text"
                       required
                       disabled={loading}
-                      placeholder="Contoh: toko@gmail.com atau 081234567890"
+                      placeholder={isAdmin ? "Contoh: admin@tumpanggo.com" : isDriver ? "Contoh: 081234567890 atau driver@gmail.com" : "Contoh: toko@gmail.com atau 081234567890"}
                       value={emailInput}
                       onChange={(e) => {
                         setEmailInput(e.target.value);
@@ -726,10 +836,14 @@ export default function PortalLogin({ role, targetMerchantId, targetDriverId, in
                   <button
                     type="button"
                     onClick={() => {
-                      setShowForgotPasswordModal(true);
-                      setForgotPasswordInput(emailInput || '');
-                      setForgotPasswordMsg(null);
-                      setForgotPasswordError('');
+                      if (isAdmin) {
+                        setShowRecoveryModal(true);
+                      } else {
+                        setShowForgotPasswordModal(true);
+                        setForgotPasswordInput(emailInput || '');
+                        setForgotPasswordMsg(null);
+                        setForgotPasswordError('');
+                      }
                     }}
                     className="text-xs font-bold text-emerald-700 hover:text-emerald-800 hover:underline cursor-pointer"
                   >
@@ -740,39 +854,55 @@ export default function PortalLogin({ role, targetMerchantId, targetDriverId, in
                 <button
                   type="submit"
                   disabled={loading}
-                  className="w-full mt-1 py-3 bg-[#064e3b] hover:bg-[#053d2e] active:bg-[#042f24] text-white font-extrabold rounded-xl transition-all shadow-md shadow-[#064e3b]/20 text-xs flex items-center justify-center gap-2 cursor-pointer disabled:opacity-60 active:scale-[0.99]"
+                  className="w-full mt-1 py-3 bg-[#064e3b] hover:bg-[#053d2e] active:bg-[#042f24] text-white font-extrabold rounded-xl transition-all shadow-md shadow-[#064e3b]/20 text-xs flex items-center justify-center gap-2 cursor-pointer disabled:opacity-60 active:scale-[0.99] min-h-[44px]"
                 >
                   {loading ? (
                     <Loader2 className="w-4 h-4 animate-spin text-white" />
                   ) : (
                     <>
                       <Lock className="w-4 h-4" />
-                      <span>Login</span>
+                      <span>{isAdmin ? 'Masuk ke Dashboard Admin' : isDriver ? 'Masuk ke Dashboard Driver' : 'Login'}</span>
                     </>
                   )}
                 </button>
 
-                <div className="relative my-0.5">
-                  <div className="absolute inset-0 flex items-center">
-                    <div className="w-full border-t border-slate-200"></div>
+                {isAdmin ? (
+                  <div className="mt-2 p-3 bg-slate-50 border border-slate-200 rounded-xl text-center">
+                    <p className="text-[11px] text-slate-600 leading-relaxed">
+                      Akses resmi Administrator TumpangGo • Verifikasi pembayaran QRIS, tata kelola mitra UMKM, kurir, dan pengaturan sistem.
+                    </p>
                   </div>
-                  <div className="relative flex justify-center text-[11px] uppercase tracking-wider">
-                    <span className="bg-white px-3 text-slate-400 font-bold">atau</span>
+                ) : isDriver ? (
+                  <div className="mt-2 p-3 bg-slate-50 border border-slate-200 rounded-xl text-center">
+                    <p className="text-[11px] text-slate-600 leading-relaxed">
+                      Kurir mitra resmi TumpangGo • Melayani pengantaran kuliner se-Kecamatan Tumpang Malang.
+                    </p>
                   </div>
-                </div>
+                ) : (
+                  <>
+                    <div className="relative my-0.5">
+                      <div className="absolute inset-0 flex items-center">
+                        <div className="w-full border-t border-slate-200"></div>
+                      </div>
+                      <div className="relative flex justify-center text-[11px] uppercase tracking-wider">
+                        <span className="bg-white px-3 text-slate-400 font-bold">atau</span>
+                      </div>
+                    </div>
 
-                <button
-                  type="button"
-                  onClick={handleRegisterClick}
-                  className="w-full py-2.5 bg-amber-50 hover:bg-amber-100/80 border-2 border-amber-400 text-amber-900 font-extrabold rounded-xl transition-all text-xs flex items-center justify-center gap-2 cursor-pointer hover:border-amber-500 active:scale-[0.99]"
-                >
-                  <UserPlus className="w-4 h-4 text-amber-700" />
-                  <span>Daftar Menjadi Mitra</span>
-                </button>
+                    <button
+                      type="button"
+                      onClick={handleRegisterClick}
+                      className="w-full py-2.5 bg-amber-50 hover:bg-amber-100/80 border-2 border-amber-400 text-amber-900 font-extrabold rounded-xl transition-all text-xs flex items-center justify-center gap-2 cursor-pointer hover:border-amber-500 active:scale-[0.99]"
+                    >
+                      <UserPlus className="w-4 h-4 text-amber-700" />
+                      <span>Daftar Menjadi Mitra</span>
+                    </button>
 
-                <p className="text-[11px] text-center text-slate-500 mt-0.5">
-                  Belum punya akun? Daftar sekarang dan bergabung bersama TumpangGo.
-                </p>
+                    <p className="text-[11px] text-center text-slate-500 mt-0.5">
+                      Belum punya akun? Daftar sekarang dan bergabung bersama TumpangGo.
+                    </p>
+                  </>
+                )}
               </form>
             </div>
 
@@ -780,18 +910,157 @@ export default function PortalLogin({ role, targetMerchantId, targetDriverId, in
               <p className="text-[11px] text-slate-500">
                 Mengalami kendala masuk portal?{' '}
                 <a
-                  href="https://wa.me/6281234567890?text=Halo%20Admin%20TumpangGo,%20saya%20pemilik%20toko%20kuliner%20membutuhkan%20bantuan%20terkait%20login%20Portal%20Mitra"
+                  href={`https://wa.me/6281234567890?text=${encodeURIComponent(isAdmin ? 'Halo Admin Pusat TumpangGo, saya membutuhkan bantuan terkait login Dashboard Administrator' : isDriver ? 'Halo Admin TumpangGo, saya kurir driver membutuhkan bantuan terkait login Portal Driver' : 'Halo Admin TumpangGo, saya pemilik toko kuliner membutuhkan bantuan terkait login Portal Mitra')}`}
                   target="_blank"
                   rel="noreferrer"
                   className="font-bold text-emerald-700 hover:underline"
                 >
-                  Hubungi Bantuan Mitra
+                  {isAdmin ? 'Hubungi Bantuan Tim IT' : isDriver ? 'Hubungi WhatsApp CS TumpangGo' : 'Hubungi Bantuan Mitra'}
                 </a>
               </p>
+              {isAdmin && (
+                <button
+                  type="button"
+                  onClick={() => setShowRecoveryModal(true)}
+                  className="text-[11px] font-bold text-amber-700 hover:underline mt-0.5 cursor-pointer flex items-center gap-1"
+                >
+                  <Key className="w-3 h-3 text-amber-600" />
+                  <span>Pemulihan Kredensial Master Account</span>
+                </button>
+              )}
             </div>
           </div>
 
         </div>
+
+        {/* Modal Pemulihan Kredensial Master Account (Jika dipanggil) */}
+        {showRecoveryModal && (
+          <div className="fixed inset-0 z-[110] bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 animate-fadeIn">
+            <div className="bg-white rounded-3xl max-w-sm w-full p-5 sm:p-6 shadow-2xl border border-slate-200 relative animate-scaleUp">
+              <button
+                type="button"
+                onClick={() => setShowRecoveryModal(false)}
+                className="absolute right-4 top-4 p-1.5 rounded-full hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+
+              <div className="flex items-center gap-3 mb-4">
+                <div className="w-10 h-10 rounded-2xl bg-amber-50 border border-amber-200 flex items-center justify-center text-amber-600">
+                  <Key className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900">Pemulihan Kredensial Master</h3>
+                  <p className="text-[11px] text-slate-500">Otorisasi administratif resmi TumpangGo</p>
+                </div>
+              </div>
+
+              {recoveryError && (
+                <div className="p-3 mb-4 rounded-xl bg-red-50 border border-red-200 text-xs text-red-700 font-medium flex items-start gap-2">
+                  <AlertCircle className="w-4 h-4 text-red-600 flex-shrink-0 mt-0.5" />
+                  <span>{recoveryError}</span>
+                </div>
+              )}
+
+              {recoverySuccess && (
+                <div className="p-3 mb-4 rounded-xl bg-emerald-50 border border-emerald-200 text-xs text-emerald-800 font-medium flex items-start gap-2">
+                  <CheckCircle className="w-4 h-4 text-emerald-600 flex-shrink-0 mt-0.5" />
+                  <span>{recoverySuccess}</span>
+                </div>
+              )}
+
+              <form onSubmit={handleRecoverySubmit} className="space-y-3.5">
+                <div>
+                  <label className="text-[11px] font-bold uppercase tracking-wider text-slate-700 block mb-1">
+                    Target Akun
+                  </label>
+                  <input
+                    type="text"
+                    disabled
+                    value="tumpanggo@gmail.com"
+                    className="w-full bg-slate-100 border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs text-slate-600 font-semibold cursor-not-allowed"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-[11px] font-bold uppercase tracking-wider text-slate-700 block mb-1">
+                    Kunci Otorisasi Administratif
+                  </label>
+                  <input
+                    type="password"
+                    required
+                    disabled={recoveryLoading}
+                    placeholder="Masukkan Kunci Pemulihan"
+                    value={recoveryKey}
+                    onChange={(e) => setRecoveryKey(e.target.value)}
+                    className="w-full bg-slate-50 border border-slate-200 focus:border-amber-500 focus:bg-white rounded-xl px-3.5 py-2.5 text-xs font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-amber-500/20"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-[11px] font-bold uppercase tracking-wider text-slate-700 block mb-1">
+                    Kata Sandi Baru (Min. 8 Karakter)
+                  </label>
+                  <div className="relative">
+                    <input
+                      type={recoveryShowPass ? "text" : "password"}
+                      required
+                      disabled={recoveryLoading}
+                      placeholder="Masukkan kata sandi baru"
+                      value={recoveryNewPassword}
+                      onChange={(e) => setRecoveryNewPassword(e.target.value)}
+                      className="w-full bg-slate-50 border border-slate-200 focus:border-amber-500 focus:bg-white rounded-xl pl-3.5 pr-10 py-2.5 text-xs font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-amber-500/20"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setRecoveryShowPass(!recoveryShowPass)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                    >
+                      {recoveryShowPass ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-[11px] font-bold uppercase tracking-wider text-slate-700 block mb-1">
+                    Konfirmasi Kata Sandi Baru
+                  </label>
+                  <input
+                    type={recoveryShowPass ? "text" : "password"}
+                    required
+                    disabled={recoveryLoading}
+                    placeholder="Ulangi kata sandi baru"
+                    value={recoveryConfirmPassword}
+                    onChange={(e) => setRecoveryConfirmPassword(e.target.value)}
+                    className="w-full bg-slate-50 border border-slate-200 focus:border-amber-500 focus:bg-white rounded-xl px-3.5 py-2.5 text-xs font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-amber-500/20"
+                  />
+                </div>
+
+                <div className="pt-2 flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowRecoveryModal(false)}
+                    disabled={recoveryLoading}
+                    className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-xs transition-colors cursor-pointer"
+                  >
+                    Batal
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={recoveryLoading}
+                    className="flex-1 py-2.5 bg-amber-600 hover:bg-amber-700 active:bg-amber-800 text-white font-extrabold rounded-xl text-xs transition-colors flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+                  >
+                    {recoveryLoading ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <span>Terapkan</span>
+                    )}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
 
         {/* Modal Lupa Kata Sandi Merchant */}
         {showForgotPasswordModal && (

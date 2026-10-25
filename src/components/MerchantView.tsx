@@ -295,11 +295,6 @@ export default function MerchantView({ merchantId: rawMerchantId, onLogout, onSe
   // Pending verification accordion
   const [showPendingVerification, setShowPendingVerification] = useState(false);
 
-  // QRIS Management States
-  const [qrisImageFile, setQrisImageFile] = useState<string | null>(null);
-  const [isUploadingQris, setIsUploadingQris] = useState<boolean>(false);
-  const [qrisUploadMsg, setQrisUploadMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
-  const [zoomQrisImage, setZoomQrisImage] = useState<string | null>(null);
 
   // E-Receipt modal viewer
   const [selectedReceiptOrder, setSelectedReceiptOrder] = useState<Order | null>(null);
@@ -733,86 +728,6 @@ export default function MerchantView({ merchantId: rawMerchantId, onLogout, onSe
     }
   };
 
-  // --- QRIS STATIS ACTIONS ---
-  const handleQrisFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    if (!file.type.startsWith('image/')) {
-      setQrisUploadMsg({ type: 'error', text: 'Format file tidak didukung. Unggah gambar PNG, JPG, atau WebP.' });
-      return;
-    }
-
-    if (file.size > 8 * 1024 * 1024) {
-      setQrisUploadMsg({ type: 'error', text: 'Ukuran file terlalu besar. Maksimal 8MB.' });
-      return;
-    }
-
-    try {
-      const compressed = await compressImage(file, 1200, 1200, 0.85);
-      setQrisImageFile(compressed);
-      setQrisUploadMsg(null);
-    } catch {
-      const reader = new FileReader();
-      reader.onload = () => {
-        setQrisImageFile(reader.result as string);
-        setQrisUploadMsg(null);
-      };
-      reader.readAsDataURL(file);
-    }
-  };
-
-  const handleSaveQris = async () => {
-    if (!qrisImageFile) {
-      setQrisUploadMsg({ type: 'error', text: 'Pilih file gambar QRIS terlebih dahulu.' });
-      return;
-    }
-
-    setIsUploadingQris(true);
-    setQrisUploadMsg(null);
-    try {
-      const res = await fetch(`/api/merchants/${encodeURIComponent(effectiveMerchantId)}/qris`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ qrisImage: qrisImageFile })
-      });
-      const data = await res.json();
-      if (res.ok) {
-        setQrisUploadMsg({ type: 'success', text: 'QRIS statis toko berhasil disimpan! Tampil otomatis saat checkout pelanggan.' });
-        setQrisImageFile(null);
-        fetchMerchantData(true);
-      } else {
-        setQrisUploadMsg({ type: 'error', text: data.error || 'Gagal menyimpan QRIS.' });
-      }
-    } catch (err: any) {
-      setQrisUploadMsg({ type: 'error', text: err.message || 'Terjadi kesalahan saat menyimpan QRIS.' });
-    } finally {
-      setIsUploadingQris(false);
-    }
-  };
-
-  const handleDeleteQris = async () => {
-    if (!confirm('Apakah Anda yakin ingin menghapus QRIS statis toko ini?')) return;
-    setIsUploadingQris(true);
-    setQrisUploadMsg(null);
-    try {
-      const res = await fetch(`/api/merchants/${encodeURIComponent(effectiveMerchantId)}/qris`, {
-        method: 'DELETE'
-      });
-      const data = await res.json();
-      if (res.ok) {
-        setQrisUploadMsg({ type: 'success', text: 'QRIS statis toko berhasil dihapus.' });
-        setQrisImageFile(null);
-        fetchMerchantData(true);
-      } else {
-        setQrisUploadMsg({ type: 'error', text: data.error || 'Gagal menghapus QRIS toko.' });
-      }
-    } catch (err: any) {
-      setQrisUploadMsg({ type: 'error', text: err.message || 'Terjadi kesalahan saat menghapus QRIS.' });
-    } finally {
-      setIsUploadingQris(false);
-    }
-  };
 
   const handleViewCustomerSite = () => {
     if (onSelectRole) {
@@ -1068,7 +983,7 @@ export default function MerchantView({ merchantId: rawMerchantId, onLogout, onSe
                 onClick={() => setActiveTab(tab.id as MerchantTab)}
                 className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
                   isActive
-                    ? 'bg-emerald-700 text-white shadow-xs font-extrabold'
+                    ? 'bg-[#064e3b] text-white shadow-xs font-extrabold'
                     : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
                 }`}
               >
@@ -1193,7 +1108,7 @@ export default function MerchantView({ merchantId: rawMerchantId, onLogout, onSe
                       }}
                       className={`w-full min-h-[44px] flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
                         isActive
-                          ? 'bg-emerald-700 text-white font-extrabold shadow-xs'
+                          ? 'bg-[#064e3b] text-white font-extrabold shadow-xs'
                           : 'text-slate-700 hover:bg-slate-100'
                       }`}
                     >
@@ -2378,7 +2293,7 @@ export default function MerchantView({ merchantId: rawMerchantId, onLogout, onSe
           )}
 
           {/* =========================================================================
-              5. TAB: PROFIL & JAM OPERASIONAL (TERMASUK QRIS STATIS)
+              5. TAB: PROFIL & JAM OPERASIONAL
               ========================================================================= */}
           {activeTab === 'profile' && (
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6">
@@ -2540,123 +2455,39 @@ export default function MerchantView({ merchantId: rawMerchantId, onLogout, onSe
                 </form>
               </div>
 
-              {/* Right: QRIS Statis Toko & WebPush Settings */}
+              {/* Right: Info Sistem Pembayaran & WebPush Settings */}
               <div className="space-y-4">
                 
-                {/* QRIS Statis Box */}
+                {/* Informasi Pembayaran Terpusat TumpangGo */}
                 <div className="bg-white rounded-2xl border border-slate-200/90 p-4 sm:p-5 shadow-xs space-y-3">
                   <div className="flex items-center justify-between border-b border-slate-100 pb-2.5">
                     <div className="flex items-center gap-2">
-                      <QrCode className="w-5 h-5 text-emerald-700" />
-                      <h3 className="font-display font-bold text-sm text-slate-900">QRIS Statis Toko</h3>
+                      <CreditCard className="w-5 h-5 text-emerald-700" />
+                      <h3 className="font-display font-bold text-sm text-slate-900">Sistem Pembayaran</h3>
                     </div>
-                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                      merchant?.qrisImage ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'
-                    }`}>
-                      {merchant?.qrisImage ? 'Aktif' : 'Belum Ada'}
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800">
+                      QRIS TumpangGo
                     </span>
                   </div>
 
                   <p className="text-xs text-slate-500 leading-relaxed">
-                    QRIS statis ini tampil langsung saat pembeli membayar pesanan di toko Anda.
+                    Seluruh pembayaran pesanan pelanggan (QRIS &amp; Tunai/COD) diproses secara terpusat oleh sistem TumpangGo.
                   </p>
 
-                  {qrisUploadMsg && (
-                    <div className={`p-2.5 rounded-xl text-xs flex items-center justify-between gap-2 ${
-                      qrisUploadMsg.type === 'success' 
-                        ? 'bg-emerald-50 text-emerald-800 border border-emerald-200' 
-                        : 'bg-rose-50 text-rose-800 border border-rose-200'
-                    }`}>
-                      <span>{qrisUploadMsg.text}</span>
-                      <button onClick={() => setQrisUploadMsg(null)} className="text-slate-400 hover:text-slate-600">
-                        <X className="w-3.5 h-3.5" />
-                      </button>
+                  <div className="space-y-2 pt-1 text-xs text-slate-600">
+                    <div className="p-2.5 bg-emerald-50/70 border border-emerald-100 rounded-xl flex items-start gap-2">
+                      <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                      <span className="text-[11px] text-slate-700 leading-snug">
+                        <strong>Bebas Repot:</strong> Anda tidak perlu menyediakan atau mengunggah QRIS pribadi toko.
+                      </span>
                     </div>
-                  )}
 
-                  {/* QRIS Image Preview */}
-                  {merchant?.qrisImage ? (
-                    <div className="flex flex-col items-center gap-2.5 bg-slate-50 p-3 rounded-xl border border-slate-200">
-                      <div className="relative group w-36 h-36 bg-white rounded-xl border border-slate-200 p-2 flex items-center justify-center">
-                        <img
-                          src={merchant.qrisImage}
-                          alt="QRIS Toko"
-                          className="w-full h-full object-contain cursor-pointer"
-                          onClick={() => setZoomQrisImage(merchant.qrisImage || null)}
-                        />
-                        <button
-                          type="button"
-                          onClick={() => setZoomQrisImage(merchant.qrisImage || null)}
-                          className="absolute bottom-1 right-1 bg-slate-900/80 hover:bg-slate-900 text-white text-[9px] font-bold px-1.5 py-0.5 rounded flex items-center gap-1 cursor-pointer"
-                        >
-                          <ZoomIn className="w-3 h-3" />
-                          Perbesar
-                        </button>
-                      </div>
-
-                      <div className="flex gap-2 w-full pt-1">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const input = document.getElementById('merchant-qris-file-input');
-                            if (input) input.click();
-                          }}
-                          className="flex-1 min-h-[36px] py-1.5 bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-xs rounded-xl cursor-pointer text-center"
-                        >
-                          Ganti QRIS
-                        </button>
-                        <button
-                          type="button"
-                          onClick={handleDeleteQris}
-                          disabled={isUploadingQris}
-                          className="min-h-[36px] py-1.5 px-3 bg-white hover:bg-rose-50 text-rose-600 border border-rose-200 font-bold text-xs rounded-xl cursor-pointer"
-                        >
-                          Hapus
-                        </button>
-                      </div>
+                    <div className="p-2.5 bg-slate-50 border border-slate-200/80 rounded-xl flex items-start gap-2">
+                      <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                      <span className="text-[11px] text-slate-700 leading-snug">
+                        <strong>Pencairan Langsung:</strong> Pendapatan bersih disalurkan ke rekening bank yang Anda cantumkan di formulir profil.
+                      </span>
                     </div>
-                  ) : (
-                    <div className="p-4 bg-amber-50 border border-amber-200 rounded-xl text-center space-y-1.5">
-                      <AlertCircle className="w-7 h-7 text-amber-600 mx-auto" />
-                      <p className="text-xs text-amber-800 font-medium">Toko belum memiliki QRIS statis.</p>
-                    </div>
-                  )}
-
-                  {/* Upload QRIS Input */}
-                  <div className="pt-2 border-t border-slate-100 space-y-1.5">
-                    <input
-                      id="merchant-qris-file-input"
-                      type="file"
-                      accept="image/jpeg,image/png,image/webp,image/*"
-                      onChange={handleQrisFileChange}
-                      className="w-full text-xs text-slate-500 file:mr-2 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-bold file:bg-emerald-50 file:text-emerald-700 hover:file:bg-emerald-100 cursor-pointer"
-                    />
-                    <span className="text-[10px] text-slate-400 block">Maksimal 8MB (JPG, PNG, WebP)</span>
-
-                    {qrisImageFile && (
-                      <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 flex flex-col items-center gap-2 mt-2">
-                        <div className="w-28 h-28 bg-white rounded-lg p-1 border border-slate-200 flex items-center justify-center">
-                          <img src={qrisImageFile} alt="Preview" className="w-full h-full object-contain" />
-                        </div>
-                        <div className="flex gap-2">
-                          <button
-                            type="button"
-                            onClick={handleSaveQris}
-                            disabled={isUploadingQris}
-                            className="min-h-[36px] py-1 px-3 bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-xs rounded-lg cursor-pointer"
-                          >
-                            {isUploadingQris ? 'Menyimpan...' : 'Simpan QRIS'}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setQrisImageFile(null)}
-                            className="min-h-[36px] py-1 px-2 text-slate-500 text-xs font-semibold"
-                          >
-                            Batal
-                          </button>
-                        </div>
-                      </div>
-                    )}
                   </div>
                 </div>
 
@@ -3051,28 +2882,6 @@ export default function MerchantView({ merchantId: rawMerchantId, onLogout, onSe
                 Tolak Pesanan
               </button>
             </div>
-          </div>
-        </div>
-      )}
-
-      {/* 3. Zoom QRIS Modal */}
-      {zoomQrisImage && (
-        <div 
-          onClick={() => setZoomQrisImage(null)}
-          className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 cursor-pointer"
-        >
-          <div className="relative max-w-sm sm:max-w-md w-full bg-white rounded-2xl p-4 overflow-hidden shadow-2xl flex flex-col items-center gap-3" onClick={e => e.stopPropagation()}>
-            <div className="w-full flex items-center justify-between pb-2 border-b border-slate-100">
-              <span className="text-xs font-bold text-slate-800">QRIS Statis: {merchant?.name}</span>
-              <button
-                type="button"
-                onClick={() => setZoomQrisImage(null)}
-                className="w-7 h-7 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-600 flex items-center justify-center cursor-pointer"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-            <img src={zoomQrisImage} alt="QRIS Toko Full" className="w-full max-h-[70vh] object-contain rounded-xl" />
           </div>
         </div>
       )}

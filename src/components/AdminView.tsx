@@ -22,8 +22,9 @@ import {
   CheckCircle2, XCircle, ChevronRight, Sliders, ArrowDownRight, Wallet, LogOut,
   QrCode, ExternalLink, Trash2, Upload, Quote, Star, Filter, Receipt,
   Copy, Share2, Database, RotateCcw, AlertOctagon, Plus, Edit, ArrowLeft,
-  Utensils, ChefHat, Calendar, Lock, Mail, Tag
+  Utensils, ChefHat, Calendar, Lock, Mail, Tag, Menu
 } from 'lucide-react';
+import Logo from './Logo.tsx';
 import EReceiptModal from './EReceiptModal.tsx';
 import { useHiddenTrigger } from '../hooks/useHiddenTrigger.ts';
 import HiddenPortalBar from './HiddenPortalBar.tsx';
@@ -43,8 +44,17 @@ export default function AdminView({ onLogout, systemConfig, onUpdateConfig, onSe
     isNoIndex: true
   });
   const { isUnlocked, handleCopyrightClick } = useHiddenTrigger();
+  const [isMobileDrawerOpen, setIsMobileDrawerOpen] = useState(false);
   // Tabs: 'verify' | 'orders' | 'merchants' | 'drivers' | 'partners' | 'settlements' | 'settings' | 'testimonials'
   const [activeTab, setActiveTab] = useState<'verify' | 'orders' | 'merchants' | 'drivers' | 'partners' | 'settlements' | 'settings' | 'testimonials'>('verify');
+
+  const handleViewCustomerSite = () => {
+    if (onSelectRole) {
+      onSelectRole('CUSTOMER');
+    } else {
+      window.location.href = '/';
+    }
+  };
   const [orders, setOrders] = useState<Order[]>([]);
   const [merchants, setMerchants] = useState<Merchant[]>([]);
   const [drivers, setDrivers] = useState<Driver[]>([]);
@@ -1195,58 +1205,74 @@ export default function AdminView({ onLogout, systemConfig, onUpdateConfig, onSe
     setShowAddTestiForm(true);
   };
 
+  const adminNavItems = [
+    { id: 'verify', label: 'Verifikasi Pembayaran', count: pendingVerificationOrders.length, icon: CheckSquare },
+    { id: 'orders', label: 'Kelola Pesanan', count: orders.length, icon: ClipboardList },
+    { id: 'merchants', label: 'Manajemen Merchant', count: merchants.length, icon: Store },
+    { id: 'drivers', label: 'Mitra Driver', count: drivers.length, icon: Users },
+    { id: 'partners', label: 'Pendaftaran Mitra', count: pendingPartnerRegs.length, icon: UserPlus },
+    { id: 'settlements', label: 'Settlement & Payout', count: settlements.length, icon: DollarSign },
+    { id: 'testimonials', label: 'Review Pengguna', count: testimonials.filter(t => t.status === 'pending' || t.status === 'draft').length, icon: Quote },
+    { id: 'settings', label: 'Pengaturan Sistem', icon: Settings },
+  ];
+
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-800 font-sans flex flex-col md:flex-row">
-      {/* Desktop Left Sidebar Navigation */}
-      <aside className="hidden md:flex md:flex-col md:w-64 lg:w-72 md:shrink-0 bg-white border-r border-slate-200 min-h-screen sticky top-0 h-screen z-20 shadow-xs">
+    <div className="min-h-screen bg-slate-50 text-slate-800 font-sans flex flex-col md:flex-row antialiased w-full max-w-full overflow-x-hidden">
+      
+      {/* =========================================================================
+          DESKTOP & TABLET SIDEBAR (Tampil pada layar md: ke atas)
+          ========================================================================= */}
+      <aside className="hidden md:flex flex-col w-56 lg:w-64 xl:w-72 bg-white border-r border-slate-200/90 h-screen sticky top-0 shrink-0 select-none z-20">
         {/* Brand Header */}
-        <div className="p-4 lg:p-5 border-b border-slate-200/80">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-600 to-emerald-800 text-white flex items-center justify-center shadow-sm font-display font-extrabold text-lg shrink-0">
-              tG
-            </div>
+        <div className="p-4 lg:p-5 border-b border-slate-100 flex items-center justify-between">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <Logo size={40} className="shrink-0" />
             <div className="min-w-0">
-              <div className="flex items-center gap-2">
-                <h1 className="font-display font-bold text-base text-slate-900 tracking-tight truncate">Admin Portal</h1>
-                <span className="bg-emerald-100 text-emerald-800 text-[10px] font-bold px-2 py-0.5 rounded-full border border-emerald-200 shrink-0">
-                  TumpangGo
+              <div className="flex items-center gap-1.5">
+                <h1 className="font-display font-bold text-sm text-slate-900 truncate">
+                  Admin Pusat
+                </h1>
+                <span className="bg-emerald-100 text-[#064e3b] text-[9px] font-bold px-1.5 py-0.2 rounded-full border border-emerald-200 shrink-0">
+                  Internal
                 </span>
               </div>
-              <p className="text-[11px] text-slate-500 truncate">Pusat Kendali Operasional</p>
-              <div className="flex items-center gap-1.5 mt-0.5">
-                <span className={`w-2 h-2 rounded-full ${cleanSlatePlan?.liveCloudConnected ? 'bg-emerald-500' : 'bg-amber-400'}`}></span>
-                <span className="text-[10px] font-semibold text-slate-600 truncate">
-                  DB: {cleanSlatePlan?.liveCloudConnected ? 'Cloud Firestore (Aktif)' : 'Lokal (Development)'}
-                </span>
-              </div>
+              <p className="text-[11px] text-slate-400 truncate">
+                Pusat Kendali Ekosistem
+              </p>
             </div>
           </div>
         </div>
 
-        {/* Sidebar Navigation Menu Items */}
-        <div className="flex-1 overflow-y-auto px-3 py-4 space-y-1 scrollbar-thin">
-          <div className="px-2 pb-2 text-[10px] font-bold uppercase tracking-wider text-slate-400">
-            Menu Utama
+        {/* Database Status & Context Widget */}
+        <div className="p-3 bg-slate-50 border-b border-slate-100 text-xs space-y-1.5">
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] font-bold text-slate-600">Database:</span>
+            <span className="text-[11px] font-extrabold flex items-center gap-1.5 text-emerald-800 truncate">
+              <span className={`w-2 h-2 rounded-full shrink-0 ${cleanSlatePlan?.liveCloudConnected ? 'bg-emerald-500 animate-pulse' : 'bg-amber-400'}`} />
+              <span className="truncate">{cleanSlatePlan?.liveCloudConnected ? 'Cloud Firestore' : 'Lokal (Dev)'}</span>
+            </span>
           </div>
-          {[
-            { id: 'verify', label: 'Verifikasi Pembayaran', count: pendingVerificationOrders.length, icon: CheckSquare },
-            { id: 'orders', label: 'Kelola Pesanan', count: orders.length, icon: ClipboardList },
-            { id: 'merchants', label: 'Manajemen Merchant', count: merchants.length, icon: Store },
-            { id: 'drivers', label: 'Mitra Driver', count: drivers.length, icon: Users },
-            { id: 'partners', label: 'Pendaftaran Mitra', count: pendingPartnerRegs.length, icon: UserPlus },
-            { id: 'settlements', label: 'Settlement & Payout', count: settlements.length, icon: DollarSign },
-            { id: 'testimonials', label: 'Review Pengguna', count: testimonials.filter(t => t.status === 'pending' || t.status === 'draft').length, icon: Quote },
-            { id: 'settings', label: 'Pengaturan Sistem', icon: Settings },
-          ].map(tab => {
+          <div className="flex items-center justify-between text-[10px] text-slate-500 pt-0.5">
+            <span>Pesanan Aktif:</span>
+            <span className="font-bold text-slate-700">{activeOrders.length} berjalan</span>
+          </div>
+        </div>
+
+        {/* Sidebar Navigation Menu Items */}
+        <div className="flex-1 overflow-y-auto px-3 py-3 space-y-1 scrollbar-thin">
+          <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400 px-3 block mb-1.5">
+            Menu Operasional
+          </span>
+          {adminNavItems.map(tab => {
             const Icon = tab.icon;
             const isActive = activeTab === tab.id;
             return (
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id as any)}
-                className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
                   isActive 
-                    ? 'bg-emerald-600 text-white shadow-xs' 
+                    ? 'bg-[#064e3b] text-white shadow-xs font-extrabold' 
                     : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
                 }`}
               >
@@ -1255,8 +1281,8 @@ export default function AdminView({ onLogout, systemConfig, onUpdateConfig, onSe
                   <span className="truncate">{tab.label}</span>
                 </div>
                 {tab.count !== undefined && tab.count > 0 && (
-                  <span className={`text-[10px] font-extrabold px-1.5 py-0.5 rounded-full shrink-0 ml-1.5 ${
-                    isActive ? 'bg-white text-emerald-800' : 'bg-slate-200 text-slate-700'
+                  <span className={`text-[10px] font-extrabold px-2 py-0.5 rounded-full shrink-0 ml-1.5 ${
+                    isActive ? 'bg-white text-emerald-900' : 'bg-slate-200 text-slate-700'
                   }`}>
                     {tab.count}
                   </span>
@@ -1267,96 +1293,238 @@ export default function AdminView({ onLogout, systemConfig, onUpdateConfig, onSe
         </div>
 
         {/* Sidebar Footer Controls */}
-        <div className="p-3 border-t border-slate-200 bg-slate-50/60 space-y-2 shrink-0">
+        <div className="p-3 border-t border-slate-100 bg-slate-50/70 text-xs space-y-2 shrink-0">
           <PWAInstallButton role="ADMIN" compact={false} />
 
           <button
-            onClick={fetchAdminData}
-            disabled={loading}
-            className="w-full inline-flex items-center justify-center gap-2 px-3 py-2 rounded-xl border border-slate-200 bg-white hover:bg-slate-100 text-slate-700 text-xs font-semibold transition-all cursor-pointer shadow-2xs"
-            title="Perbarui data"
+            type="button"
+            onClick={handleViewCustomerSite}
+            className="w-full py-2 px-2.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-100 text-slate-700 text-xs font-bold transition-all cursor-pointer shadow-xs flex items-center justify-center gap-1.5"
+            title="Lihat Website Utama Pelanggan"
           >
-            <RefreshCw className={`w-3.5 h-3.5 text-slate-500 ${loading ? 'animate-spin' : ''}`} />
-            <span>{loading ? 'Memperbarui...' : 'Refresh Data'}</span>
+            <Store className="w-3.5 h-3.5 text-[#064e3b]" />
+            <span>Lihat Website Pelanggan</span>
           </button>
 
-          <button
-            onClick={onLogout}
-            className="w-full inline-flex items-center justify-center gap-2 px-3.5 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold transition-all cursor-pointer shadow-xs"
-          >
-            <LogOut className="w-3.5 h-3.5" />
-            <span>Keluar</span>
-          </button>
+          <div className="flex gap-2 pt-0.5">
+            <button
+              onClick={fetchAdminData}
+              disabled={loading}
+              className="flex-1 py-1.5 px-2.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-100 text-slate-700 text-xs font-bold transition-all cursor-pointer shadow-xs flex items-center justify-center gap-1.5"
+              title="Perbarui Data"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 text-slate-600 ${loading ? 'animate-spin text-emerald-600' : ''}`} />
+              <span>Refresh</span>
+            </button>
+
+            <button
+              onClick={onLogout}
+              className="py-1.5 px-3 rounded-xl bg-slate-900 hover:bg-rose-700 text-white text-xs font-bold transition-all shadow-xs cursor-pointer flex items-center justify-center gap-1.5"
+              title="Keluar dari Dashboard Admin"
+            >
+              <LogOut className="w-3.5 h-3.5" />
+              <span>Keluar</span>
+            </button>
+          </div>
         </div>
       </aside>
 
-      {/* Right Column: Mobile Header + KPI Strip + Main Content */}
-      <div className="flex-1 min-w-0 flex flex-col pb-16">
-        {/* Mobile Header */}
-        <header className="md:hidden bg-white border-b border-slate-200 sticky top-0 z-30 shadow-xs">
-          <div className="px-4 py-3 flex items-center justify-between gap-3">
-            <div className="flex items-center gap-2.5">
-              <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-emerald-600 to-emerald-800 text-white flex items-center justify-center font-display font-extrabold text-sm shadow-xs shrink-0">
-                tG
+      {/* =========================================================================
+          MOBILE SLIDE-OUT DRAWER SHEET (< md)
+          ========================================================================= */}
+      {isMobileDrawerOpen && (
+        <div className="fixed inset-0 z-50 md:hidden">
+          {/* Backdrop */}
+          <div 
+            onClick={() => setIsMobileDrawerOpen(false)}
+            className="fixed inset-0 bg-slate-950/60 backdrop-blur-xs transition-opacity"
+          />
+
+          {/* Drawer Content */}
+          <div className="fixed top-0 bottom-0 left-0 w-[285px] max-w-[85vw] bg-white shadow-2xl z-50 flex flex-col justify-between overflow-y-auto">
+            <div>
+              {/* Drawer Header */}
+              <div className="p-4 border-b border-slate-100 flex items-center justify-between bg-slate-50">
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <Logo size={36} className="shrink-0" />
+                  <div className="min-w-0">
+                    <h2 className="font-display font-bold text-sm text-slate-900 truncate">
+                      Admin Pusat
+                    </h2>
+                    <p className="text-[11px] text-slate-500 truncate">
+                      Pusat Kendali Ekosistem
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setIsMobileDrawerOpen(false)}
+                  className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-200/60 cursor-pointer min-h-[36px] min-w-[36px] flex items-center justify-center"
+                  aria-label="Tutup Menu"
+                >
+                  <X className="w-5 h-5" />
+                </button>
               </div>
-              <div>
+
+              {/* Database status widget inside drawer */}
+              <div className="p-3 bg-emerald-50/60 border-b border-emerald-100/60 text-xs flex items-center justify-between">
+                <span className="text-[11px] font-bold text-slate-600">Database:</span>
+                <span className="text-[11px] font-extrabold flex items-center gap-1.5 text-emerald-800">
+                  <span className={`w-2 h-2 rounded-full ${cleanSlatePlan?.liveCloudConnected ? 'bg-emerald-500 animate-pulse' : 'bg-amber-400'}`} />
+                  {cleanSlatePlan?.liveCloudConnected ? 'Cloud Firestore' : 'Lokal (Dev)'}
+                </span>
+              </div>
+
+              {/* Drawer Navigation Links */}
+              <div className="p-3 space-y-1">
+                <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400 px-3 block mb-1.5">
+                  Menu Operasional
+                </span>
+                {adminNavItems.map(tab => {
+                  const Icon = tab.icon;
+                  const isActive = activeTab === tab.id;
+                  return (
+                    <button
+                      key={tab.id}
+                      onClick={() => {
+                        setActiveTab(tab.id as any);
+                        setIsMobileDrawerOpen(false);
+                      }}
+                      className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer min-h-[44px] ${
+                        isActive
+                          ? 'bg-[#064e3b] text-white shadow-xs font-extrabold'
+                          : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2.5">
+                        <Icon className={`w-4 h-4 ${isActive ? 'text-white' : 'text-slate-400'}`} />
+                        <span>{tab.label}</span>
+                      </div>
+                      {tab.count !== undefined && tab.count > 0 && (
+                        <span className={`text-[10px] font-extrabold px-2 py-0.5 rounded-full ${
+                          isActive ? 'bg-white text-emerald-900' : 'bg-slate-200 text-slate-700'
+                        }`}>
+                          {tab.count}
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Drawer Footer Controls */}
+            <div className="p-4 border-t border-slate-100 bg-slate-50 space-y-2">
+              <PWAInstallButton role="ADMIN" compact={false} />
+
+              <button
+                type="button"
+                onClick={() => {
+                  setIsMobileDrawerOpen(false);
+                  handleViewCustomerSite();
+                }}
+                className="w-full min-h-[42px] py-2 px-3 rounded-xl border border-slate-200 bg-white hover:bg-slate-100 text-slate-700 text-xs font-bold transition-all cursor-pointer shadow-xs flex items-center justify-center gap-1.5"
+              >
+                <Store className="w-3.5 h-3.5 text-[#064e3b]" />
+                <span>Lihat Website Pelanggan</span>
+              </button>
+
+              <div className="flex gap-2">
+                <button
+                  onClick={() => {
+                    fetchAdminData();
+                    setIsMobileDrawerOpen(false);
+                  }}
+                  disabled={loading}
+                  className="flex-1 min-h-[42px] py-2 px-3 rounded-xl border border-slate-200 bg-white hover:bg-slate-100 text-slate-700 text-xs font-bold transition-all cursor-pointer shadow-xs flex items-center justify-center gap-1.5"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 text-slate-600 ${loading ? 'animate-spin text-emerald-600' : ''}`} />
+                  <span>Refresh</span>
+                </button>
+                <button
+                  onClick={() => {
+                    setIsMobileDrawerOpen(false);
+                    onLogout();
+                  }}
+                  className="flex-1 min-h-[42px] py-2 px-3 rounded-xl bg-slate-900 hover:bg-rose-700 text-white text-xs font-bold transition-all shadow-xs cursor-pointer flex items-center justify-center gap-1.5"
+                >
+                  <LogOut className="w-3.5 h-3.5" />
+                  <span>Keluar</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Right Column: Mobile Header + KPI Cards + Main Content */}
+      <div className="flex-1 min-w-0 flex flex-col pb-16">
+        
+        {/* Mobile Header (< md) */}
+        <header className="md:hidden bg-white border-b border-slate-200/90 sticky top-0 z-30 shadow-xs">
+          <div className="px-3.5 py-2.5 flex items-center justify-between gap-2.5 min-h-[56px]">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <button
+                type="button"
+                onClick={() => setIsMobileDrawerOpen(true)}
+                className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 cursor-pointer min-h-[40px] min-w-[40px] flex items-center justify-center transition-colors"
+                aria-label="Buka Menu Admin"
+              >
+                <Menu className="w-5 h-5 text-slate-700" />
+              </button>
+
+              <Logo size={32} className="shrink-0" />
+
+              <div className="min-w-0">
                 <div className="flex items-center gap-1.5">
-                  <h1 className="font-display font-bold text-sm text-slate-900 tracking-tight">Admin Portal</h1>
-                  <span className="bg-emerald-100 text-emerald-800 text-[9px] font-bold px-1.5 py-0.2 rounded-full border border-emerald-200">
-                    TumpangGo
+                  <h1 className="font-display font-bold text-sm text-slate-900 tracking-tight truncate">Admin Pusat</h1>
+                  <span className="bg-emerald-100 text-[#064e3b] text-[9px] font-bold px-1.5 py-0.2 rounded-full border border-emerald-200 shrink-0">
+                    Internal
                   </span>
                 </div>
-                <div className="flex items-center gap-1 text-[9px] text-slate-500 font-medium">
-                  <span className={`w-1.5 h-1.5 rounded-full ${cleanSlatePlan?.liveCloudConnected ? 'bg-emerald-500' : 'bg-amber-400'}`}></span>
-                  <span>{cleanSlatePlan?.liveCloudConnected ? 'Cloud DB' : 'Lokal DB'}</span>
+                <div className="flex items-center gap-1 text-[9px] text-slate-500 font-medium truncate">
+                  <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${cleanSlatePlan?.liveCloudConnected ? 'bg-emerald-500' : 'bg-amber-400'}`}></span>
+                  <span className="truncate">{cleanSlatePlan?.liveCloudConnected ? 'Cloud Firestore' : 'Lokal DB'}</span>
                 </div>
               </div>
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1.5 shrink-0">
               <PWAInstallButton role="ADMIN" compact={true} />
 
               <button
                 onClick={fetchAdminData}
                 disabled={loading}
-                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-700 text-xs font-semibold cursor-pointer shadow-xs"
+                className="inline-flex items-center justify-center min-h-[40px] min-w-[40px] p-2 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-700 cursor-pointer shadow-xs transition-colors"
                 title="Perbarui data"
+                aria-label="Refresh Data"
               >
-                <RefreshCw className={`w-3.5 h-3.5 text-slate-500 ${loading ? 'animate-spin' : ''}`} />
+                <RefreshCw className={`w-4 h-4 text-slate-600 ${loading ? 'animate-spin text-emerald-600' : ''}`} />
               </button>
 
               <button
                 onClick={onLogout}
-                className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold cursor-pointer shadow-xs"
+                className="inline-flex items-center justify-center min-h-[40px] px-3 py-2 rounded-xl bg-slate-900 hover:bg-rose-700 text-white text-xs font-bold cursor-pointer shadow-xs transition-colors gap-1.5"
+                title="Keluar dari Admin"
               >
                 <LogOut className="w-3.5 h-3.5" />
-                <span>Keluar</span>
+                <span className="hidden sm:inline">Keluar</span>
               </button>
             </div>
           </div>
 
-          {/* Mobile Horizontal Scrollable Tab Bar */}
-          <div className="px-3 border-t border-slate-100">
+          {/* Mobile Horizontal Scrollable Tab Bar (Fast swipe between tabs) */}
+          <div className="px-3 border-t border-slate-100 bg-slate-50/50">
             <nav className="flex space-x-1 overflow-x-auto py-2 scrollbar-none" aria-label="Tabs">
-              {[
-                { id: 'verify', label: 'Verifikasi Pembayaran', count: pendingVerificationOrders.length, icon: CheckSquare },
-                { id: 'orders', label: 'Kelola Pesanan', count: orders.length, icon: ClipboardList },
-                { id: 'merchants', label: 'Manajemen Merchant', count: merchants.length, icon: Store },
-                { id: 'drivers', label: 'Mitra Driver', count: drivers.length, icon: Users },
-                { id: 'partners', label: 'Pendaftaran Mitra', count: pendingPartnerRegs.length, icon: UserPlus },
-                { id: 'settlements', label: 'Settlement & Payout', count: settlements.length, icon: DollarSign },
-                { id: 'testimonials', label: 'Review Pengguna', count: testimonials.filter(t => t.status === 'pending' || t.status === 'draft').length, icon: Quote },
-                { id: 'settings', label: 'Pengaturan Sistem', icon: Settings },
-              ].map(tab => {
+              {adminNavItems.map(tab => {
                 const Icon = tab.icon;
                 const isActive = activeTab === tab.id;
                 return (
                   <button
                     key={tab.id}
                     onClick={() => setActiveTab(tab.id as any)}
-                    className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap cursor-pointer ${
+                    className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap cursor-pointer min-h-[38px] ${
                       isActive 
-                        ? 'bg-emerald-600 text-white shadow-xs' 
+                        ? 'bg-[#064e3b] text-white shadow-xs' 
                         : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
                     }`}
                   >
@@ -1364,7 +1532,7 @@ export default function AdminView({ onLogout, systemConfig, onUpdateConfig, onSe
                     <span>{tab.label}</span>
                     {tab.count !== undefined && tab.count > 0 && (
                       <span className={`text-[10px] font-extrabold px-1.5 py-0.2 rounded-full ${
-                        isActive ? 'bg-white text-emerald-800' : 'bg-slate-200 text-slate-700'
+                        isActive ? 'bg-white text-emerald-900' : 'bg-slate-200 text-slate-700'
                       }`}>
                         {tab.count}
                       </span>
@@ -1376,60 +1544,90 @@ export default function AdminView({ onLogout, systemConfig, onUpdateConfig, onSe
           </div>
         </header>
 
-        {/* KPI Summary Strip */}
-        <div className="border-b border-slate-200/80 bg-emerald-950 text-white shadow-xs">
-          <div className="px-4 sm:px-6 lg:px-8 py-3">
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 divide-y sm:divide-y-0 sm:divide-x divide-emerald-900/60">
-              <div className="flex items-center gap-3 pt-2 sm:pt-0">
-                <div className="w-9 h-9 rounded-lg bg-emerald-900/80 border border-emerald-700/50 flex items-center justify-center text-emerald-300">
+        {/* KPI Summary Cards - Consistent with Merchant & Driver Design System */}
+        <div className="px-4 sm:px-6 lg:px-8 pt-5 pb-1 max-w-7xl w-full mx-auto">
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+            {/* Card 1: Verifikasi Pending */}
+            <div className="bg-white rounded-2xl border border-slate-200/90 shadow-2xs p-3.5 sm:p-4 hover:border-slate-300 transition-all flex flex-col justify-between">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] sm:text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                  Verifikasi Pending
+                </span>
+                <div className="w-8 h-8 rounded-xl bg-amber-50 text-amber-700 flex items-center justify-center shrink-0">
                   <CheckSquare className="w-4 h-4" />
                 </div>
-                <div>
-                  <span className="text-[10px] font-bold text-emerald-300 uppercase tracking-wider block">Verifikasi Pending</span>
-                  <span className="font-display font-extrabold text-lg text-white">
-                    {pendingVerificationOrders.length}
-                    {pendingVerificationOrders.length > 0 && (
-                      <span className="ml-1.5 inline-block w-2 h-2 rounded-full bg-amber-400 animate-ping"></span>
-                    )}
-                  </span>
-                </div>
               </div>
+              <div className="mt-2 flex items-baseline gap-2">
+                <span className="font-display font-extrabold text-xl sm:text-2xl text-slate-900">
+                  {pendingVerificationOrders.length}
+                </span>
+                {pendingVerificationOrders.length > 0 && (
+                  <span className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-700 bg-amber-50 px-2 py-0.5 rounded-lg border border-amber-200">
+                    <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-ping"></span>
+                    Perlu Tindakan
+                  </span>
+                )}
+              </div>
+            </div>
 
-              <div className="flex items-center gap-3 pt-2 sm:pt-0 sm:pl-4">
-                <div className="w-9 h-9 rounded-lg bg-emerald-900/80 border border-emerald-700/50 flex items-center justify-center text-emerald-300">
+            {/* Card 2: Pesanan Aktif */}
+            <div className="bg-white rounded-2xl border border-slate-200/90 shadow-2xs p-3.5 sm:p-4 hover:border-slate-300 transition-all flex flex-col justify-between">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] sm:text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                  Pesanan Aktif
+                </span>
+                <div className="w-8 h-8 rounded-xl bg-sky-50 text-sky-700 flex items-center justify-center shrink-0">
                   <Truck className="w-4 h-4" />
                 </div>
-                <div>
-                  <span className="text-[10px] font-bold text-emerald-300 uppercase tracking-wider block">Pesanan Aktif</span>
-                  <span className="font-display font-extrabold text-lg text-white">{activeOrders.length}</span>
-                </div>
               </div>
+              <div className="mt-2 flex items-baseline gap-2">
+                <span className="font-display font-extrabold text-xl sm:text-2xl text-slate-900">
+                  {activeOrders.length}
+                </span>
+                <span className="text-[11px] font-semibold text-slate-400">
+                  diproses mitra
+                </span>
+              </div>
+            </div>
 
-              <div className="flex items-center gap-3 pt-2 sm:pt-0 sm:pl-4">
-                <div className="w-9 h-9 rounded-lg bg-emerald-900/80 border border-emerald-700/50 flex items-center justify-center text-emerald-300">
+            {/* Card 3: Total Omset Selesai */}
+            <div className="bg-white rounded-2xl border border-slate-200/90 shadow-2xs p-3.5 sm:p-4 hover:border-slate-300 transition-all flex flex-col justify-between">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] sm:text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                  Total Omset Selesai
+                </span>
+                <div className="w-8 h-8 rounded-xl bg-emerald-50 text-emerald-700 flex items-center justify-center shrink-0">
                   <DollarSign className="w-4 h-4" />
                 </div>
-                <div>
-                  <span className="text-[10px] font-bold text-emerald-300 uppercase tracking-wider block">Total Omset Selesai</span>
-                  <span className="font-display font-bold text-base text-white">Rp {totalGrossRevenue.toLocaleString('id-ID')}</span>
-                </div>
               </div>
+              <div className="mt-2 flex items-baseline gap-2">
+                <span className="font-display font-extrabold text-base sm:text-xl text-slate-900 truncate">
+                  Rp {totalGrossRevenue.toLocaleString('id-ID')}
+                </span>
+              </div>
+            </div>
 
-              <div className="flex items-center gap-3 pt-2 sm:pt-0 sm:pl-4">
-                <div className="w-9 h-9 rounded-lg bg-emerald-900/80 border border-emerald-700/50 flex items-center justify-center text-emerald-300">
+            {/* Card 4: Est. Komisi Platform */}
+            <div className="bg-white rounded-2xl border border-slate-200/90 shadow-2xs p-3.5 sm:p-4 hover:border-slate-300 transition-all flex flex-col justify-between">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] sm:text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                  Est. Komisi Platform
+                </span>
+                <div className="w-8 h-8 rounded-xl bg-emerald-50 text-[#064e3b] flex items-center justify-center shrink-0">
                   <Wallet className="w-4 h-4" />
                 </div>
-                <div>
-                  <span className="text-[10px] font-bold text-emerald-300 uppercase tracking-wider block">Est. Komisi Platform</span>
-                  <span className="font-display font-bold text-base text-emerald-300">Rp {totalPlatformCommission.toLocaleString('id-ID')}</span>
-                </div>
+              </div>
+              <div className="mt-2 flex items-baseline gap-2">
+                <span className="font-display font-extrabold text-base sm:text-xl text-[#064e3b] truncate">
+                  Rp {totalPlatformCommission.toLocaleString('id-ID')}
+                </span>
               </div>
             </div>
           </div>
         </div>
 
         {/* Main Content Area */}
-        <main className="flex-1 px-4 sm:px-6 lg:px-8 py-6 max-w-7xl w-full mx-auto">
+        <main className="flex-1 px-4 sm:px-6 lg:px-8 py-5 max-w-7xl w-full mx-auto pb-24 md:pb-12">
 
         {/* 1. TAB: VERIFIKASI PEMBAYARAN */}
         {activeTab === 'verify' && (
@@ -4419,6 +4617,56 @@ export default function AdminView({ onLogout, systemConfig, onUpdateConfig, onSe
         </footer>
 
       </main>
+
+        {/* Mobile Bottom Navigation Bar (< md) with Safe Area */}
+        <nav 
+          className="md:hidden fixed bottom-0 left-0 right-0 bg-white/95 backdrop-blur-md border-t border-slate-200/90 py-1.5 px-2 z-40 flex items-center justify-around shadow-lg"
+          style={{ paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 6px)' }}
+          aria-label="Navigasi Bawah Admin"
+        >
+          {[
+            { id: 'verify', label: 'Verifikasi', icon: CheckSquare, count: pendingVerificationOrders.length },
+            { id: 'orders', label: 'Pesanan', icon: ClipboardList, count: orders.length },
+            { id: 'merchants', label: 'Merchant', icon: Store, count: merchants.length },
+            { id: 'settlements', label: 'Payout', icon: DollarSign, count: settlements.length },
+            { id: 'menu_drawer', label: 'Menu', icon: Menu, isAction: true },
+          ].map((item) => {
+            const Icon = item.icon;
+            const isActive = !item.isAction && activeTab === item.id;
+            return (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => {
+                  if (item.isAction) {
+                    setIsMobileDrawerOpen(true);
+                  } else {
+                    setActiveTab(item.id as any);
+                    window.scrollTo({ top: 0, behavior: 'smooth' });
+                  }
+                }}
+                className={`flex flex-col items-center justify-center flex-1 py-1 px-1 rounded-xl transition-all cursor-pointer min-h-[44px] relative ${
+                  isActive 
+                    ? 'text-[#064e3b] font-extrabold' 
+                    : 'text-slate-500 hover:text-slate-800 font-medium'
+                }`}
+                aria-label={item.label}
+              >
+                <div className="relative">
+                  <Icon className={`w-5 h-5 ${isActive ? 'text-[#064e3b] stroke-[2.5]' : 'text-slate-400'}`} />
+                  {item.count !== undefined && item.count > 0 && (
+                    <span className="absolute -top-1.5 -right-2 bg-rose-600 text-white text-[9px] font-extrabold px-1 rounded-full min-w-[15px] h-[15px] flex items-center justify-center">
+                      {item.count > 99 ? '99+' : item.count}
+                    </span>
+                  )}
+                </div>
+                <span className={`text-[10px] mt-0.5 tracking-tight ${isActive ? 'text-[#064e3b] font-bold' : 'text-slate-500'}`}>
+                  {item.label}
+                </span>
+              </button>
+            );
+          })}
+        </nav>
       </div>
 
       {/* Reject Payment Modal */}
