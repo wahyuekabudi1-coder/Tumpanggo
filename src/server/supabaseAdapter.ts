@@ -42,17 +42,34 @@ export function isSupabaseConfigured(): boolean {
   return foodConfig.supabase.isConfigured;
 }
 
+let currentClientUrl = '';
+let currentClientKey = '';
+
+export function resetSupabaseClient(): void {
+  supabaseClient = null;
+  currentClientUrl = '';
+  currentClientKey = '';
+}
+
 export function getSupabaseClient(): SupabaseClient | null {
   if (!foodConfig.supabase.isConfigured) {
     return null;
   }
-  if (!supabaseClient) {
-    const url = foodConfig.supabase.url;
-    const key = foodConfig.supabase.serviceRoleKey || foodConfig.supabase.anonKey;
+  const url = foodConfig.supabase.url;
+  const key = foodConfig.supabase.serviceRoleKey || foodConfig.supabase.anonKey;
+
+  if (!supabaseClient || currentClientUrl !== url || currentClientKey !== key) {
+    currentClientUrl = url;
+    currentClientKey = key;
     supabaseClient = createClient(url, key, {
       auth: {
         persistSession: false,
         autoRefreshToken: false
+      },
+      global: {
+        headers: {
+          'x-application-name': 'tumpanggo-serverless'
+        }
       }
     });
   }
@@ -496,10 +513,119 @@ export function mapEntityFromDb(collection: string, row: any): any {
 // Live Supabase Database Operations
 // -----------------------------------------------------------------------------
 
+// -----------------------------------------------------------------------------
+// Live Supabase Database Operations & Error Diagnostics
+// -----------------------------------------------------------------------------
+
 let lastSupabaseError: string | null = null;
 
 export function getLastSupabaseError(): string | null {
   return lastSupabaseError;
+}
+
+export function formatSupabaseError(err: any): { message: string; code?: string; category: string } {
+  if (!err) return { message: 'Unknown error', category: 'UNKNOWN' };
+
+  // PostgREST structured error
+  if (err.code || err.hint || err.details) {
+    const code = String(err.code || '');
+    const rawMsg = String(err.message || '');
+    if (code === 'PGRST301' || rawMsg.toLowerCase().includes('jwt') || rawMsg.toLowerCase().includes('apikey')) {
+      return {
+        message: `Autentikasi Supabase gagal (HTTP 401/PGRST301): Kredensial SUPABASE_SERVICE_ROLE_KEY tidak valid atau token kedaluwarsa.`,
+        code: code || 'AUTH_FAILURE',
+        category: 'AUTH'
+      };
+    }
+    if (code === '42P01') {
+      return {
+        message: `Tabel database PostgreSQL tidak ditemukan (${rawMsg}). Pastikan migrasi SQL Supabase telah diaplikasikan.`,
+        code,
+        category: 'TABLE_NOT_FOUND'
+      };
+    }
+    if (code === '42501') {
+      return {
+        message: `Izin ditolak oleh Row Level Security (RLS) PostgreSQL: ${rawMsg}.`,
+        code,
+        category: 'RLS_DENIED'
+      };
+    }
+    return {
+      message: `Supabase PostgREST error [${code}]: ${rawMsg}`,
+      code,
+      category: 'HTTP_ERROR'
+    };
+  }
+
+  // Network and fetch-level errors from Node.js (undici)
+  const cause = (err as any)?.cause;
+  const causeCode = cause?.code || (err as any)?.code;
+  const causeMsg = cause?.message || '';
+  const errName = err.name || '';
+  const rawMsg = err.message || '';
+
+  if (causeCode === 'ENOTFOUND' || rawMsg.includes('ENOTFOUND') || causeMsg.includes('ENOTFOUND')) {
+    let host = 'epqpyieszdwyzrcbeqey.supabase.co';
+    try {
+      host = new URL(foodConfig.supabase.url).hostname;
+    } catch {}
+    return {
+      message: `DNS resolution gagal (ENOTFOUND) untuk host "${host}". Periksa apakah project Supabase dalam kondisi aktif (tidak paused) atau domain valid.`,
+      code: 'ENOTFOUND',
+      category: 'DNS'
+    };
+  }
+
+  if (causeCode === 'ECONNREFUSED' || rawMsg.includes('ECONNREFUSED')) {
+    return {
+      message: `Koneksi ditolak (ECONNREFUSED) oleh endpoint Supabase. Server database mungkin sedang offline.`,
+      code: 'ECONNREFUSED',
+      category: 'CONNECTION_REFUSED'
+    };
+  }
+
+  if (
+    causeCode === 'ETIMEDOUT' ||
+    causeCode === 'UND_ERR_CONNECT_TIMEOUT' ||
+    errName === 'AbortError' ||
+    rawMsg.includes('timeout') ||
+    rawMsg.includes('aborted')
+  ) {
+    return {
+      message: `Waktu koneksi ke Supabase habis (Timeout). Latensi jaringan atau server database lambat merespons.`,
+      code: 'ETIMEDOUT',
+      category: 'NETWORK_TIMEOUT'
+    };
+  }
+
+  if (
+    causeCode?.startsWith('CERT_') ||
+    causeCode?.includes('SSL') ||
+    causeCode?.includes('TLS') ||
+    causeMsg.includes('certificate') ||
+    causeMsg.includes('SSL')
+  ) {
+    return {
+      message: `Kegagalan verifikasi TLS/SSL saat menghubungi Supabase (${causeCode || causeMsg}).`,
+      code: causeCode || 'TLS_ERROR',
+      category: 'TLS'
+    };
+  }
+
+  if (errName === 'TypeError' && rawMsg === 'fetch failed') {
+    return {
+      message: causeMsg ? `Koneksi fetch gagal (${causeCode || 'NETWORK_ERROR'}: ${causeMsg})` : 'Koneksi jaringan fetch ke Supabase gagal.',
+      code: causeCode || 'FETCH_FAILED',
+      category: 'NETWORK'
+    };
+  }
+
+  return {
+    message: rawMsg || String(err),
+    code: causeCode,
+    category: 'UNKNOWN'
+  };
 }
 
 export async function testSupabaseConnection(): Promise<{
@@ -507,6 +633,8 @@ export async function testSupabaseConnection(): Promise<{
   url: string;
   latencyMs?: number;
   error?: string;
+  errorCode?: string;
+  category?: string;
 }> {
   if (testSupabaseMock?.probeResult !== undefined) {
     return { ...testSupabaseMock.probeResult };
@@ -517,24 +645,48 @@ export async function testSupabaseConnection(): Promise<{
     return {
       connected: false,
       url: foodConfig.supabase.url,
-      error: 'Supabase credentials not configured (SUPABASE_SERVICE_ROLE_KEY missing).'
+      error: 'Supabase credentials not configured (SUPABASE_SERVICE_ROLE_KEY missing).',
+      category: 'AUTH'
     };
   }
 
   const start = Date.now();
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 6000);
+
   try {
     const { error } = await client
       .from('system_config')
       .select('id')
-      .limit(1);
+      .limit(1)
+      .abortSignal(controller.signal);
 
     if (error) {
-      lastSupabaseError = error.message;
+      if (error.code === '42P01') {
+        const mProbe = await client
+          .from('merchants')
+          .select('id')
+          .limit(1)
+          .abortSignal(controller.signal);
+        if (!mProbe.error) {
+          lastSupabaseError = null;
+          return {
+            connected: true,
+            url: foodConfig.supabase.url,
+            latencyMs: Date.now() - start
+          };
+        }
+      }
+
+      const formatted = formatSupabaseError(error);
+      lastSupabaseError = formatted.message;
       return {
         connected: false,
         url: foodConfig.supabase.url,
         latencyMs: Date.now() - start,
-        error: error.message
+        error: formatted.message,
+        errorCode: formatted.code,
+        category: formatted.category
       };
     }
 
@@ -545,13 +697,18 @@ export async function testSupabaseConnection(): Promise<{
       latencyMs: Date.now() - start
     };
   } catch (err: any) {
-    lastSupabaseError = err.message;
+    const formatted = formatSupabaseError(err);
+    lastSupabaseError = formatted.message;
     return {
       connected: false,
       url: foodConfig.supabase.url,
       latencyMs: Date.now() - start,
-      error: err.message
+      error: formatted.message,
+      errorCode: formatted.code,
+      category: formatted.category
     };
+  } finally {
+    clearTimeout(timeoutId);
   }
 }
 
@@ -587,23 +744,31 @@ export async function safeSupabaseUpsertDocDetailed(
     return { success: false, error: msg };
   }
 
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 8000);
+
   try {
     const row = mapEntityToDb(collection, { ...data, id });
     const { error } = await client
       .from(table)
-      .upsert(row, { onConflict: 'id' });
+      .upsert(row, { onConflict: 'id' })
+      .abortSignal(controller.signal);
 
     if (error) {
-      console.warn(`[SupabaseAdapter] Upsert failed for table ${table} id ${id}:`, error.message);
-      lastSupabaseError = error.message;
-      return { success: false, error: error.message };
+      const formatted = formatSupabaseError(error);
+      console.warn(`[SupabaseAdapter] Upsert failed for table ${table} id ${id}:`, formatted.message);
+      lastSupabaseError = formatted.message;
+      return { success: false, error: formatted.message };
     }
     lastSupabaseError = null;
     return { success: true };
   } catch (err: any) {
-    console.warn(`[SupabaseAdapter] Exception during upsert for ${table} id ${id}:`, err.message);
-    lastSupabaseError = err.message;
-    return { success: false, error: err.message };
+    const formatted = formatSupabaseError(err);
+    console.warn(`[SupabaseAdapter] Exception during upsert for ${table} id ${id}:`, formatted.message);
+    lastSupabaseError = formatted.message;
+    return { success: false, error: formatted.message };
+  } finally {
+    clearTimeout(timeoutId);
   }
 }
 
@@ -647,23 +812,31 @@ export async function safeSupabaseDeleteDocDetailed(
     return { success: false, error: msg };
   }
 
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 8000);
+
   try {
     const { error } = await client
       .from(table)
       .delete()
-      .eq('id', id);
+      .eq('id', id)
+      .abortSignal(controller.signal);
 
     if (error) {
-      console.warn(`[SupabaseAdapter] Delete failed for table ${table} id ${id}:`, error.message);
-      lastSupabaseError = error.message;
-      return { success: false, error: error.message };
+      const formatted = formatSupabaseError(error);
+      console.warn(`[SupabaseAdapter] Delete failed for table ${table} id ${id}:`, formatted.message);
+      lastSupabaseError = formatted.message;
+      return { success: false, error: formatted.message };
     }
     lastSupabaseError = null;
     return { success: true };
   } catch (err: any) {
-    console.warn(`[SupabaseAdapter] Exception during delete for ${table} id ${id}:`, err.message);
-    lastSupabaseError = err.message;
-    return { success: false, error: err.message };
+    const formatted = formatSupabaseError(err);
+    console.warn(`[SupabaseAdapter] Exception during delete for ${table} id ${id}:`, formatted.message);
+    lastSupabaseError = formatted.message;
+    return { success: false, error: formatted.message };
+  } finally {
+    clearTimeout(timeoutId);
   }
 }
 
@@ -692,6 +865,9 @@ export async function fetchFromSupabase(
   const table = COLLECTION_TO_TABLE[collection];
   if (!table) return [];
 
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 10000);
+
   try {
     let query = client.from(table).select('*');
 
@@ -709,16 +885,20 @@ export async function fetchFromSupabase(
       query = query.limit(options.limit);
     }
 
-    const { data, error } = await query;
+    const { data, error } = await query.abortSignal(controller.signal);
     if (error) {
-      console.warn(`[SupabaseAdapter] Fetch failed for ${table}:`, error.message);
+      const formatted = formatSupabaseError(error);
+      console.warn(`[SupabaseAdapter] Fetch failed for ${table}:`, formatted.message);
       return [];
     }
 
-    return (data || []).map(row => mapEntityFromDb(collection, row));
+    return (data || []).map((row: any) => mapEntityFromDb(collection, row));
   } catch (err: any) {
-    console.warn(`[SupabaseAdapter] Exception fetching from ${table}:`, err.message);
+    const formatted = formatSupabaseError(err);
+    console.warn(`[SupabaseAdapter] Exception fetching from ${table}:`, formatted.message);
     return [];
+  } finally {
+    clearTimeout(timeoutId);
   }
 }
 
@@ -730,22 +910,30 @@ export async function fetchOrdersByMerchantFromSupabase(merchantId: string): Pro
   const client = getSupabaseClient();
   if (!client || !merchantId) return [];
 
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 10000);
+
   try {
     const { data, error } = await client
       .from('orders')
       .select('*')
       .eq('merchant_id', merchantId)
-      .order('created_at', { ascending: false });
+      .order('created_at', { ascending: false })
+      .abortSignal(controller.signal);
 
     if (error) {
-      console.warn(`[SupabaseAdapter] fetchOrdersByMerchant failed:`, error.message);
+      const formatted = formatSupabaseError(error);
+      console.warn(`[SupabaseAdapter] fetchOrdersByMerchant failed:`, formatted.message);
       return [];
     }
 
     return (data || []).map(row => mapOrderFromDb(row));
   } catch (err: any) {
-    console.warn(`[SupabaseAdapter] Exception in fetchOrdersByMerchant:`, err.message);
+    const formatted = formatSupabaseError(err);
+    console.warn(`[SupabaseAdapter] Exception in fetchOrdersByMerchant:`, formatted.message);
     return [];
+  } finally {
+    clearTimeout(timeoutId);
   }
 }
 
@@ -756,22 +944,30 @@ export async function fetchOrdersByDriverFromSupabase(driverId: string): Promise
   const client = getSupabaseClient();
   if (!client || !driverId) return [];
 
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 10000);
+
   try {
     const { data, error } = await client
       .from('orders')
       .select('*')
       .eq('driver_id', driverId)
-      .order('created_at', { ascending: false });
+      .order('created_at', { ascending: false })
+      .abortSignal(controller.signal);
 
     if (error) {
-      console.warn(`[SupabaseAdapter] fetchOrdersByDriver failed:`, error.message);
+      const formatted = formatSupabaseError(error);
+      console.warn(`[SupabaseAdapter] fetchOrdersByDriver failed:`, formatted.message);
       return [];
     }
 
     return (data || []).map(row => mapOrderFromDb(row));
   } catch (err: any) {
-    console.warn(`[SupabaseAdapter] Exception in fetchOrdersByDriver:`, err.message);
+    const formatted = formatSupabaseError(err);
+    console.warn(`[SupabaseAdapter] Exception in fetchOrdersByDriver:`, formatted.message);
     return [];
+  } finally {
+    clearTimeout(timeoutId);
   }
 }
 

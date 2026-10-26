@@ -528,19 +528,20 @@ export class FoodDatabase {
     };
   }> {
     const creds = getMasterAccountCredentials();
-    const probe = await testFirestoreConnection();
-    const adminDb = getAdminDb();
 
-    // Production strictness: Never return fallback counts in production if cloud is disconnected
-    if (foodConfig.isProduction && !probe.connected) {
-      throw new Error(`[Produksi] Koneksi Cloud Firestore tidak aktif (${probe.diagnosticReason}: ${probe.diagnosticDetail}). Dokumen produksi tidak dapat dibaca.`);
-    }
+    let isConnected = false;
+    let targetProjectId = foodConfig.projectId || 'tumpanggo-70479';
+    let targetDatabaseId = foodConfig.databaseId || '(default)';
+    let storageMode = 'development_local_snapshot';
+    let authIdentity = 'SYSTEM';
+    let diagnosticReason = 'LOCAL_SNAPSHOT';
+    let diagnosticDetail = 'Beroperasi dengan local file snapshot';
+    let remediationStep: string | undefined = undefined;
 
     let merchantsCount = 0;
     let categoriesCount = 0;
     let menuItemsCount = 0;
     let merchantPartnerRegistrationsCount = 0;
-
     let driversCount = 0;
     let ordersCount = 0;
     let settlementsCount = 0;
@@ -549,47 +550,118 @@ export class FoodDatabase {
     let systemConfigCount = 0;
     let auditLogsCount = 0;
 
-    if (probe.connected && adminDb) {
-      // Query Cloud Firestore directly using aggregation counts to avoid reading full documents
-      const [
-        mCount,
-        cCount,
-        iCount,
-        mrCount,
-        dCount,
-        oCount,
-        sCount,
-        tCount,
-        drCount,
-        scCount,
-        alCount
-      ] = await Promise.all([
-        safeAdminCountDocs('merchants'),
-        safeAdminCountDocs('categories'),
-        safeAdminCountDocs('menuItems'),
-        safeAdminCountDocs('partnerRegistrations', ref => ref.where('type', '==', 'MERCHANT')),
-        safeAdminCountDocs('drivers'),
-        safeAdminCountDocs('orders'),
-        safeAdminCountDocs('settlements'),
-        safeAdminCountDocs('testimonials'),
-        safeAdminCountDocs('partnerRegistrations', ref => ref.where('type', '==', 'DRIVER')),
-        safeAdminCountDocs('systemConfig'),
-        safeAdminCountDocs('auditLogs')
-      ]);
+    if (isSupabaseConfigured()) {
+      const supabaseProbe = await testSupabaseConnection();
+      if (foodConfig.isProduction && !supabaseProbe.connected) {
+        throw new Error(`[Produksi] Koneksi Supabase PostgreSQL tidak aktif (${supabaseProbe.error}). Dokumen produksi tidak dapat dibaca.`);
+      }
+      isConnected = supabaseProbe.connected;
+      targetProjectId = 'epqpyieszdwyzrcbeqey';
+      targetDatabaseId = 'supabase';
+      storageMode = isConnected ? 'supabase_postgresql_verified' : 'development_local_snapshot';
+      authIdentity = 'service_role';
+      diagnosticReason = isConnected ? 'SUPABASE_CONNECTED' : 'SUPABASE_DISCONNECTED';
+      diagnosticDetail = isConnected ? 'Terhubung langsung ke Supabase PostgreSQL cloud database.' : (supabaseProbe.error || 'Gagal menghubungi Supabase');
 
-      merchantsCount = mCount ?? 0;
-      categoriesCount = cCount ?? 0;
-      menuItemsCount = iCount ?? 0;
-      merchantPartnerRegistrationsCount = mrCount ?? 0;
+      if (isConnected) {
+        const [
+          allMerchants,
+          allCategories,
+          allMenuItems,
+          allDrivers,
+          allOrders,
+          allSettlements,
+          allTestimonials,
+          allPartnerRegs,
+          allAuditLogs
+        ] = await Promise.all([
+          fetchFromSupabase('merchants'),
+          fetchFromSupabase('categories'),
+          fetchFromSupabase('menuItems'),
+          fetchFromSupabase('drivers'),
+          fetchFromSupabase('orders'),
+          fetchFromSupabase('settlements'),
+          fetchFromSupabase('testimonials'),
+          fetchFromSupabase('partnerRegistrations'),
+          fetchFromSupabase('auditLogs', { limit: 50 })
+        ]);
 
-      driversCount = dCount ?? 0;
-      ordersCount = oCount ?? 0;
-      settlementsCount = sCount ?? 0;
-      testimonialsCount = tCount ?? 0;
-      driverPartnerRegistrationsCount = drCount ?? 0;
-      systemConfigCount = scCount ?? 1;
-      auditLogsCount = alCount ?? 1;
+        merchantsCount = allMerchants.length;
+        categoriesCount = allCategories.length;
+        menuItemsCount = allMenuItems.length;
+        driversCount = allDrivers.length;
+        ordersCount = allOrders.length;
+        settlementsCount = allSettlements.length;
+        testimonialsCount = allTestimonials.length;
+        merchantPartnerRegistrationsCount = allPartnerRegs.filter(r => r.type === 'MERCHANT').length;
+        driverPartnerRegistrationsCount = allPartnerRegs.filter(r => r.type === 'DRIVER').length;
+        systemConfigCount = 1;
+        auditLogsCount = allAuditLogs.length;
+      }
     } else {
+      const probe = await testFirestoreConnection();
+      const adminDb = getAdminDb();
+
+      // Production strictness: Never return fallback counts in production if cloud is disconnected
+      if (foodConfig.isProduction && !probe.connected) {
+        throw new Error(`[Produksi] Koneksi Cloud Firestore tidak aktif (${probe.diagnosticReason}: ${probe.diagnosticDetail}). Dokumen produksi tidak dapat dibaca.`);
+      }
+
+      isConnected = probe.connected;
+      targetProjectId = probe.projectId || foodConfig.projectId || 'tumpanggo-70479';
+      targetDatabaseId = probe.databaseId || foodConfig.databaseId || '(default)';
+      storageMode = probe.connected ? 'cloud_firestore_verified' : 'development_local_snapshot';
+      authIdentity = probe.authIdentity;
+      diagnosticReason = probe.diagnosticReason;
+      diagnosticDetail = probe.connected 
+        ? 'Terhubung langsung ke Cloud Firestore. Hitungan dokumen berasal dari data cloud aktual.'
+        : `Server berjalan dalam mode pengembangan lokal (${probe.diagnosticReason}). Hitungan berasal dari snapshot lokal development, BUKAN database produksi.`;
+      remediationStep = probe.remediationStep;
+
+      if (probe.connected && adminDb) {
+        // Query Cloud Firestore directly using aggregation counts to avoid reading full documents
+        const [
+          mCount,
+          cCount,
+          iCount,
+          mrCount,
+          dCount,
+          oCount,
+          sCount,
+          tCount,
+          drCount,
+          scCount,
+          alCount
+        ] = await Promise.all([
+          safeAdminCountDocs('merchants'),
+          safeAdminCountDocs('categories'),
+          safeAdminCountDocs('menuItems'),
+          safeAdminCountDocs('partnerRegistrations', ref => ref.where('type', '==', 'MERCHANT')),
+          safeAdminCountDocs('drivers'),
+          safeAdminCountDocs('orders'),
+          safeAdminCountDocs('settlements'),
+          safeAdminCountDocs('testimonials'),
+          safeAdminCountDocs('partnerRegistrations', ref => ref.where('type', '==', 'DRIVER')),
+          safeAdminCountDocs('systemConfig'),
+          safeAdminCountDocs('auditLogs')
+        ]);
+
+        merchantsCount = mCount ?? 0;
+        categoriesCount = cCount ?? 0;
+        menuItemsCount = iCount ?? 0;
+        merchantPartnerRegistrationsCount = mrCount ?? 0;
+
+        driversCount = dCount ?? 0;
+        ordersCount = oCount ?? 0;
+        settlementsCount = sCount ?? 0;
+        testimonialsCount = tCount ?? 0;
+        driverPartnerRegistrationsCount = drCount ?? 0;
+        systemConfigCount = scCount ?? 1;
+        auditLogsCount = alCount ?? 1;
+      }
+    }
+
+    if (!isConnected) {
       // Development mode fallback only - clearly labeled
       merchantsCount = this.data.merchants.length;
       categoriesCount = this.data.categories.length;
@@ -619,17 +691,15 @@ export class FoodDatabase {
     const totalDocumentsInDatabase = totalOperationalDocs + systemConfigCount + auditLogsCount;
 
     return {
-      targetProjectId: probe.projectId || foodConfig.projectId || 'tumpanggo-70479',
-      targetDatabaseId: probe.databaseId || foodConfig.databaseId || '(default)',
-      storageMode: probe.connected ? 'cloud_firestore_verified' : 'development_local_snapshot',
-      liveCloudConnected: probe.connected,
+      targetProjectId,
+      targetDatabaseId,
+      storageMode,
+      liveCloudConnected: isConnected,
       isProduction: foodConfig.isProduction,
-      authIdentity: probe.authIdentity,
-      diagnosticReason: probe.diagnosticReason,
-      diagnosticDetail: probe.connected 
-        ? 'Terhubung langsung ke Cloud Firestore. Hitungan dokumen berasal dari data cloud aktual.'
-        : `Server berjalan dalam mode pengembangan lokal (${probe.diagnosticReason}). Hitungan berasal dari snapshot lokal development, BUKAN database produksi.`,
-      remediationStep: probe.remediationStep,
+      authIdentity,
+      diagnosticReason,
+      diagnosticDetail,
+      remediationStep,
       reconciliation: {
         totalDocumentsInDatabase,
         operationalCollectionsCount: totalOperationalDocs,

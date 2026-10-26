@@ -10,6 +10,7 @@ import express from 'express';
 import { foodDb } from './db';
 import { foodConfig, validateProductionEnvironment } from './config';
 import { isFirestoreAdminConfigured, isUsingServiceAccount, testFirestoreConnection, getFirestoreDiagnosticStatus, getAdminDb, safeAdminCountDocs } from './firebaseAdmin';
+import { isSupabaseConfigured, __setSupabaseMockForTesting } from './supabaseAdapter';
 import { authenticateToken } from './auth';
 import { authRouter } from './routes/authRoutes';
 import { merchantRouter } from './routes/merchantRoutes';
@@ -21,6 +22,7 @@ import { pushRouter } from './routes/pushRoutes';
 export const app = express();
 export { foodDb, foodConfig, validateProductionEnvironment };
 export { __setFirestoreMockForTesting } from './firebaseAdmin';
+export { __setSupabaseMockForTesting } from './supabaseAdapter';
 
 // Safe CORS & Preflight Handling for Production & Development
 function isAllowedOrigin(origin?: string): boolean {
@@ -200,7 +202,7 @@ app.use(async (req, res, next) => {
     return next();
   }
 
-  // In production mode, enforce strict configuration and live Cloud Firestore connectivity
+  // In production mode, enforce strict configuration and live cloud database connectivity (Supabase PostgreSQL / Cloud Firestore)
   if (foodConfig.isProduction) {
     // 1. Strict Configuration Validation
     const envCheck = validateProductionEnvironment();
@@ -214,13 +216,14 @@ app.use(async (req, res, next) => {
       });
     }
 
-    // 2. Strict Cloud Firestore Connectivity Verification
+    // 2. Strict Cloud Database Connectivity Verification
     try {
       await foodDb.ensureReadyForOperations();
     } catch (dbErr: any) {
-      console.error('[TumpangFood Production Gate] Operation rejected: Cloud Firestore is not connected:', dbErr?.message || dbErr);
+      const primaryDbName = isSupabaseConfigured() ? 'Supabase PostgreSQL' : 'Cloud Firestore';
+      console.error(`[TumpangFood Production Gate] Operation rejected: ${primaryDbName} is not connected:`, dbErr?.message || dbErr);
       return res.status(503).json({
-        error: `[Produksi] Cloud Firestore wajib aktif dan terhubung sebelum operasi data diizinkan (${dbErr?.message || 'Database cloud tidak terhubung'}). Dilarang menggunakan penyimpanan lokal sebagai pengganti database produksi.`,
+        error: `[Produksi] Database ${primaryDbName} wajib aktif dan terhubung sebelum operasi data diizinkan (${dbErr?.message || 'Database cloud tidak terhubung'}). Dilarang menggunakan penyimpanan lokal sebagai pengganti database produksi.`,
         code: 'DATABASE_UNAVAILABLE',
         timestamp: new Date().toISOString()
       });

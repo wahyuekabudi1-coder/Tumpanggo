@@ -96,76 +96,109 @@ function resolveServerPort(): number {
   return 3000;
 }
 
+export function normalizeSupabaseUrl(raw?: string, fallback = 'https://epqpyieszdwyzrcbeqey.supabase.co'): string {
+  let url = cleanEnvSecret(raw, fallback);
+  if (!url) return fallback;
+  if (!url.startsWith('http://') && !url.startsWith('https://')) {
+    url = `https://${url}`;
+  }
+  return url.replace(/\/+$/, '');
+}
+
 // Production Strict Verification
 export function validateProductionEnvironment(): { isValid: boolean; errors: string[] } {
   const errors: string[] = [];
 
-  const secret = process.env.FOOD_AUTH_SECRET;
-  if (!secret || secret.trim().length < 32) {
+  const secret = cleanEnvSecret(process.env.FOOD_AUTH_SECRET);
+  if (!secret || secret.length < 32) {
     errors.push('FOOD_AUTH_SECRET wajib disetel dan memiliki minimal 32 karakter.');
   } else if (secret.includes('dev_secret_fallback') || secret.includes('fallback_do_not_use')) {
     errors.push('FOOD_AUTH_SECRET tidak boleh menggunakan string fallback/development pada mode produksi.');
   }
 
-  const adminEmail = process.env.FOOD_ADMIN_EMAIL;
+  const adminEmail = (process.env.FOOD_ADMIN_EMAIL || '').trim().toLowerCase();
   if (!adminEmail || !adminEmail.includes('@')) {
     errors.push('FOOD_ADMIN_EMAIL wajib disetel dengan alamat email yang sah.');
   }
 
-  const adminPassword = process.env.FOOD_ADMIN_PASSWORD;
-  if (!adminPassword || adminPassword.trim().length < 8) {
+  const adminPassword = cleanEnvSecret(process.env.FOOD_ADMIN_PASSWORD);
+  if (!adminPassword || adminPassword.length < 8) {
     errors.push('FOOD_ADMIN_PASSWORD wajib disetel dengan minimal 8 karakter.');
   } else if (adminPassword === 'TumpangGoAdmin#2026') {
     errors.push('FOOD_ADMIN_PASSWORD tidak boleh menggunakan kata sandi default/contoh ("TumpangGoAdmin#2026") pada mode produksi.');
   }
 
-  const hasSupabase = Boolean((process.env.SUPABASE_URL || '').trim() && (process.env.SUPABASE_SERVICE_ROLE_KEY || '').trim());
+  const rawSupabaseUrl = cleanEnvSecret(process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL);
+  const rawSupabaseKey = cleanEnvSecret(process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_KEY);
+  const hasSupabase = Boolean(rawSupabaseUrl && rawSupabaseKey);
 
-  if (!hasSupabase) {
-    let projectId = process.env.FIREBASE_PROJECT_ID || process.env.GCP_PROJECT;
+  if (hasSupabase) {
+    // Validate Supabase URL format strictly
+    try {
+      const normalized = normalizeSupabaseUrl(rawSupabaseUrl);
+      const parsed = new URL(normalized);
+      if (!['http:', 'https:'].includes(parsed.protocol)) {
+        errors.push('SUPABASE_URL wajib menggunakan protokol https://.');
+      }
+      if (!parsed.hostname || !parsed.hostname.includes('.')) {
+        errors.push('SUPABASE_URL memiliki format hostname yang tidak sah.');
+      }
+    } catch {
+      errors.push('SUPABASE_URL tidak berformat URL yang sah.');
+    }
+
+    if (rawSupabaseKey.length < 20) {
+      errors.push('SUPABASE_SERVICE_ROLE_KEY wajib memiliki panjang minimal 20 karakter.');
+    }
+  } else {
+    // Supabase is not configured; check if Firestore fallback credentials exist
+    let projectId = cleanEnvSecret(process.env.FIREBASE_PROJECT_ID || process.env.GCP_PROJECT);
     if (!projectId) {
       try {
         const configPath = path.join(process.cwd(), 'firebase-applet-config.json');
         if (fs.existsSync(configPath)) {
           const raw = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
-          projectId = raw.projectId;
+          projectId = cleanEnvSecret(raw.projectId);
         }
       } catch {}
     }
-    if (!projectId || projectId.trim().length === 0) {
-      errors.push('FIREBASE_PROJECT_ID atau SUPABASE_URL wajib disetel pada lingkungan produksi.');
-    }
 
     const serviceAccount = process.env.FIREBASE_SERVICE_ACCOUNT_KEY || process.env.GOOGLE_SERVICE_ACCOUNT_KEY || process.env.GOOGLE_APPLICATION_CREDENTIALS;
-    if (!serviceAccount || serviceAccount.trim().length === 0) {
-      errors.push('FIREBASE_SERVICE_ACCOUNT_KEY atau SUPABASE_SERVICE_ROLE_KEY wajib disetel untuk database produksi.');
+
+    if (!projectId && !serviceAccount) {
+      errors.push('SUPABASE_URL & SUPABASE_SERVICE_ROLE_KEY wajib disetel pada lingkungan produksi (atau FIREBASE_SERVICE_ACCOUNT_KEY).');
     } else {
-      // Validate format without leaking contents
-      const raw = serviceAccount.trim();
-      let parsed: any = null;
-      try {
-        let cleanRaw = raw;
-        if ((cleanRaw.startsWith("'") && cleanRaw.endsWith("'")) || (cleanRaw.startsWith('"') && cleanRaw.endsWith('"'))) {
-          cleanRaw = cleanRaw.slice(1, -1);
-        }
-        if (cleanRaw.startsWith('{')) {
-          parsed = JSON.parse(cleanRaw);
-        } else if (process.env.GOOGLE_APPLICATION_CREDENTIALS && fs.existsSync(raw)) {
-          parsed = JSON.parse(fs.readFileSync(raw, 'utf-8'));
-        } else {
-          const decoded = Buffer.from(cleanRaw, 'base64').toString('utf-8');
-          if (decoded.trim().startsWith('{')) {
-            parsed = JSON.parse(decoded);
-          }
-        }
-      } catch {
-        // Ignored here, checked below
+      if (!projectId) {
+        errors.push('FIREBASE_PROJECT_ID atau SUPABASE_URL wajib disetel pada lingkungan produksi.');
       }
 
-      if (!parsed || typeof parsed !== 'object') {
-        errors.push('FIREBASE_SERVICE_ACCOUNT_KEY tidak berformat JSON atau Base64 yang valid.');
-      } else if (!parsed.client_email || !parsed.private_key) {
-        errors.push('FIREBASE_SERVICE_ACCOUNT_KEY wajib memiliki field "client_email" dan "private_key".');
+      if (!serviceAccount || serviceAccount.trim().length === 0) {
+        errors.push('FIREBASE_SERVICE_ACCOUNT_KEY atau SUPABASE_SERVICE_ROLE_KEY wajib disetel untuk database produksi.');
+      } else {
+        // Validate format without leaking contents
+        const raw = serviceAccount.trim();
+        let parsed: any = null;
+        try {
+          let cleanRaw = cleanEnvSecret(raw);
+          if (cleanRaw.startsWith('{')) {
+            parsed = JSON.parse(cleanRaw);
+          } else if (process.env.GOOGLE_APPLICATION_CREDENTIALS && fs.existsSync(raw)) {
+            parsed = JSON.parse(fs.readFileSync(raw, 'utf-8'));
+          } else {
+            const decoded = Buffer.from(cleanRaw, 'base64').toString('utf-8');
+            if (decoded.trim().startsWith('{')) {
+              parsed = JSON.parse(decoded);
+            }
+          }
+        } catch {
+          // Ignored here, checked below
+        }
+
+        if (!parsed || typeof parsed !== 'object') {
+          errors.push('FIREBASE_SERVICE_ACCOUNT_KEY tidak berformat JSON atau Base64 yang valid.');
+        } else if (!parsed.client_email || !parsed.private_key) {
+          errors.push('FIREBASE_SERVICE_ACCOUNT_KEY wajib memiliki field "client_email" dan "private_key".');
+        }
       }
     }
   }
@@ -259,17 +292,17 @@ export const foodConfig = {
   // Supabase PostgreSQL Configuration
   supabase: {
     get url(): string {
-      return (process.env.SUPABASE_URL || 'https://epqpyieszdwyzrcbeqey.supabase.co').trim();
+      return normalizeSupabaseUrl(process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL, 'https://epqpyieszdwyzrcbeqey.supabase.co');
     },
     get serviceRoleKey(): string {
-      return (process.env.SUPABASE_SERVICE_ROLE_KEY || '').trim();
+      return cleanEnvSecret(process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_KEY);
     },
     get anonKey(): string {
-      return (process.env.SUPABASE_ANON_KEY || '').trim();
+      return cleanEnvSecret(process.env.SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY);
     },
     get isConfigured(): boolean {
-      const url = (process.env.SUPABASE_URL || '').trim();
-      const key = (process.env.SUPABASE_SERVICE_ROLE_KEY || '').trim();
+      const url = cleanEnvSecret(process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL);
+      const key = cleanEnvSecret(process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_KEY);
       return Boolean(url && key);
     }
   },

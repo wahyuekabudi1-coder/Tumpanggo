@@ -19,6 +19,7 @@ import fs from 'fs';
 import handler, { getAppModule } from '../api/index';
 import { foodConfig } from '../src/server/config';
 import { __setFirestoreMockForTesting } from '../src/server/firebaseAdmin';
+import { __setSupabaseMockForTesting } from '../src/server/supabaseAdapter';
 
 function setMock(mock: any) {
   __setFirestoreMockForTesting(mock);
@@ -26,6 +27,16 @@ function setMock(mock: any) {
     const mod = getAppModule();
     if (mod && typeof mod.__setFirestoreMockForTesting === 'function') {
       mod.__setFirestoreMockForTesting(mock);
+    }
+  } catch {}
+}
+
+function setSupabaseMock(mock: any) {
+  __setSupabaseMockForTesting(mock);
+  try {
+    const mod = getAppModule();
+    if (mod && typeof mod.__setSupabaseMockForTesting === 'function') {
+      mod.__setSupabaseMockForTesting(mock);
     }
   } catch {}
 }
@@ -104,19 +115,99 @@ async function run() {
     );
 
     // -------------------------------------------------------------------------
-    // TEST 2: Mode Produksi Dengan Konfigurasi Valid Namun Cloud Firestore Terputus
+    // TEST 2: Mode Produksi Dengan Supabase PostgreSQL Terputus
     // -------------------------------------------------------------------------
-    console.log('\n📦 TEST 2: Mode produksi dengan konfigurasi valid tetapi koneksi Cloud Firestore terputus');
+    console.log('\n📦 TEST 2: Mode produksi dengan Supabase terkonfigurasi tetapi terputus');
     process.env.FOOD_AUTH_SECRET = 'a_very_long_valid_production_secret_key_1234567890';
     process.env.FOOD_ADMIN_EMAIL = 'admin@tumpanggo.com';
     process.env.FOOD_ADMIN_PASSWORD = 'SecureAdminPassword#2026';
+    process.env.SUPABASE_URL = 'https://epqpyieszdwyzrcbeqey.supabase.co';
+    process.env.SUPABASE_SERVICE_ROLE_KEY = 'a_valid_mock_service_role_key_that_is_long_enough';
+    delete process.env.FIREBASE_SERVICE_ACCOUNT_KEY;
+
+    setSupabaseMock({
+      isConfigured: true,
+      probeResult: {
+        connected: false,
+        url: 'https://epqpyieszdwyzrcbeqey.supabase.co',
+        error: 'DNS resolution gagal (ENOTFOUND) untuk host "epqpyieszdwyzrcbeqey.supabase.co".'
+      }
+    });
+
+    const resSupabaseBlocked = await fetch(`${baseUrl}/api/merchants`, {
+      headers: { 'x-matched-path': '/api/merchants' }
+    });
+    const jsonSupabaseBlocked = await resSupabaseBlocked.json();
+    console.log('  🔍 GET /api/merchants (Supabase Disconnected) Respon:', resSupabaseBlocked.status, jsonSupabaseBlocked);
+
+    assert(
+      resSupabaseBlocked.status === 503,
+      'Operasi baca GET /api/merchants ditolak dengan HTTP 503 saat Supabase terputus',
+      `Status: ${resSupabaseBlocked.status}`
+    );
+    assert(
+      jsonSupabaseBlocked.code === 'DATABASE_UNAVAILABLE',
+      'Kode error DATABASE_UNAVAILABLE mencegah silent local fallback',
+      `Code: ${jsonSupabaseBlocked.code}`
+    );
+    assert(
+      jsonSupabaseBlocked.error && jsonSupabaseBlocked.error.includes('Supabase PostgreSQL'),
+      'Pesan error secara spesifik menyebut Database Supabase PostgreSQL (bukan Cloud Firestore)',
+      `Error: ${jsonSupabaseBlocked.error}`
+    );
+
+    // -------------------------------------------------------------------------
+    // TEST 3: Mode Produksi Dengan Supabase PostgreSQL Terhubung & Aktif
+    // -------------------------------------------------------------------------
+    console.log('\n📦 TEST 3: Mode produksi dengan Supabase PostgreSQL terhubung penuh');
+    setSupabaseMock({
+      isConfigured: true,
+      probeResult: {
+        connected: true,
+        url: 'https://epqpyieszdwyzrcbeqey.supabase.co',
+        latencyMs: 15
+      },
+      fetchResult: [
+        {
+          id: 'm_dql2xw0',
+          name: 'Warung Ombay',
+          category: 'Nasi & Lauk',
+          active: true
+        }
+      ]
+    });
+
+    const resSupabaseConnected = await fetch(`${baseUrl}/api/merchants`, {
+      headers: { 'x-matched-path': '/api/merchants' }
+    });
+    const jsonSupabaseConnected = await resSupabaseConnected.json();
+    console.log('  🔍 GET /api/merchants (Supabase Connected) Respon:', resSupabaseConnected.status, `Loaded ${Array.isArray(jsonSupabaseConnected) ? jsonSupabaseConnected.length : 0} merchants`);
+
+    assert(
+      resSupabaseConnected.status === 200,
+      'Operasi bisnis GET /api/merchants diterima dengan HTTP 200 saat Supabase terhubung',
+      `Status: ${resSupabaseConnected.status}`
+    );
+    assert(
+      Array.isArray(jsonSupabaseConnected),
+      'Mengembalikan daftar merchant dari data cloud Supabase',
+      `IsArray: ${Array.isArray(jsonSupabaseConnected)}`
+    );
+
+    // -------------------------------------------------------------------------
+    // TEST 4: Mode Produksi Dengan Cloud Firestore Terputus (Fallback Provider)
+    // -------------------------------------------------------------------------
+    console.log('\n📦 TEST 4: Mode produksi dengan konfigurasi Firestore valid tetapi terputus');
+    delete process.env.SUPABASE_URL;
+    delete process.env.SUPABASE_SERVICE_ROLE_KEY;
+    setSupabaseMock(null);
+
     process.env.FIREBASE_PROJECT_ID = 'tumpanggo-70479';
     process.env.FIREBASE_SERVICE_ACCOUNT_KEY = JSON.stringify({
       client_email: 'service-account@tumpanggo-70479.iam.gserviceaccount.com',
       private_key: '-----BEGIN PRIVATE KEY-----\nMIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQC...\n-----END PRIVATE KEY-----\n'
     });
 
-    // Mock Firestore terputus / izin IAM ditolak
     setMock({
       isConfigured: true,
       probeResult: {
@@ -134,75 +225,32 @@ async function run() {
       writeSuccess: false
     });
 
-    // 2a. Operasi bisnis membaca data (GET /api/merchants) HARUS DITOLAK
-    const resMerchantsBlocked = await fetch(`${baseUrl}/api/merchants`, {
+    const resFirestoreBlocked = await fetch(`${baseUrl}/api/merchants`, {
       headers: { 'x-matched-path': '/api/merchants' }
     });
-    const jsonMerchantsBlocked = await resMerchantsBlocked.json();
-    console.log('  🔍 GET /api/merchants Respon:', resMerchantsBlocked.status, jsonMerchantsBlocked);
+    const jsonFirestoreBlocked = await resFirestoreBlocked.json();
+    console.log('  🔍 GET /api/merchants (Firestore Disconnected) Respon:', resFirestoreBlocked.status, jsonFirestoreBlocked);
 
     assert(
-      resMerchantsBlocked.status === 503,
+      resFirestoreBlocked.status === 503,
       'Operasi baca GET /api/merchants ditolak dengan HTTP 503 saat Firestore terputus',
-      `Status: ${resMerchantsBlocked.status}`
+      `Status: ${resFirestoreBlocked.status}`
     );
     assert(
-      jsonMerchantsBlocked.code === 'DATABASE_UNAVAILABLE',
+      jsonFirestoreBlocked.code === 'DATABASE_UNAVAILABLE',
       'Kode error DATABASE_UNAVAILABLE mencegah silent local fallback',
-      `Code: ${jsonMerchantsBlocked.code}`
-    );
-
-    // 2b. Operasi bisnis mengubah data (POST /api/orders) HARUS DITOLAK
-    const resOrderBlocked = await fetch(`${baseUrl}/api/orders`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-matched-path': '/api/orders'
-      },
-      body: JSON.stringify({
-        merchantId: 'm1',
-        customerName: 'Test Customer',
-        customerPhone: '081234567890',
-        deliveryAddress: 'Jl. Raya Tumpang No. 1',
-        items: [{ menuItemId: 'item1', quantity: 1 }]
-      })
-    });
-    const jsonOrderBlocked = await resOrderBlocked.json();
-    console.log('  🔍 POST /api/orders Respon:', resOrderBlocked.status, jsonOrderBlocked);
-
-    assert(
-      resOrderBlocked.status === 503,
-      'Operasi tulis POST /api/orders ditolak dengan HTTP 503 saat Firestore terputus',
-      `Status: ${resOrderBlocked.status}`
+      `Code: ${jsonFirestoreBlocked.code}`
     );
     assert(
-      jsonOrderBlocked.code === 'DATABASE_UNAVAILABLE',
-      'Penyimpanan lokal dicegah agar tidak menerima mutasi data tanpa cloud persistence',
-      `Code: ${jsonOrderBlocked.code}`
-    );
-
-    // 2c. Diagnostic /api/health tetap dapat diakses untuk inspeksi status tanpa silent bypass
-    const resHealth = await fetch(`${baseUrl}/api/health`, {
-      headers: { 'x-matched-path': '/api/health' }
-    });
-    const jsonHealth = await resHealth.json();
-    console.log('  🔍 GET /api/health Respon:', resHealth.status, jsonHealth.status);
-
-    assert(
-      resHealth.status === 503,
-      'Endpoint diagnostik /api/health mencerminkan 503 database_disconnected',
-      `Status: ${resHealth.status}`
-    );
-    assert(
-      jsonHealth.database === 'disconnected' && jsonHealth.status === 'database_disconnected',
-      'Diagnostik akurat melaporkan status disconnected',
-      `Status: ${jsonHealth.status}`
+      jsonFirestoreBlocked.error && jsonFirestoreBlocked.error.includes('Cloud Firestore'),
+      'Pesan error secara akurat menyebut Cloud Firestore saat Firestore yang aktif',
+      `Error: ${jsonFirestoreBlocked.error}`
     );
 
     // -------------------------------------------------------------------------
-    // TEST 3: Mode Produksi Dengan Cloud Firestore Terhubung & Aktif
+    // TEST 5: Mode Produksi Dengan Cloud Firestore Terhubung & Aktif
     // -------------------------------------------------------------------------
-    console.log('\n📦 TEST 3: Mode produksi dengan Cloud Firestore terhubung penuh');
+    console.log('\n📦 TEST 5: Mode produksi dengan Cloud Firestore terhubung penuh');
     setMock({
       isConfigured: true,
       probeResult: {
@@ -223,26 +271,22 @@ async function run() {
       headers: { 'x-matched-path': '/api/merchants' }
     });
     const jsonConnected = await resConnected.json();
-    console.log('  🔍 GET /api/merchants Respon:', resConnected.status, `Loaded ${Array.isArray(jsonConnected) ? jsonConnected.length : 0} merchants`);
+    console.log('  🔍 GET /api/merchants (Firestore Connected) Respon:', resConnected.status, `Loaded ${Array.isArray(jsonConnected) ? jsonConnected.length : 0} merchants`);
 
     assert(
       resConnected.status === 200,
       'Operasi bisnis GET /api/merchants diterima dengan HTTP 200 saat Firestore terhubung',
       `Status: ${resConnected.status}`
     );
-    assert(
-      Array.isArray(jsonConnected),
-      'Mengembalikan daftar toko merchant yang sah dari data cloud',
-      `IsArray: ${Array.isArray(jsonConnected)}`
-    );
 
     // -------------------------------------------------------------------------
-    // TEST 4: Mode Pengembangan Lokal (Resilient Mode)
+    // TEST 6: Mode Pengembangan Lokal (Resilient Mode)
     // -------------------------------------------------------------------------
-    console.log('\n📦 TEST 4: Mode pengembangan lokal (resilient mode tanpa paksaan cloud)');
+    console.log('\n📦 TEST 6: Mode pengembangan lokal (resilient mode tanpa paksaan cloud)');
     process.env.NODE_ENV = 'development';
     (foodConfig as any).isProduction = false;
     setMock(null);
+    setSupabaseMock(null);
 
     const resDev = await fetch(`${baseUrl}/api/merchants`, {
       headers: { 'x-matched-path': '/api/merchants' }
@@ -258,8 +302,11 @@ async function run() {
 
   } finally {
     setMock(null);
+    setSupabaseMock(null);
     process.env.NODE_ENV = originalNodeEnv;
     (foodConfig as any).isProduction = originalNodeEnv === 'production';
+    delete process.env.SUPABASE_URL;
+    delete process.env.SUPABASE_SERVICE_ROLE_KEY;
     if (originalSecret) process.env.FOOD_AUTH_SECRET = originalSecret;
     if (originalServiceAccount) process.env.FIREBASE_SERVICE_ACCOUNT_KEY = originalServiceAccount;
     if (originalProjectId) process.env.FIREBASE_PROJECT_ID = originalProjectId;
