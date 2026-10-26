@@ -12,6 +12,14 @@ import type { IncomingMessage, ServerResponse } from 'http';
 import { createRequire } from 'module';
 import path from 'path';
 import fs from 'fs';
+import dns from 'dns';
+
+// Prioritize IPv4 DNS lookups on Node.js 18+ to eliminate serverless IPv6 connection timeout / fetch failed
+try {
+  if (typeof (dns as any).setDefaultResultOrder === 'function') {
+    (dns as any).setDefaultResultOrder('ipv4first');
+  }
+} catch {}
 
 // Safely obtain a require function compatible with both ESM and CJS on Vercel
 const _currentFile = typeof import.meta !== 'undefined' && import.meta?.url 

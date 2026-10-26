@@ -110,12 +110,33 @@ function resolveServerPort(): number {
   return 3000;
 }
 
-export function normalizeSupabaseUrl(raw?: string, fallback = 'https://epqpyieszdwyzrcbeqey.supabase.co'): string {
-  let url = cleanEnvSecret(raw);
-  if (!url) return fallback;
+export function extractSupabaseProjectRef(key?: string): string | null {
+  if (!key || typeof key !== 'string') return null;
+  const clean = cleanEnvSecret(key);
+  const parts = clean.split('.');
+  if (parts.length >= 2) {
+    try {
+      const payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf-8'));
+      if (payload && typeof payload.ref === 'string' && /^[a-z0-9_-]{10,40}$/i.test(payload.ref)) {
+        return payload.ref.toLowerCase();
+      }
+    } catch {}
+  }
+  return null;
+}
 
-  // Handle accidental 20-character project ref e.g. "epqpyieszdwyzrcbeqey"
-  if (/^[a-z0-9]{20}$/i.test(url)) {
+export function normalizeSupabaseUrl(raw?: string, key?: string): string {
+  let url = cleanEnvSecret(raw);
+  if (!url) {
+    const derivedRef = extractSupabaseProjectRef(key || process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_KEY);
+    if (derivedRef) {
+      return `https://${derivedRef}.supabase.co`;
+    }
+    return '';
+  }
+
+  // Handle accidental project ref e.g. "myprojectid12345678"
+  if (/^[a-z0-9_-]{15,40}$/i.test(url) && !url.includes('.')) {
     return `https://${url.toLowerCase()}.supabase.co`;
   }
 
@@ -157,26 +178,30 @@ export function validateProductionEnvironment(): { isValid: boolean; errors: str
   }
 
   const rawSupabaseKey = cleanEnvSecret(process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_KEY);
-  const rawSupabaseUrl = cleanEnvSecret(process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL, 'https://epqpyieszdwyzrcbeqey.supabase.co');
-  const hasSupabase = Boolean(rawSupabaseKey && rawSupabaseKey.length >= 20);
+  const rawSupabaseUrl = cleanEnvSecret(process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL);
+  const derivedRef = extractSupabaseProjectRef(rawSupabaseKey);
+  const hasSupabaseKey = Boolean(rawSupabaseKey && rawSupabaseKey.length >= 20);
+  const hasSupabaseUrl = Boolean(rawSupabaseUrl || derivedRef);
 
-  if (hasSupabase) {
-    // Validate Supabase URL format strictly
-    try {
-      const normalized = normalizeSupabaseUrl(rawSupabaseUrl);
-      const parsed = new URL(normalized);
-      if (!['http:', 'https:'].includes(parsed.protocol)) {
-        errors.push('SUPABASE_URL wajib menggunakan protokol https://.');
-      }
-      if (!parsed.hostname || !parsed.hostname.includes('.')) {
-        errors.push('SUPABASE_URL memiliki format hostname yang tidak sah.');
-      }
-    } catch {
-      errors.push('SUPABASE_URL tidak berformat URL yang sah.');
+  if (hasSupabaseKey || rawSupabaseUrl) {
+    if (!hasSupabaseKey) {
+      errors.push('SUPABASE_SERVICE_ROLE_KEY wajib disetel pada lingkungan produksi (minimal 20 karakter).');
     }
-
-    if (rawSupabaseKey.length < 20) {
-      errors.push('SUPABASE_SERVICE_ROLE_KEY wajib memiliki panjang minimal 20 karakter.');
+    if (!hasSupabaseUrl) {
+      errors.push('SUPABASE_URL wajib disetel pada lingkungan produksi (contoh: https://<project-ref>.supabase.co).');
+    } else {
+      const normalized = normalizeSupabaseUrl(rawSupabaseUrl, rawSupabaseKey);
+      try {
+        const parsed = new URL(normalized);
+        if (!['http:', 'https:'].includes(parsed.protocol)) {
+          errors.push('SUPABASE_URL wajib menggunakan protokol https://.');
+        }
+        if (!parsed.hostname || !parsed.hostname.includes('.')) {
+          errors.push('SUPABASE_URL memiliki format hostname yang tidak sah.');
+        }
+      } catch {
+        errors.push('SUPABASE_URL tidak berformat URL yang sah.');
+      }
     }
   } else {
     // Supabase is not configured; check if Firestore fallback credentials exist
@@ -320,7 +345,20 @@ export const foodConfig = {
   // Supabase PostgreSQL Configuration
   supabase: {
     get url(): string {
-      return normalizeSupabaseUrl(process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL, 'https://epqpyieszdwyzrcbeqey.supabase.co');
+      const key = cleanEnvSecret(process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_KEY);
+      return normalizeSupabaseUrl(process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL, key);
+    },
+    get projectId(): string {
+      const u = this.url;
+      try {
+        if (u) {
+          const host = new URL(u).hostname;
+          const sub = host.split('.')[0];
+          if (sub) return sub;
+        }
+      } catch {}
+      const key = cleanEnvSecret(process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_KEY);
+      return extractSupabaseProjectRef(key) || 'supabase';
     },
     get serviceRoleKey(): string {
       return cleanEnvSecret(process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_KEY);
@@ -330,7 +368,8 @@ export const foodConfig = {
     },
     get isConfigured(): boolean {
       const key = cleanEnvSecret(process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_KEY);
-      return Boolean(key && key.length >= 20);
+      const url = normalizeSupabaseUrl(process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL, key);
+      return Boolean(key && key.length >= 20 && url && url.startsWith('http'));
     }
   },
 

@@ -76,7 +76,24 @@ export function getSupabaseClient(): SupabaseClient | null {
       },
       global: {
         headers: {
-          'x-application-name': 'tumpanggo-serverless'
+          'x-application-name': 'tumpanggo-serverless',
+          'Connection': 'close'
+        },
+        fetch: async (input: RequestInfo | URL, init?: RequestInit) => {
+          let retries = 2;
+          let delay = 350;
+          while (true) {
+            try {
+              return await fetch(input, init);
+            } catch (err: any) {
+              if (init?.signal?.aborted || err?.name === 'AbortError' || retries <= 0) {
+                throw err;
+              }
+              retries--;
+              await new Promise(r => setTimeout(r, delay));
+              delay *= 2;
+            }
+          }
         }
       }
     });
@@ -557,57 +574,21 @@ export interface SupabaseDiagnosticDetail {
 export function formatSupabaseError(err: any): SupabaseDiagnosticDetail {
   if (!err) return { message: 'Unknown error', category: 'UNKNOWN' };
 
-  let targetHost = 'epqpyieszdwyzrcbeqey.supabase.co';
+  let targetHost = 'supabase.co';
   try {
-    targetHost = new URL(foodConfig.supabase.url).hostname;
+    if (foodConfig.supabase.url) {
+      targetHost = new URL(foodConfig.supabase.url).hostname;
+    }
   } catch {}
 
-  // 1. PostgREST structured error from response body
-  if (err.code || err.hint || err.details) {
-    const code = String(err.code || '');
-    const rawMsg = sanitizeErrorText(String(err.message || ''));
-    if (code === 'PGRST301' || rawMsg.toLowerCase().includes('jwt') || rawMsg.toLowerCase().includes('apikey')) {
-      return {
-        message: `Autentikasi Supabase gagal (HTTP 401/PGRST301): Kredensial SUPABASE_SERVICE_ROLE_KEY tidak valid atau token kedaluwarsa.`,
-        code: code || 'AUTH_FAILURE',
-        category: 'AUTH',
-        causeCode: code,
-        causeMessage: rawMsg,
-        causeHostname: targetHost
-      };
-    }
-    if (code === '42P01') {
-      return {
-        message: `Tabel database PostgreSQL tidak ditemukan di Supabase (${rawMsg}). Pastikan migrasi SQL Supabase telah diaplikasikan.`,
-        code,
-        category: 'TABLE_NOT_FOUND',
-        causeCode: code,
-        causeMessage: rawMsg,
-        causeHostname: targetHost
-      };
-    }
-    if (code === '42501') {
-      return {
-        message: `Izin ditolak oleh Row Level Security (RLS) PostgreSQL: ${rawMsg}.`,
-        code,
-        category: 'RLS_DENIED',
-        causeCode: code,
-        causeMessage: rawMsg,
-        causeHostname: targetHost
-      };
-    }
-    return {
-      message: `Supabase PostgREST error [${code}]: ${rawMsg}`,
-      code,
-      category: 'HTTP_ERROR',
-      causeCode: code,
-      causeMessage: rawMsg,
-      causeHostname: targetHost
-    };
-  }
+  const rawMsg = sanitizeErrorText(String(err?.message || ''));
+  const errName = String(err?.name || '');
+  const details = sanitizeErrorText(String(err?.details || ''));
+  const hint = sanitizeErrorText(String(err?.hint || ''));
+  const code = String(err?.code || '');
 
-  // 2. Deep inspection of Node.js / Undici network failure
-  let cause = (err as any)?.cause;
+  // 1. Inspect whether this is a network / fetch-level failure (e.g. Node.js Undici fetch failed, ENOTFOUND, ECONNREFUSED)
+  let cause = (err as any)?.cause || (err as any)?.originalError;
   if (cause && Array.isArray((cause as any).errors) && (cause as any).errors.length > 0) {
     cause = (cause as any).errors[0];
   }
@@ -615,118 +596,177 @@ export function formatSupabaseError(err: any): SupabaseDiagnosticDetail {
     cause = cause.cause;
   }
 
-  const causeCode = String(cause?.code || (err as any)?.code || '');
+  const causeCode = String(cause?.code || '');
   const causeSyscall = cause?.syscall ? String(cause.syscall) : undefined;
   const causeHostname = cause?.hostname ? String(cause.hostname) : targetHost;
   const causeMsg = sanitizeErrorText(cause?.message || '');
-  const rawMsg = sanitizeErrorText(err?.message || '');
-  const errName = String(err?.name || '');
 
-  // DNS Failure (ENOTFOUND, EAI_AGAIN)
-  if (causeCode === 'ENOTFOUND' || causeCode === 'EAI_AGAIN' || rawMsg.includes('ENOTFOUND') || causeMsg.includes('ENOTFOUND')) {
-    return {
-      message: `DNS resolution gagal (${causeCode || 'ENOTFOUND'}) untuk host "${causeHostname}". Periksa koneksi jaringan Vercel atau keaktifan project Supabase.`,
-      code: causeCode || 'ENOTFOUND',
-      category: 'DNS',
-      causeCode: causeCode || 'ENOTFOUND',
-      causeSyscall: causeSyscall || 'getaddrinfo',
-      causeHostname,
-      causeMessage: causeMsg || rawMsg
-    };
-  }
-
-  // Connection refused / reset
-  if (causeCode === 'ECONNREFUSED' || causeCode === 'ECONNRESET' || rawMsg.includes('ECONNREFUSED')) {
-    return {
-      message: `Koneksi ditolak (${causeCode}) oleh endpoint Supabase (${causeHostname}).`,
-      code: causeCode,
-      category: 'CONNECTION_REFUSED',
-      causeCode,
-      causeSyscall: causeSyscall || 'connect',
-      causeHostname,
-      causeMessage: causeMsg || rawMsg
-    };
-  }
-
-  // Network Timeout / Abort
-  if (
+  const isFetchNetworkFailure =
+    rawMsg.includes('fetch failed') ||
+    errName === 'TypeError' ||
+    details.includes('fetch failed') ||
+    causeCode === 'ENOTFOUND' ||
+    details.includes('ENOTFOUND') ||
+    causeCode === 'ECONNREFUSED' ||
+    details.includes('ECONNREFUSED') ||
     causeCode === 'ETIMEDOUT' ||
-    causeCode === 'UND_ERR_CONNECT_TIMEOUT' ||
-    errName === 'AbortError' ||
-    rawMsg.toLowerCase().includes('timeout') ||
-    rawMsg.toLowerCase().includes('aborted')
-  ) {
-    return {
-      message: `Waktu koneksi ke Supabase (${causeHostname}) habis (Timeout). Latensi jaringan melebihi batas waktu 10 detik.`,
-      code: causeCode || 'ETIMEDOUT',
-      category: 'NETWORK_TIMEOUT',
-      causeCode: causeCode || 'ETIMEDOUT',
-      causeSyscall: causeSyscall || 'connect',
-      causeHostname,
-      causeMessage: causeMsg || rawMsg
-    };
-  }
+    details.includes('ETIMEDOUT') ||
+    details.includes('UND_ERR') ||
+    (!code && !hint && details.includes('Error:'));
 
-  // TLS / SSL Failure
-  if (
-    causeCode.startsWith('CERT_') ||
-    causeCode.includes('SSL') ||
-    causeCode.includes('TLS') ||
-    causeCode === 'DEPTH_ZERO_SELF_SIGNED_CERT' ||
-    causeCode === 'UNABLE_TO_VERIFY_LEAF_SIGNATURE' ||
-    causeMsg.toLowerCase().includes('certificate') ||
-    causeMsg.toLowerCase().includes('ssl') ||
-    causeMsg.toLowerCase().includes('tls')
-  ) {
-    return {
-      message: `Kegagalan verifikasi TLS/SSL saat menghubungi Supabase (${causeCode || causeMsg}).`,
-      code: causeCode || 'TLS_ERROR',
-      category: 'TLS',
-      causeCode: causeCode || 'TLS_ERROR',
-      causeHostname,
-      causeMessage: causeMsg || rawMsg
-    };
-  }
+  if (isFetchNetworkFailure) {
+    // DNS Failure (ENOTFOUND, EAI_AGAIN)
+    if (
+      causeCode === 'ENOTFOUND' ||
+      causeCode === 'EAI_AGAIN' ||
+      rawMsg.includes('ENOTFOUND') ||
+      details.includes('ENOTFOUND') ||
+      causeMsg.includes('ENOTFOUND')
+    ) {
+      return {
+        message: `DNS resolution gagal (ENOTFOUND) untuk host "${causeHostname}". Host Supabase tidak ditemukan di internet. Periksa apakah SUPABASE_URL di Vercel sudah benar atau proyek Supabase aktif.`,
+        code: causeCode || 'ENOTFOUND',
+        category: 'DNS',
+        causeCode: causeCode || 'ENOTFOUND',
+        causeSyscall: causeSyscall || 'getaddrinfo',
+        causeHostname,
+        causeMessage: causeMsg || details || rawMsg
+      };
+    }
 
-  // Invalid character in HTTP header (newline / carriage return in key)
-  if (
-    causeCode === 'ERR_INVALID_CHAR' ||
-    rawMsg.includes('Invalid character in header') ||
-    causeMsg.includes('Invalid character in header')
-  ) {
-    return {
-      message: 'Karakter tidak valid (seperti newline tersembunyi) ditemukan pada SUPABASE_SERVICE_ROLE_KEY di Vercel.',
-      code: 'ERR_INVALID_CHAR',
-      category: 'AUTH',
-      causeCode: 'ERR_INVALID_CHAR',
-      causeHostname,
-      causeMessage: 'Invalid character in headerContent'
-    };
-  }
+    // Connection refused / reset
+    if (
+      causeCode === 'ECONNREFUSED' ||
+      causeCode === 'ECONNRESET' ||
+      rawMsg.includes('ECONNREFUSED') ||
+      details.includes('ECONNREFUSED')
+    ) {
+      return {
+        message: `Koneksi ditolak (${causeCode || 'ECONNREFUSED'}) oleh endpoint Supabase (${causeHostname}).`,
+        code: causeCode || 'ECONNREFUSED',
+        category: 'CONNECTION_REFUSED',
+        causeCode: causeCode || 'ECONNREFUSED',
+        causeSyscall: causeSyscall || 'connect',
+        causeHostname,
+        causeMessage: causeMsg || details || rawMsg
+      };
+    }
 
-  // Undici fetch failed
-  if (errName === 'TypeError' && rawMsg === 'fetch failed') {
+    // Network Timeout / Abort
+    if (
+      causeCode === 'ETIMEDOUT' ||
+      causeCode === 'UND_ERR_CONNECT_TIMEOUT' ||
+      errName === 'AbortError' ||
+      rawMsg.toLowerCase().includes('timeout') ||
+      details.toLowerCase().includes('timeout') ||
+      rawMsg.toLowerCase().includes('aborted')
+    ) {
+      return {
+        message: `Waktu koneksi ke Supabase (${causeHostname}) habis (Timeout). Latensi jaringan melebihi batas waktu 10 detik.`,
+        code: causeCode || 'ETIMEDOUT',
+        category: 'NETWORK_TIMEOUT',
+        causeCode: causeCode || 'ETIMEDOUT',
+        causeSyscall: causeSyscall || 'connect',
+        causeHostname,
+        causeMessage: causeMsg || details || rawMsg
+      };
+    }
+
+    // TLS / SSL Failure
+    if (
+      causeCode.startsWith('CERT_') ||
+      causeCode.includes('SSL') ||
+      causeCode.includes('TLS') ||
+      causeCode === 'DEPTH_ZERO_SELF_SIGNED_CERT' ||
+      causeCode === 'UNABLE_TO_VERIFY_LEAF_SIGNATURE' ||
+      causeMsg.toLowerCase().includes('certificate') ||
+      causeMsg.toLowerCase().includes('ssl') ||
+      causeMsg.toLowerCase().includes('tls') ||
+      details.toLowerCase().includes('certificate') ||
+      details.toLowerCase().includes('ssl')
+    ) {
+      return {
+        message: `Kegagalan verifikasi TLS/SSL saat menghubungi Supabase (${causeCode || causeMsg || 'TLS_ERROR'}).`,
+        code: causeCode || 'TLS_ERROR',
+        category: 'TLS',
+        causeCode: causeCode || 'TLS_ERROR',
+        causeHostname,
+        causeMessage: causeMsg || details || rawMsg
+      };
+    }
+
+    // Invalid character in HTTP header (newline / carriage return in key)
+    if (
+      causeCode === 'ERR_INVALID_CHAR' ||
+      rawMsg.includes('Invalid character in header') ||
+      causeMsg.includes('Invalid character in header') ||
+      details.includes('Invalid character in header')
+    ) {
+      return {
+        message: 'Karakter tidak valid (seperti newline atau spasi tersembunyi) ditemukan pada SUPABASE_SERVICE_ROLE_KEY di Vercel.',
+        code: 'ERR_INVALID_CHAR',
+        category: 'AUTH',
+        causeCode: 'ERR_INVALID_CHAR',
+        causeHostname,
+        causeMessage: 'Invalid character in headerContent'
+      };
+    }
+
+    // Generic fetch failed
     return {
       message: causeMsg 
-        ? `Koneksi fetch gagal [${causeCode || 'NETWORK_ERROR'}]: ${causeMsg}` 
-        : `Koneksi fetch ke Supabase (${causeHostname}) gagal tanpa respons server.`,
+        ? `Koneksi fetch ke Supabase (${causeHostname}) gagal [${causeCode || 'NETWORK_ERROR'}]: ${causeMsg}` 
+        : `Koneksi fetch ke Supabase (${causeHostname}) gagal tanpa respons server. Pastikan URL dan koneksi internet aktif.`,
       code: causeCode || 'FETCH_FAILED',
       category: 'NETWORK',
       causeCode: causeCode || 'FETCH_FAILED',
       causeSyscall,
       causeHostname,
-      causeMessage: causeMsg || rawMsg
+      causeMessage: causeMsg || details || rawMsg
+    };
+  }
+
+  // 2. PostgREST structured error from actual server response
+  if (code === 'PGRST301' || rawMsg.toLowerCase().includes('jwt') || rawMsg.toLowerCase().includes('apikey')) {
+    return {
+      message: `Autentikasi Supabase gagal (HTTP 401/PGRST301): Kredensial SUPABASE_SERVICE_ROLE_KEY tidak valid atau token kedaluwarsa.`,
+      code: code || 'AUTH_FAILURE',
+      category: 'AUTH',
+      causeCode: code,
+      causeMessage: rawMsg,
+      causeHostname: targetHost
+    };
+  }
+
+  if (code === '42P01') {
+    return {
+      message: `Tabel database PostgreSQL tidak ditemukan di Supabase (${rawMsg}). Pastikan migrasi SQL Supabase (supabase_schema.sql) telah diaplikasikan di SQL Editor Supabase.`,
+      code,
+      category: 'TABLE_NOT_FOUND',
+      causeCode: code,
+      causeMessage: rawMsg,
+      causeHostname: targetHost
+    };
+  }
+
+  if (code === '42501') {
+    return {
+      message: `Izin ditolak oleh Row Level Security (RLS) PostgreSQL: ${rawMsg}.`,
+      code,
+      category: 'RLS_DENIED',
+      causeCode: code,
+      causeMessage: rawMsg,
+      causeHostname: targetHost
     };
   }
 
   return {
-    message: rawMsg || String(err),
-    code: causeCode || undefined,
-    category: 'UNKNOWN',
-    causeCode: causeCode || undefined,
-    causeSyscall,
-    causeHostname,
-    causeMessage: causeMsg || undefined
+    message: code ? `Supabase PostgREST error [${code}]: ${rawMsg}` : rawMsg,
+    code: code || undefined,
+    category: code ? 'HTTP_ERROR' : 'UNKNOWN',
+    causeCode: code || undefined,
+    causeHostname: targetHost,
+    causeMessage: rawMsg
   };
 }
 
@@ -743,9 +783,11 @@ export async function testSupabaseConnection(): Promise<{
   causeHostname?: string;
   causeMessage?: string;
 }> {
-  let targetHost = 'epqpyieszdwyzrcbeqey.supabase.co';
+  let targetHost = 'unknown-host';
   try {
-    targetHost = new URL(foodConfig.supabase.url).hostname;
+    if (foodConfig.supabase.url) {
+      targetHost = new URL(foodConfig.supabase.url).hostname;
+    }
   } catch {}
 
   if (testSupabaseMock?.probeResult !== undefined) {
@@ -755,13 +797,24 @@ export async function testSupabaseConnection(): Promise<{
     };
   }
 
+  if (!foodConfig.supabase.url) {
+    return {
+      connected: false,
+      url: '',
+      host: targetHost,
+      error: 'SUPABASE_URL belum dikonfigurasi di environment variables Vercel (contoh: https://<project-ref>.supabase.co).',
+      category: 'CONFIG_MISSING',
+      errorCode: 'CONFIG_MISSING_URL'
+    };
+  }
+
   const client = getSupabaseClient();
   if (!client) {
     return {
       connected: false,
       url: foodConfig.supabase.url,
       host: targetHost,
-      error: 'Supabase credentials not configured (SUPABASE_SERVICE_ROLE_KEY missing or too short).',
+      error: 'Kredensial Supabase belum lengkap (SUPABASE_SERVICE_ROLE_KEY wajib disetel di Vercel).',
       category: 'AUTH',
       errorCode: 'AUTH_MISSING_KEY'
     };
