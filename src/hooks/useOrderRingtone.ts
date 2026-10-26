@@ -1,16 +1,14 @@
 /**
  * @license
  * SPDX-License-Identifier: Apache-2.0
- * 
- * Hook for managing new incoming order ringtone alerts in TumpangGo Food Merchant.
- * Features:
- * - Strict Deduplication:
- *   - Seeds known order IDs on initial mount & persists them to safeStorage so refreshes do NOT ring
- *   - Status changes or existing orders never trigger mass ringing
- * - Automatically rings phone call cadence when a NEW order with PAYMENT_VERIFIED status arrives
- * - Automatically stops when the order is handled (moved to COOKING/READY/CANCELLED)
- * - Auto-unlocks AudioContext on user first interaction
- * - Provides dismiss/mute/unmute and sound test controls
+ *
+ * Hook for managing new incoming order ringtone alerts in TumpangGo Food Merchant (Web/PWA).
+ *
+ * IMPORTANT NATIVE APK COORDINATION:
+ * When `suppressWebAudio` is true (running inside the Native Android APK WebView),
+ * Web Audio synthesis is strictly disabled because Android's native `NotificationChannel`
+ * (`Pesanan Baru TumpangGo Merchant` -> `res/raw/order_ringtone.wav`) handles audio & vibration
+ * at the OS level, preventing double sound or overlapping loops.
  */
 
 import { useState, useEffect, useRef, useCallback } from 'react';
@@ -20,13 +18,16 @@ import { safeStorage } from '../utils/safeStorage.ts';
 
 const SEEN_ORDERS_STORAGE_KEY = 'tumpang_seen_order_ids';
 
-export function useOrderRingtone(orders: Order[], isLoaded: boolean = true) {
+export function useOrderRingtone(
+  orders: Order[],
+  isLoaded: boolean = true,
+  suppressWebAudio: boolean = false
+) {
   const [isRinging, setIsRinging] = useState<boolean>(() => orderRingtone.isRinging());
   const [isMuted, setIsMuted] = useState<boolean>(() => orderRingtone.isMuted());
   const [isAudioUnlocked, setIsAudioUnlocked] = useState<boolean>(() => orderRingtone.isUnlocked());
   const [activeAlertOrderId, setActiveAlertOrderId] = useState<string | null>(null);
 
-  // Set of known order IDs that have already been seen/processed
   const knownOrderIdsRef = useRef<Set<string>>(
     (() => {
       const set = new Set<string>();
@@ -42,10 +43,9 @@ export function useOrderRingtone(orders: Order[], isLoaded: boolean = true) {
       return set;
     })()
   );
-  
+
   const isInitialLoadDoneRef = useRef<boolean>(false);
 
-  // Helper to persist known IDs (keep up to 150 latest IDs)
   const persistKnownIds = useCallback(() => {
     try {
       const arr = Array.from(knownOrderIdsRef.current).slice(-150);
@@ -53,18 +53,26 @@ export function useOrderRingtone(orders: Order[], isLoaded: boolean = true) {
     } catch {}
   }, []);
 
-  // Subscribe to audio player state
+  // Ensure any running Web Audio oscillator stops immediately if native mode is detected
+  useEffect(() => {
+    if (suppressWebAudio) {
+      orderRingtone.stopRinging();
+      setIsRinging(false);
+    }
+  }, [suppressWebAudio]);
+
   useEffect(() => {
     const unsubscribe = orderRingtone.subscribe((ring, mute, unlocked) => {
-      setIsRinging(ring);
+      setIsRinging(suppressWebAudio ? false : ring);
       setIsMuted(mute);
       setIsAudioUnlocked(unlocked);
     });
     return unsubscribe;
-  }, []);
+  }, [suppressWebAudio]);
 
-  // Listen for user gestures to unlock AudioContext proactively
   useEffect(() => {
+    if (suppressWebAudio) return;
+
     const handleUserGesture = () => {
       orderRingtone.unlock();
     };
@@ -76,21 +84,15 @@ export function useOrderRingtone(orders: Order[], isLoaded: boolean = true) {
       window.removeEventListener('click', handleUserGesture);
       window.removeEventListener('touchstart', handleUserGesture);
     };
-  }, []);
+  }, [suppressWebAudio]);
 
-  // Monitor incoming orders with strict deduplication
   useEffect(() => {
-    if (!orders || !Array.isArray(orders)) return;
+    if (!orders || !Array.isArray(orders) || !isLoaded) return;
 
-    // Do nothing until initial data fetch completes
-    if (!isLoaded) return;
-
-    // Filter incoming orders that require kitchen attention (PAYMENT_VERIFIED)
     const incomingVerifiedOrders = orders.filter(
       o => o && o.status === OrderStatus.PAYMENT_VERIFIED
     );
 
-    // Initial mount: record all currently existing orders without ringing
     if (!isInitialLoadDoneRef.current) {
       orders.forEach(o => {
         if (o?.id) knownOrderIdsRef.current.add(o.id);
@@ -100,55 +102,48 @@ export function useOrderRingtone(orders: Order[], isLoaded: boolean = true) {
       return;
     }
 
-    // Subsequent updates: check for brand new incoming verified orders
     const brandNewIncomingOrders = incomingVerifiedOrders.filter(
       o => !knownOrderIdsRef.current.has(o.id)
     );
 
     if (brandNewIncomingOrders.length > 0) {
-      // Found new incoming order!
       const targetOrder = brandNewIncomingOrders[0];
-      // Mark as seen so we don't re-trigger continuously
       brandNewIncomingOrders.forEach(o => knownOrderIdsRef.current.add(o.id));
       persistKnownIds();
       setActiveAlertOrderId(targetOrder.id);
 
-      // Start ringing telephone ringtone
-      orderRingtone.startRinging();
-    } else {
-      // Check if the order that was ringing is still in PAYMENT_VERIFIED status
-      if (activeAlertOrderId) {
-        const stillWaiting = incomingVerifiedOrders.some(o => o.id === activeAlertOrderId);
-        if (!stillWaiting) {
-          // The order has been accepted/cooked or cancelled -> stop ringing
-          orderRingtone.stopRinging();
-          setActiveAlertOrderId(null);
-        }
+      // Only play browser Web Audio synthesis when NOT inside the Native Android APK
+      if (!suppressWebAudio) {
+        orderRingtone.startRinging();
+      }
+    } else if (activeAlertOrderId) {
+      const stillWaiting = incomingVerifiedOrders.some(o => o.id === activeAlertOrderId);
+      if (!stillWaiting) {
+        orderRingtone.stopRinging();
+        setActiveAlertOrderId(null);
       }
     }
-  }, [orders, isLoaded, activeAlertOrderId, persistKnownIds]);
+  }, [orders, isLoaded, activeAlertOrderId, persistKnownIds, suppressWebAudio]);
 
-  // Dismiss / silence current ring
   const dismissAlert = useCallback(() => {
     orderRingtone.stopRinging();
     setActiveAlertOrderId(null);
   }, []);
 
-  // Toggle mute
   const toggleMute = useCallback(() => {
     const newMuted = orderRingtone.toggleMute();
     setIsMuted(newMuted);
   }, []);
 
-  // Test ringtone
   const testRingtone = useCallback(async () => {
+    if (suppressWebAudio) return false;
     return await orderRingtone.playTestTone();
-  }, []);
+  }, [suppressWebAudio]);
 
-  // Request audio permission / unlock
   const unlockAudio = useCallback(async () => {
+    if (suppressWebAudio) return true;
     return await orderRingtone.unlock();
-  }, []);
+  }, [suppressWebAudio]);
 
   return {
     isRinging,

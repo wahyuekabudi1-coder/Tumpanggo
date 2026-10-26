@@ -21,6 +21,7 @@ import { apiFetch as fetch, extractArrayResponse } from './utils/apiClient.ts';
 import { ShieldAlert, Key, HelpCircle, Store, Navigation, ChevronRight } from 'lucide-react';
 import { useSEO } from './hooks/useSEO.ts';
 import { syncPWAManifest } from './hooks/usePWAInstall.ts';
+import { clearNativeMerchantSessionGlobal, getActiveNativeBridge } from './hooks/useNativeBridge.ts';
 
 export default function App() {
   const [currentRole, setCurrentRole] = useState<'CUSTOMER' | 'MERCHANT' | 'DRIVER' | 'ADMIN'>(() => {
@@ -148,13 +149,22 @@ export default function App() {
     }
     const roleParam = params.get('role')?.toUpperCase();
     const idParam = params.get('id') || params.get('merchantId') || params.get('driverId');
+    const orderIdParam = params.get('orderId');
     const demoParam = params.get('demo') || params.get('dev');
+
+    if (orderIdParam && orderIdParam.trim()) {
+      safeStorage.setItem('tumpang_pending_open_order_id', orderIdParam.trim());
+    }
 
     if (roleParam && ['CUSTOMER', 'MERCHANT', 'DRIVER', 'ADMIN'].includes(roleParam)) {
       setCurrentRole(roleParam as any);
       if (roleParam === 'MERCHANT') {
         if (idParam) setActiveMerchantId(idParam);
-        const newUrl = idParam ? `/merchant?id=${encodeURIComponent(idParam)}` : '/merchant';
+        const searchSuffix = [
+          idParam ? `id=${encodeURIComponent(idParam)}` : '',
+          orderIdParam ? `orderId=${encodeURIComponent(orderIdParam)}` : ''
+        ].filter(Boolean).join('&');
+        const newUrl = searchSuffix ? `/merchant?${searchSuffix}` : '/merchant';
         window.history.replaceState(null, '', newUrl);
       } else if (roleParam === 'DRIVER') {
         if (idParam) setActiveDriverId(idParam);
@@ -431,17 +441,30 @@ export default function App() {
   };
 
   const handleMasterLogout = () => {
+    clearNativeMerchantSessionGlobal(activeMerchantId || undefined);
     setIsMasterAdmin(false);
     setVerifiedEmail('');
     safeStorage.removeItem('tumpang_auth_email');
     safeStorage.removeItem('tumpang_auth_token');
     safeStorage.removeItem('tumpang_auth_role');
     safeStorage.removeItem('tumpang_is_master');
-    safeStorage.setItem('tumpang_current_portal', 'CUSTOMER');
     safeStorage.removeItem('tumpang_active_merchant_id');
     safeStorage.removeItem('tumpang_active_driver_id');
     setActiveMerchantId('');
     setActiveDriverId('');
+
+    const isNativeMerchant = Boolean(getActiveNativeBridge());
+    if (isNativeMerchant) {
+      safeStorage.setItem('tumpang_current_portal', 'MERCHANT');
+      setCurrentRole('MERCHANT');
+      if (typeof window !== 'undefined') {
+        window.history.pushState(null, '', '/merchant');
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      }
+      return;
+    }
+
+    safeStorage.setItem('tumpang_current_portal', 'CUSTOMER');
     setCurrentRole('CUSTOMER');
     if (typeof window !== 'undefined') {
       window.history.pushState(null, '', '/');
@@ -454,11 +477,11 @@ export default function App() {
       handleMasterLogout();
       return;
     }
+    clearNativeMerchantSessionGlobal(activeMerchantId || undefined);
     setVerifiedEmail('');
     setActiveMerchantId('');
     safeStorage.removeItem('tumpang_auth_email');
     safeStorage.removeItem('tumpang_active_merchant_id');
-    safeStorage.setItem('tumpang_current_portal', 'CUSTOMER');
 
     // Invalidate merchant session
     const authRole = safeStorage.getItem('tumpang_auth_role');
@@ -467,6 +490,18 @@ export default function App() {
       safeStorage.removeItem('tumpang_auth_role');
     }
 
+    const isNativeMerchant = Boolean(getActiveNativeBridge()) || (typeof window !== 'undefined' && window.location.pathname.toLowerCase().startsWith('/merchant'));
+    if (isNativeMerchant) {
+      safeStorage.setItem('tumpang_current_portal', 'MERCHANT');
+      setCurrentRole('MERCHANT');
+      if (typeof window !== 'undefined') {
+        window.history.pushState(null, '', '/merchant');
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      }
+      return;
+    }
+
+    safeStorage.setItem('tumpang_current_portal', 'CUSTOMER');
     setCurrentRole('CUSTOMER');
     if (typeof window !== 'undefined') {
       window.history.pushState(null, '', '/');
@@ -518,6 +553,11 @@ export default function App() {
   const handleCancelPortalLogin = () => {
     if (typeof window !== 'undefined') {
       const win = window as any;
+      const nativeBridge = getActiveNativeBridge();
+      if (nativeBridge && typeof nativeBridge.closeApp === 'function') {
+        nativeBridge.closeApp();
+        return;
+      }
       // 1. Android Native WebView Bridges: Close APK activity safely
       if (win.AndroidMerchantApp && typeof win.AndroidMerchantApp.closeApp === 'function') {
         win.AndroidMerchantApp.closeApp();

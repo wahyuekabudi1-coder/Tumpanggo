@@ -423,7 +423,7 @@ CREATE POLICY anon_read_published_testimonials ON testimonials
   USING (status = 'published' AND consent_approved = true);
 
 -- -----------------------------------------------------------------------------
--- 10. PUSH NOTIFICATION SUBSCRIPTIONS (Android FCM & Web Push)
+-- 10. PUSH NOTIFICATION SUBSCRIPTIONS & OUTBOX EVENTS (Android FCM & Web Push)
 -- -----------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS push_subscriptions (
   id TEXT PRIMARY KEY,
@@ -442,4 +442,37 @@ CREATE TABLE IF NOT EXISTS push_subscriptions (
 CREATE INDEX IF NOT EXISTS idx_push_subs_entity ON push_subscriptions (role, entity_id);
 CREATE INDEX IF NOT EXISTS idx_push_subs_fcm_token ON push_subscriptions (fcm_token);
 ALTER TABLE push_subscriptions ENABLE ROW LEVEL SECURITY;
+
+REVOKE ALL ON push_subscriptions FROM anon, authenticated;
+DROP POLICY IF EXISTS anon_read_push_subs ON push_subscriptions;
+DROP POLICY IF EXISTS service_role_full_access_push_subs ON push_subscriptions;
+CREATE POLICY service_role_full_access_push_subs ON push_subscriptions
+  FOR ALL TO service_role USING (true) WITH CHECK (true);
+
+-- Outbox & Deduplication Event Table for Serverless Push Reliability (Vercel + Supabase)
+CREATE TABLE IF NOT EXISTS push_notification_events (
+  id TEXT PRIMARY KEY,
+  order_id TEXT NOT NULL,
+  merchant_id TEXT NOT NULL,
+  event_type TEXT NOT NULL DEFAULT 'NEW_ORDER',
+  status TEXT NOT NULL DEFAULT 'PENDING' CHECK (status IN ('PENDING', 'SENT', 'RETRYING', 'FAILED_NO_SUBSCRIBERS', 'FAILED_PERMANENT', 'PARTIAL', 'FAILED', 'SKIPPED_NO_SUBS')),
+  attempts INTEGER NOT NULL DEFAULT 0,
+  sent_fcm INTEGER NOT NULL DEFAULT 0,
+  sent_web_push INTEGER NOT NULL DEFAULT 0,
+  last_error TEXT,
+  payload JSONB,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_push_events_merchant_status ON push_notification_events (merchant_id, status);
+CREATE INDEX IF NOT EXISTS idx_push_events_order ON push_notification_events (order_id);
+ALTER TABLE push_notification_events ENABLE ROW LEVEL SECURITY;
+
+REVOKE ALL ON push_notification_events FROM anon, authenticated;
+DROP POLICY IF EXISTS anon_read_push_events ON push_notification_events;
+DROP POLICY IF EXISTS service_role_full_access_push_events ON push_notification_events;
+CREATE POLICY service_role_full_access_push_events ON push_notification_events
+  FOR ALL TO service_role USING (true) WITH CHECK (true);
+
 

@@ -1,7 +1,29 @@
 plugins {
     id 'com.android.application'
     id 'org.jetbrains.kotlin.android'
-    id 'com.google.gms.google-services'
+}
+
+// Apply Google Services plugin when real google-services.json is placed in android/app/.
+// Release APK builds strictly require google-services.json so production APKs never ship without FCM.
+def googleServicesFile = file("google-services.json")
+if (googleServicesFile.exists()) {
+    apply plugin: 'com.google.gms.google-services'
+} else {
+    def isReleaseBuild = gradle.startParameter.taskNames.any { taskName ->
+        taskName.toLowerCase().contains("release")
+    }
+    if (isReleaseBuild) {
+        throw new GradleException(
+            "KONFIGURASI WAJIB BELUM LENGKAP: File 'android/app/google-services.json' tidak ditemukan. " +
+            "Unduh google-services.json asli dari Firebase Console (Project: tumpanggo-70479, Android package: com.tumpanggo.merchant) " +
+            "dan letakkan di android/app/google-services.json sebelum membangun APK Release."
+        )
+    } else {
+        logger.warn(
+            "[TumpangGo FCM] Peringatan: 'android/app/google-services.json' belum ditemukan. " +
+            "Unduh dari Firebase Console (package: com.tumpanggo.merchant) agar FCM aktif pada perangkat."
+        )
+    }
 }
 
 android {
@@ -9,11 +31,13 @@ android {
     compileSdk 34
 
     defaultConfig {
+        // Unified package name across debug & release so google-services.json (com.tumpanggo.merchant)
+        // works identically in both debug testing and production APK builds.
         applicationId "com.tumpanggo.merchant"
         minSdk 24
         targetSdk 34
-        versionCode 1
-        versionName "1.0.0"
+        versionCode 2
+        versionName "1.1.0"
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -24,14 +48,15 @@ android {
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
         debug {
-            applicationIdSuffix ".debug"
             debuggable true
         }
     }
+
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
     }
+
     kotlinOptions {
         jvmTarget = '17'
     }
@@ -44,12 +69,12 @@ dependencies {
     implementation 'androidx.constraintlayout:constraintlayout:2.1.4'
     implementation 'androidx.swiperefreshlayout:swiperefreshlayout:1.1.0'
 
-    // Firebase Cloud Messaging BOM & Services
+    // Firebase Cloud Messaging BOM & Native Messaging SDK
     implementation platform('com.google.firebase:firebase-bom:32.8.0')
     implementation 'com.google.firebase:firebase-messaging-ktx'
     implementation 'com.google.firebase:firebase-analytics-ktx'
 
-    // Coroutines & Networking
+    // Coroutines & HTTP client for background token registration and outbox sync
     implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3'
     implementation 'com.squareup.okhttp3:okhttp:4.12.0'
 

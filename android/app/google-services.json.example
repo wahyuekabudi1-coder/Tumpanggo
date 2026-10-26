@@ -1,0 +1,30 @@
+{
+  "_comment": "CONTOH STRUKTUR SAJA — JANGAN GUNAKAN FILE INI SEBAGAI google-services.json PALSU. Unduh google-services.json asli dari Firebase Console (Project: tumpanggo-70479, Package: com.tumpanggo.merchant) lalu simpan sebagai android/app/google-services.json",
+  "project_info": {
+    "project_number": "<NOMOR_PROYEK_FIREBASE_ANDA>",
+    "project_id": "tumpanggo-70479",
+    "storage_bucket": "tumpanggo-70479.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "<MOBILESDK_APP_ID_DARI_FIREBASE_CONSOLE>",
+        "android_client_info": {
+          "package_name": "com.tumpanggo.merchant"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "<ANDROID_API_KEY_DARI_FIREBASE_CONSOLE>"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

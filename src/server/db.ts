@@ -49,6 +49,11 @@ import {
   fetchFromSupabase,
   fetchOrdersByMerchantFromSupabase,
   fetchOrdersByDriverFromSupabase,
+  fetchPushSubscriptionsForEntityFromSupabase,
+  findPushSubscriptionInSupabase,
+  deletePushSubscriptionFromSupabaseByIdentifier,
+  fetchPushEventByIdFromSupabase,
+  fetchRetryablePushEventsFromSupabase,
   testSupabaseConnection
 } from './supabaseAdapter';
 
@@ -157,6 +162,23 @@ export interface PushSubscriptionRecord {
   updatedAt: string;
 }
 
+export interface PushNotificationEventRecord {
+  id: string;
+  eventType: 'NEW_ORDER' | 'DRIVER_ASSIGNED' | 'TEST_NOTIFICATION';
+  orderId?: string;
+  merchantId?: string;
+  driverId?: string;
+  status: 'PENDING' | 'SENT' | 'RETRYING' | 'FAILED_NO_SUBSCRIBERS' | 'FAILED_PERMANENT';
+  attempts: number;
+  sentCount: number;
+  failedCount: number;
+  lastError?: string;
+  payload?: any;
+  createdAt: string;
+  updatedAt: string;
+  sentAt?: string;
+}
+
 interface DatabaseSchema {
   merchants: Merchant[];
   categories: Category[];
@@ -169,6 +191,7 @@ interface DatabaseSchema {
   partnerRegistrations: PartnerRegistration[];
   testimonials: Testimonial[];
   pushSubscriptions?: PushSubscriptionRecord[];
+  pushNotificationEvents?: PushNotificationEventRecord[];
 }
 
 const initialConfig: SystemConfig = {
@@ -198,7 +221,8 @@ export class FoodDatabase {
       systemConfig: initialConfig,
       partnerRegistrations: [],
       testimonials: [],
-      pushSubscriptions: []
+      pushSubscriptions: [],
+      pushNotificationEvents: []
     };
     this.loadAndMigrate();
   }
@@ -380,6 +404,7 @@ export class FoodDatabase {
     if (!this.data.partnerRegistrations) this.data.partnerRegistrations = [];
     if (!this.data.testimonials) this.data.testimonials = [];
     if (!this.data.pushSubscriptions) this.data.pushSubscriptions = [];
+    if (!this.data.pushNotificationEvents) this.data.pushNotificationEvents = [];
     if (!this.data.systemConfig) {
       this.data.systemConfig = initialConfig;
     } else {
@@ -449,6 +474,7 @@ export class FoodDatabase {
     this.data.testimonials = [];
     this.data.auditLogs = [];
     this.data.pushSubscriptions = [];
+    this.data.pushNotificationEvents = [];
   }
 
   /**
@@ -476,6 +502,7 @@ export class FoodDatabase {
     this.data.testimonials = [];
     this.data.auditLogs = [];
     this.data.pushSubscriptions = [];
+    this.data.pushNotificationEvents = [];
     this.bootstrapMasterAccount();
     this.save();
 
@@ -1238,6 +1265,8 @@ export class FoodDatabase {
               if (Array.isArray(parsed.settlements)) this.data.settlements = parsed.settlements;
               if (Array.isArray(parsed.partnerRegistrations)) this.data.partnerRegistrations = parsed.partnerRegistrations;
               if (Array.isArray(parsed.testimonials)) this.data.testimonials = parsed.testimonials;
+              if (Array.isArray(parsed.pushSubscriptions)) this.data.pushSubscriptions = parsed.pushSubscriptions;
+              if (Array.isArray(parsed.pushNotificationEvents)) this.data.pushNotificationEvents = parsed.pushNotificationEvents;
               if (parsed.systemConfig) this.data.systemConfig = parsed.systemConfig;
               this.lastFileMtime = stats.mtimeMs;
               console.log(`[TumpangFood DB] Auto-reloaded ${this.data.orders.length} orders from disk snapshot.`);
@@ -1438,7 +1467,8 @@ export class FoodDatabase {
           remoteSets,
           remoteRegs,
           remoteTestis,
-          remoteLogs
+          remoteLogs,
+          remotePushSubs
         ] = await Promise.all([
           fetchFromSupabase('systemConfig', { limit: 1 }),
           fetchFromSupabase('merchants'),
@@ -1449,7 +1479,8 @@ export class FoodDatabase {
           fetchFromSupabase('settlements', { limit: 500, orderBy: { column: 'created_at', ascending: false } }),
           fetchFromSupabase('partnerRegistrations'),
           fetchFromSupabase('testimonials'),
-          fetchFromSupabase('auditLogs', { limit: 50, orderBy: { column: 'created_at', ascending: false } })
+          fetchFromSupabase('auditLogs', { limit: 50, orderBy: { column: 'created_at', ascending: false } }),
+          fetchFromSupabase('pushSubscriptions').catch(() => [])
         ]);
 
         if (remoteConfigs && remoteConfigs.length > 0) {
@@ -1482,6 +1513,9 @@ export class FoodDatabase {
         }
         if (remoteLogs && remoteLogs.length > 0) {
           this.data.auditLogs = remoteLogs;
+        }
+        if (Array.isArray(remotePushSubs) && remotePushSubs.length > 0) {
+          this.data.pushSubscriptions = remotePushSubs;
         }
 
         this.ensureStructure();
@@ -1598,6 +1632,16 @@ export class FoodDatabase {
         console.warn('[TumpangFood DB] Failed to sync testimonials with Firestore:', e.message);
       }
 
+
+      // Push Subscriptions (FCM & Web Push device tokens)
+      try {
+        const remotePushSubs = await safeAdminGetDocs('pushSubscriptions');
+        if (Array.isArray(remotePushSubs) && remotePushSubs.length > 0) {
+          this.data.pushSubscriptions = remotePushSubs as PushSubscriptionRecord[];
+        }
+      } catch (e: any) {
+        console.warn('[TumpangFood DB] Failed to sync pushSubscriptions with Firestore:', e.message);
+      }
 
       // Audit Logs (Fetch only recent 50 entries to conserve Firestore read quotas)
       try {
@@ -3176,11 +3220,14 @@ export class FoodDatabase {
     this.save();
     this.log('CUSTOMER', `Created order ${newOrder.orderNumber} (ID: ${newOrder.id}) Total: Rp ${newOrder.total.toLocaleString()} (UniqueCode: ${newOrder.uniqueCode})`, 'CUSTOMER');
 
-    // Trigger push notification if order is already verified upon creation
-    if (newOrder.status === OrderStatus.PAYMENT_VERIFIED) {
-      import('./services/pushService').then(m => {
-        m.pushService.notifyNewVerifiedOrder(newOrder);
-      }).catch(() => {});
+    // Trigger Native FCM & Web Push strictly AFTER order persistence succeeds.
+    // Must be awaited so serverless runtimes (Vercel) do not freeze before FCM HTTP completes,
+    // and wrapped in try/catch so push delivery issues NEVER rollback or fail a saved order.
+    try {
+      const { pushService } = await import('./services/pushService');
+      await pushService.notifyNewOrder(newOrder);
+    } catch (pushErr: any) {
+      console.warn(`[TumpangFood DB] Push dispatch warning for newly persisted order ${newOrder.id} (order preserved safely):`, pushErr?.message || pushErr);
     }
 
     return newOrder;
@@ -3279,25 +3326,10 @@ export class FoodDatabase {
 
     if (updates.status && updates.status !== prevStatus) {
       this.log(userId, `Updated order ${currentOrder.id} status from ${prevStatus} to ${updates.status}`, role);
-
-      // Trigger Web Push notification to Merchant if status transitioned to PAYMENT_VERIFIED
-      if (updates.status === OrderStatus.PAYMENT_VERIFIED) {
-        import('./services/pushService').then(m => {
-          m.pushService.notifyNewVerifiedOrder(this.data.orders[index]);
-        }).catch(() => {});
-      }
-
-      // Auto-dispatch is strictly disabled: drivers must claim tasks manually via atomic task lock
-      // to ensure real driver readiness and operational fairness.
+      // NOTE: Do NOT send "Pesanan Baru" notifications here on status changes.
+      // New order push notifications are triggered exclusively when a new order is persisted in createOrder().
     } else {
       this.log(userId, `Updated order ${currentOrder.id} details`, role);
-    }
-
-    // Trigger Web Push notification to Driver if driverId was newly assigned
-    if (updates.driverId && updates.driverId !== currentOrder.driverId) {
-      import('./services/pushService').then(m => {
-        m.pushService.notifyDriverAssignedOrder(updates.driverId!, this.data.orders[index]);
-      }).catch(() => {});
     }
 
     if (foodConfig.isProduction) {
@@ -3310,11 +3342,22 @@ export class FoodDatabase {
       }
     } else {
       if (isCloudPersistenceConfigured()) {
-        safeCloudSetDocDetailed('orders', currentOrder.id, this.data.orders[index]).catch(() => {});
+        await safeCloudSetDocDetailed('orders', currentOrder.id, this.data.orders[index]).catch(() => {});
       } else {
         console.warn('[TumpangFood DB] Cloud persistence belum dikonfigurasi. Perubahan status disimpan pada penyimpanan lokal.');
       }
     }
+
+    // Trigger Driver Push notification ONLY AFTER order update has been safely persisted
+    if (updates.driverId && updates.driverId !== currentOrder.driverId) {
+      try {
+        const { pushService } = await import('./services/pushService');
+        await pushService.notifyDriverAssignedOrder(updates.driverId!, this.data.orders[index]);
+      } catch (pushErr: any) {
+        console.warn(`[TumpangFood DB] Driver push dispatch warning for order ${currentOrder.id}:`, pushErr?.message || pushErr);
+      }
+    }
+
     return this.data.orders[index];
   }
 
@@ -4356,57 +4399,134 @@ export class FoodDatabase {
     return true;
   }
 
-  // --- PUSH NOTIFICATION SUBSCRIPTIONS (WEB PUSH & ANDROID FCM) ---
-  public savePushSubscription(sub: PushSubscriptionRecord): void {
+  // --- PUSH NOTIFICATION SUBSCRIPTIONS & OUTBOX (WEB PUSH & ANDROID FCM) ---
+  public async savePushSubscription(
+    sub: PushSubscriptionRecord,
+    oldFcmToken?: string
+  ): Promise<PushSubscriptionRecord> {
     if (!this.data.pushSubscriptions) this.data.pushSubscriptions = [];
-    
-    // Deduplicate by fcmToken for FCM subscriptions, or endpoint for Web Push subscriptions
-    const idx = this.data.pushSubscriptions.findIndex(s => {
-      if (sub.fcmToken && s.fcmToken === sub.fcmToken) return true;
-      if (sub.subscription?.endpoint && s.subscription?.endpoint === sub.subscription.endpoint) return true;
-      if (s.id === sub.id) return true;
-      return false;
+    const cleanOldToken = oldFcmToken?.trim();
+
+    // 1. Immediate in-memory canonical lookup (supports both sync inspection & token rotation)
+    const findLocalMatch = () =>
+      this.data.pushSubscriptions!.find(s => {
+        if (sub.fcmToken && s.fcmToken === sub.fcmToken) return true;
+        if (cleanOldToken && s.fcmToken === cleanOldToken) return true;
+        if (sub.subscription?.endpoint && s.subscription?.endpoint === sub.subscription.endpoint) return true;
+        if (s.id === sub.id) return true;
+        return false;
+      });
+
+    let existing = findLocalMatch();
+
+    // Remove any duplicate local records matching fcmToken, oldFcmToken, endpoint, or id
+    const nowIso = new Date().toISOString();
+    const provisionalRecord: PushSubscriptionRecord = {
+      ...(existing || {}),
+      ...sub,
+      id: existing?.id || sub.id,
+      createdAt: existing?.createdAt || sub.createdAt || nowIso,
+      updatedAt: nowIso
+    };
+
+    this.data.pushSubscriptions = this.data.pushSubscriptions.filter(s => {
+      if (s.id === provisionalRecord.id) return false;
+      if (provisionalRecord.fcmToken && s.fcmToken === provisionalRecord.fcmToken) return false;
+      if (cleanOldToken && s.fcmToken === cleanOldToken) return false;
+      if (provisionalRecord.subscription?.endpoint && s.subscription?.endpoint === provisionalRecord.subscription.endpoint) return false;
+      return true;
     });
-
-    if (idx >= 0) {
-      this.data.pushSubscriptions[idx] = {
-        ...this.data.pushSubscriptions[idx],
-        ...sub,
-        updatedAt: new Date().toISOString()
-      };
-    } else {
-      this.data.pushSubscriptions.push(sub);
-    }
+    this.data.pushSubscriptions.push(provisionalRecord);
     this.save();
 
-    // Persist to Cloud persistence if configured
-    if (isCloudPersistenceConfigured()) {
-      safeCloudSetDoc('pushSubscriptions', sub.id, sub).catch(() => {});
+    // 2. Stateless Cloud canonical reconciliation & persistence (awaited for Vercel Serverless safety)
+    let finalRecord = provisionalRecord;
+    if (isSupabaseConfigured()) {
+      const remoteExisting = await findPushSubscriptionInSupabase({
+        fcmToken: sub.fcmToken,
+        oldFcmToken: cleanOldToken,
+        endpoint: sub.subscription?.endpoint
+      });
+
+      if (remoteExisting && remoteExisting.id && remoteExisting.id !== provisionalRecord.id) {
+        finalRecord = {
+          ...provisionalRecord,
+          id: remoteExisting.id,
+          createdAt: remoteExisting.createdAt || provisionalRecord.createdAt
+        };
+        this.data.pushSubscriptions = this.data.pushSubscriptions.map(s =>
+          s.id === provisionalRecord.id ? finalRecord : s
+        );
+        this.save();
+      }
+
+      const persisted = await safeCloudSetDocDetailed('pushSubscriptions', finalRecord.id, finalRecord);
+      if (!persisted.success) {
+        console.warn(`[TumpangFood DB] Cloud upsert warning for pushSubscription ${finalRecord.id}:`, persisted.error);
+      }
+
+      if (cleanOldToken && cleanOldToken !== finalRecord.fcmToken) {
+        await deletePushSubscriptionFromSupabaseByIdentifier(cleanOldToken).catch(() => {});
+      }
+    } else if (isFirestoreAdminConfigured()) {
+      await safeCloudSetDocDetailed('pushSubscriptions', finalRecord.id, finalRecord).catch(() => {});
+      if (cleanOldToken && cleanOldToken !== finalRecord.fcmToken) {
+        await safeAdminBatchDeleteQuery('pushSubscriptions', 'fcmToken', '==', cleanOldToken).catch(() => {});
+      }
     }
+
+    return finalRecord;
   }
 
-  public removePushSubscription(identifier: string): void {
-    if (!this.data.pushSubscriptions) return;
-    const target = this.data.pushSubscriptions.find(
-      s => (s.subscription?.endpoint && s.subscription.endpoint === identifier) ||
-           (s.fcmToken && s.fcmToken === identifier) ||
-           s.id === identifier
-    );
-    this.data.pushSubscriptions = this.data.pushSubscriptions.filter(
-      s => !(s.subscription?.endpoint && s.subscription.endpoint === identifier) &&
-           !(s.fcmToken && s.fcmToken === identifier) &&
-           s.id !== identifier
-    );
+  public async removePushSubscription(identifier: string, entityId?: string): Promise<boolean> {
+    const cleanId = String(identifier || '').trim();
+    if (!cleanId) return false;
+
+    if (!this.data.pushSubscriptions) this.data.pushSubscriptions = [];
+    const cleanEntity = entityId ? String(entityId).trim() : undefined;
+    const cleanEntityBare = cleanEntity ? cleanEntity.replace(/^merchant_/, '').replace(/^driver_/, '') : undefined;
+
+    const matchesTarget = (s: PushSubscriptionRecord) => {
+      const idMatch =
+        (s.subscription?.endpoint && s.subscription.endpoint === cleanId) ||
+        (s.fcmToken && s.fcmToken === cleanId) ||
+        s.id === cleanId;
+      if (!idMatch) return false;
+      if (!cleanEntity) return true;
+      const sBare = String(s.entityId || '').replace(/^merchant_/, '').replace(/^driver_/, '');
+      return s.entityId === cleanEntity || sBare === cleanEntityBare;
+    };
+
+    const targets = this.data.pushSubscriptions.filter(matchesTarget);
+    this.data.pushSubscriptions = this.data.pushSubscriptions.filter(s => !matchesTarget(s));
     this.save();
 
-    if (target && isCloudPersistenceConfigured()) {
-      safeCloudDeleteDoc('pushSubscriptions', target.id).catch(() => {});
+    let cloudRemoved = targets.length > 0;
+    if (isSupabaseConfigured()) {
+      const delOk = await deletePushSubscriptionFromSupabaseByIdentifier(cleanId, cleanEntity);
+      cloudRemoved = cloudRemoved || delOk;
+      for (const t of targets) {
+        await safeCloudDeleteDoc('pushSubscriptions', t.id).catch(() => {});
+      }
+    } else if (isFirestoreAdminConfigured()) {
+      for (const t of targets) {
+        await safeCloudDeleteDoc('pushSubscriptions', t.id).catch(() => {});
+      }
+      await safeAdminBatchDeleteQuery('pushSubscriptions', 'fcmToken', '==', cleanId).catch(() => {});
+      cloudRemoved = true;
     }
+
+    return cloudRemoved;
   }
 
-  public getPushSubscriptionsForEntity(role: 'MERCHANT' | 'DRIVER', entityId: string): PushSubscriptionRecord[] {
+  public getPushSubscriptionsForEntity(
+    role: 'MERCHANT' | 'DRIVER' | 'CUSTOMER',
+    entityId: string
+  ): PushSubscriptionRecord[] {
+    this.reloadFromDiskIfNeeded();
     if (!this.data.pushSubscriptions) return [];
     const cleanEntityId = String(entityId || '').trim();
+    if (!cleanEntityId) return [];
     const cleanBareId = cleanEntityId.replace(/^merchant_/, '').replace(/^driver_/, '');
 
     return this.data.pushSubscriptions.filter(s => {
@@ -4414,6 +4534,147 @@ export class FoodDatabase {
       const sBareId = String(s.entityId || '').replace(/^merchant_/, '').replace(/^driver_/, '');
       return s.entityId === cleanEntityId || sBareId === cleanBareId;
     });
+  }
+
+  /**
+   * Authoritative serverless-safe subscription lookup: queries Supabase / Firestore directly
+   * so cold-started Vercel Lambdas always see live device tokens registered by Merchant APKs.
+   */
+  public async getPushSubscriptionsForEntityAsync(
+    role: 'MERCHANT' | 'DRIVER' | 'CUSTOMER',
+    entityId: string
+  ): Promise<PushSubscriptionRecord[]> {
+    const cleanEntityId = String(entityId || '').trim();
+    if (!cleanEntityId) return [];
+    const cleanBareId = cleanEntityId.replace(/^merchant_/, '').replace(/^driver_/, '');
+
+    let cloudSubs: PushSubscriptionRecord[] = [];
+    if (isSupabaseConfigured()) {
+      try {
+        cloudSubs = (await fetchPushSubscriptionsForEntityFromSupabase(role, cleanEntityId)) as PushSubscriptionRecord[];
+      } catch (err: any) {
+        console.warn('[TumpangFood DB] Failed querying Supabase push_subscriptions:', err?.message);
+      }
+    } else if (isFirestoreAdminConfigured()) {
+      try {
+        const remote = await safeAdminGetDocs('pushSubscriptions', ref => ref.where('role', '==', role));
+        cloudSubs = ((remote as PushSubscriptionRecord[]) || []).filter(s => {
+          const sBare = String(s.entityId || '').replace(/^merchant_/, '').replace(/^driver_/, '');
+          return s.entityId === cleanEntityId || sBare === cleanBareId;
+        });
+      } catch (err: any) {
+        console.warn('[TumpangFood DB] Failed querying Firestore pushSubscriptions:', err?.message);
+      }
+    }
+
+    // Merge cloud records into local cache while deduplicating by device token / endpoint
+    const combined = [...cloudSubs, ...this.getPushSubscriptionsForEntity(role, cleanEntityId)];
+    const byDeviceKey = new Map<string, PushSubscriptionRecord>();
+
+    for (const s of combined) {
+      if (!s || s.role !== role) continue;
+      const sBare = String(s.entityId || '').replace(/^merchant_/, '').replace(/^driver_/, '');
+      if (s.entityId !== cleanEntityId && sBare !== cleanBareId) continue;
+
+      const key = s.fcmToken
+        ? `fcm:${s.fcmToken}`
+        : s.subscription?.endpoint
+          ? `web:${s.subscription.endpoint}`
+          : `id:${s.id}`;
+
+      const prev = byDeviceKey.get(key);
+      if (!prev || new Date(s.updatedAt || 0).getTime() >= new Date(prev.updatedAt || 0).getTime()) {
+        byDeviceKey.set(key, s);
+      }
+    }
+
+    return Array.from(byDeviceKey.values());
+  }
+
+  /**
+   * Authoritative count & list of relevant unhandled new orders for a specific merchant store.
+   * Includes orders newly placed and not yet accepted/cooked/cancelled/expired.
+   */
+  public async getUnhandledMerchantOrdersAsync(merchantId: string): Promise<Order[]> {
+    const cleanMerchantId = String(merchantId || '').trim();
+    if (!cleanMerchantId) return [];
+
+    const allOrders = await this.findOrdersByMerchant(cleanMerchantId);
+    const nowMs = Date.now();
+
+    return allOrders.filter(o => {
+      if (!o || o.merchantId !== cleanMerchantId) return false;
+      if (o.status === OrderStatus.PAYMENT_VERIFIED || o.status === OrderStatus.WAITING_PAYMENT_VERIFICATION) {
+        return true;
+      }
+      if (o.status === OrderStatus.WAITING_PAYMENT) {
+        if (o.paymentExpiresAt) {
+          const expMs = new Date(o.paymentExpiresAt).getTime();
+          if (!isNaN(expMs) && expMs < nowMs) return false;
+        }
+        return true;
+      }
+      return false;
+    });
+  }
+
+  // --- PUSH NOTIFICATION OUTBOX EVENTS (IDEMPOTENCY & SERVERLESS RETRY) ---
+  public async getPushEventByIdAsync(eventId: string): Promise<PushNotificationEventRecord | null> {
+    if (!eventId) return null;
+    if (!this.data.pushNotificationEvents) this.data.pushNotificationEvents = [];
+    const local = this.data.pushNotificationEvents.find(e => e.id === eventId);
+    if (local) return local;
+
+    if (isSupabaseConfigured()) {
+      const remote = await fetchPushEventByIdFromSupabase(eventId);
+      if (remote) {
+        this.data.pushNotificationEvents.unshift(remote);
+        return remote;
+      }
+    } else if (isFirestoreAdminConfigured()) {
+      const remote = await safeAdminGetDoc('pushNotificationEvents', eventId);
+      if (remote) {
+        this.data.pushNotificationEvents.unshift(remote as PushNotificationEventRecord);
+        return remote as PushNotificationEventRecord;
+      }
+    }
+    return null;
+  }
+
+  public async savePushEventAsync(event: PushNotificationEventRecord): Promise<void> {
+    if (!this.data.pushNotificationEvents) this.data.pushNotificationEvents = [];
+    const idx = this.data.pushNotificationEvents.findIndex(e => e.id === event.id);
+    if (idx >= 0) {
+      this.data.pushNotificationEvents[idx] = event;
+    } else {
+      this.data.pushNotificationEvents.unshift(event);
+      if (this.data.pushNotificationEvents.length > 300) {
+        this.data.pushNotificationEvents = this.data.pushNotificationEvents.slice(0, 300);
+      }
+    }
+    this.save();
+
+    if (isCloudPersistenceConfigured()) {
+      await safeCloudSetDocDetailed('pushNotificationEvents', event.id, event).catch(() => {});
+    }
+  }
+
+  public async getRetryablePushEventsAsync(merchantId?: string, limit = 15): Promise<PushNotificationEventRecord[]> {
+    if (isSupabaseConfigured()) {
+      const remote = await fetchRetryablePushEventsFromSupabase(merchantId, limit);
+      if (remote.length > 0) return remote;
+    }
+
+    if (!this.data.pushNotificationEvents) return [];
+    const cutoffMs = Date.now() - 2 * 60 * 60 * 1000;
+    return this.data.pushNotificationEvents
+      .filter(e => {
+        if (e.status !== 'RETRYING' && e.status !== 'PENDING') return false;
+        if (e.attempts >= 5) return false;
+        if (merchantId && e.merchantId !== merchantId) return false;
+        return new Date(e.createdAt).getTime() >= cutoffMs;
+      })
+      .slice(0, limit);
   }
 }
 

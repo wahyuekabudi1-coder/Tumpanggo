@@ -8,6 +8,10 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
+import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkCapabilities
+import android.net.NetworkRequest
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -25,6 +29,15 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
+import org.json.JSONObject
+import java.util.concurrent.TimeUnit
 
 class MainActivity : AppCompatActivity() {
 
@@ -43,33 +56,46 @@ class MainActivity : AppCompatActivity() {
 
     private var pendingTargetUrl: String? = null
     private var pendingOrderId: String? = null
+    private var pendingOrderNumber: String? = null
+    private var networkCallbackRegistered = false
 
-    // Register Android 13+ Notification Permission Launcher
+    private val httpClient = OkHttpClient.Builder()
+        .connectTimeout(10, TimeUnit.SECONDS)
+        .readTimeout(10, TimeUnit.SECONDS)
+        .build()
+
+    // Android 13+ (API 33+) runtime notification permission launcher
     private val notificationPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { isGranted ->
         if (isGranted) {
-            Log.i(TAG, "Notification permission GRANTED by user.")
+            Log.i(TAG, "POST_NOTIFICATIONS permission granted.")
             NotificationHelper.createNotificationChannels(this)
         } else {
-            Log.w(TAG, "Notification permission DENIED by user.")
+            Log.w(TAG, "POST_NOTIFICATIONS permission denied.")
             Toast.makeText(
                 this,
-                "Izin notifikasi ditolak. Anda mungkin tidak menerima peringatan pesanan baru saat aplikasi ditutup.",
+                "Izin notifikasi dinonaktifkan. Aktifkan di Pengaturan agar pesanan baru tetap berbunyi saat layar mati.",
                 Toast.LENGTH_LONG
             ).show()
         }
     }
 
-    // Broadcast receiver for incoming orders while app is running
+    // Foreground receiver when a new FCM message arrives while the Merchant app is open
     private val orderBroadcastReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
-            val orderId = intent?.getStringExtra(EXTRA_ORDER_ID)
-            val orderNumber = intent?.getStringExtra(EXTRA_ORDER_NUMBER)
-            Log.i(TAG, "Broadcast received in foreground activity for order: $orderNumber ($orderId)")
-            if (!orderId.isNullOrEmpty()) {
-                notifyWebAppNewOrder(orderId, orderNumber ?: "")
-            }
+            val orderId = intent?.getStringExtra(EXTRA_ORDER_ID) ?: return
+            val orderNumber = intent.getStringExtra(EXTRA_ORDER_NUMBER) ?: ""
+            Log.i(TAG, "Foreground order broadcast received: #$orderNumber ($orderId)")
+            dispatchForegroundOrderRefreshToWeb(orderId, orderNumber)
+        }
+    }
+
+    // Offline -> Online network recovery listener: re-syncs unsent token & flushes pending outbox events
+    private val networkCallback = object : ConnectivityManager.NetworkCallback() {
+        override fun onAvailable(network: Network) {
+            super.onAvailable(network)
+            handleNetworkRestored()
         }
     }
 
@@ -77,22 +103,18 @@ class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // Initialize notification channels
         NotificationHelper.createNotificationChannels(this)
-
-        // Check & request notification permission on Android 13+
         requestNotificationPermissionIfNeeded()
 
-        // Build UI programmatically for robust layout
+        // Extract deep-link / PendingIntent extras BEFORE initial WebView load
+        extractIntentExtras(intent, isNewIntent = false)
+
         setupViews()
+        registerConnectivityMonitor()
 
-        // Extract any intent extras from launch or notification click
-        handleIntent(intent)
-
-        // Configure Back Pressed Dispatcher
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
-                if (webView.canGoBack()) {
+                if (::webView.isInitialized && webView.canGoBack()) {
                     webView.goBack()
                 } else {
                     isEnabled = false
@@ -157,16 +179,17 @@ class MainActivity : AppCompatActivity() {
         settings.javaScriptEnabled = true
         settings.domStorageEnabled = true
         settings.databaseEnabled = true
-        settings.mediaPlaybackRequiresUserGesture = false // Allow audible ringtone
+        settings.mediaPlaybackRequiresUserGesture = false
         settings.allowFileAccess = false
         settings.allowContentAccess = false
         settings.setSupportZoom(false)
 
-        val bridge = MerchantWebBridge(this) {
-            requestNotificationPermissionIfNeeded()
-        }
+        val bridge = MerchantWebBridge(
+            context = this,
+            onPermissionRequested = { runOnUiThread { requestNotificationPermissionIfNeeded() } },
+            onCloseAppRequested = { finish() }
+        )
 
-        // Expose Native JavaScript Bridge
         webView.addJavascriptInterface(bridge, "TumpangNativeBridge")
         webView.addJavascriptInterface(bridge, "AndroidBridge")
 
@@ -190,10 +213,14 @@ class MainActivity : AppCompatActivity() {
             override fun onPageFinished(view: WebView?, url: String?) {
                 super.onPageFinished(view, url)
                 swipeRefresh.isRefreshing = false
-                // Check if there is a pending order to highlight
-                pendingOrderId?.let { id ->
-                    notifyWebAppNewOrder(id, "")
+
+                // Persist pendingOrderId into localStorage AND dispatch custom event so if the user
+                // must re-authenticate on PortalLogin first, MerchantView still opens the exact order after login!
+                pendingOrderId?.let { orderId ->
+                    val ordNum = pendingOrderNumber ?: ""
+                    deliverPendingOrderDeepLinkToWeb(orderId, ordNum)
                     pendingOrderId = null
+                    pendingOrderNumber = null
                 }
             }
 
@@ -201,19 +228,23 @@ class MainActivity : AppCompatActivity() {
                 super.onReceivedError(view, request, error)
                 if (request?.isForMainFrame == true) {
                     swipeRefresh.isRefreshing = false
-                    Log.w(TAG, "WebView navigation error: ${error?.description}")
+                    Log.w(TAG, "WebView main-frame error: ${error?.description}")
                 }
             }
 
             override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
                 val url = request?.url?.toString() ?: return false
-                // Handle tel: or whatsapp: links externally
-                if (url.startsWith("tel:") || url.startsWith("whatsapp:") || url.startsWith("intent:")) {
+                if (
+                    url.startsWith("tel:") ||
+                    url.startsWith("whatsapp:") ||
+                    url.startsWith("https://wa.me/") ||
+                    url.startsWith("intent:")
+                ) {
                     try {
                         startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
                         return true
                     } catch (e: Exception) {
-                        Log.w(TAG, "Could not launch external intent: ${e.message}")
+                        Log.w(TAG, "Could not launch external link: ${e.message}")
                     }
                 }
                 return false
@@ -221,35 +252,63 @@ class MainActivity : AppCompatActivity() {
         }
 
         val urlToLoad = pendingTargetUrl ?: DEFAULT_URL
-        Log.i(TAG, "Loading initial URL in WebView: $urlToLoad")
+        pendingTargetUrl = null
+        Log.i(TAG, "Loading Merchant Portal URL: $urlToLoad")
         webView.loadUrl(urlToLoad)
     }
 
     override fun onNewIntent(intent: Intent?) {
         super.onNewIntent(intent)
         setIntent(intent)
-        handleIntent(intent)
+        extractIntentExtras(intent, isNewIntent = true)
     }
 
-    private fun handleIntent(intent: Intent?) {
+    private fun extractIntentExtras(intent: Intent?, isNewIntent: Boolean) {
         if (intent == null) return
 
-        val orderId = intent.getStringExtra(EXTRA_ORDER_ID)
+        var orderId = intent.getStringExtra(EXTRA_ORDER_ID)
         val orderNumber = intent.getStringExtra(EXTRA_ORDER_NUMBER)
-        val targetUrl = intent.getStringExtra(EXTRA_TARGET_URL)
+        var targetUrl = intent.getStringExtra(EXTRA_TARGET_URL)
 
-        Log.i(TAG, "Handling intent: orderId=$orderId, orderNumber=$orderNumber, targetUrl=$targetUrl")
-
-        if (!orderId.isNullOrEmpty()) {
-            pendingOrderId = orderId
-            // Dismiss notification since user has tapped it
-            NotificationHelper.cancelOrderNotification(this, orderId)
-            notifyWebAppNewOrder(orderId, orderNumber ?: "")
+        // Also support deep-link URIs such as https://tumpanggo.vercel.app/merchant?orderId=ord_xxx
+        // or tumpanggo://merchant?orderId=ord_xxx
+        val dataUri = intent.data
+        if (dataUri != null) {
+            val uriOrderId = dataUri.getQueryParameter("orderId")
+            if (orderId.isNullOrBlank() && !uriOrderId.isNullOrBlank()) {
+                orderId = uriOrderId
+            }
+            if (targetUrl.isNullOrBlank() && dataUri.scheme == "https") {
+                targetUrl = dataUri.toString()
+            } else if (targetUrl.isNullOrBlank() && !uriOrderId.isNullOrBlank()) {
+                targetUrl = "/merchant?orderId=${Uri.encode(uriOrderId)}"
+            }
         }
 
-        if (!targetUrl.isNullOrEmpty()) {
-            val fullUrl = if (targetUrl.startsWith("http")) targetUrl else "https://tumpanggo.vercel.app$targetUrl"
-            if (::webView.isInitialized) {
+        if (!orderId.isNullOrBlank()) {
+            val cleanOrderId = orderId.trim()
+            pendingOrderId = cleanOrderId
+            pendingOrderNumber = orderNumber ?: ""
+
+            // Update notification count without changing order status in DB
+            NotificationHelper.cancelOrderNotification(this, cleanOrderId)
+
+            if (isNewIntent && ::webView.isInitialized) {
+                deliverPendingOrderDeepLinkToWeb(cleanOrderId, orderNumber ?: "")
+                pendingOrderId = null
+                pendingOrderNumber = null
+                return
+            }
+        }
+
+        if (!targetUrl.isNullOrBlank()) {
+            val fullUrl = if (targetUrl.startsWith("http")) {
+                targetUrl
+            } else {
+                "${TumpangFirebaseMessagingService.SERVER_URL}$targetUrl"
+            }
+
+            if (isNewIntent && ::webView.isInitialized) {
                 webView.loadUrl(fullUrl)
             } else {
                 pendingTargetUrl = fullUrl
@@ -257,18 +316,111 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun notifyWebAppNewOrder(orderId: String, orderNumber: String) {
-        if (::webView.isInitialized) {
-            val script = """
-                (function() {
-                    try {
-                        window.dispatchEvent(new CustomEvent('tumpang:openOrder', {
-                            detail: { orderId: '$orderId', orderNumber: '$orderNumber' }
-                        }));
-                    } catch (e) {}
-                })();
-            """.trimIndent()
+    private fun escapeJsString(raw: String): String {
+        return raw
+            .replace("\\", "\\\\")
+            .replace("'", "\\'")
+            .replace("\n", "")
+            .replace("\r", "")
+    }
+
+    /**
+     * Stores target orderId in localStorage so it survives login verification if session expired,
+     * and dispatches `tumpang:openOrder` immediately if MerchantView is already mounted.
+     */
+    private fun deliverPendingOrderDeepLinkToWeb(orderId: String, orderNumber: String) {
+        if (!::webView.isInitialized) return
+        val safeOrderId = escapeJsString(orderId)
+        val safeOrderNum = escapeJsString(orderNumber)
+        val script = """
+            (function() {
+                try {
+                    localStorage.setItem('tumpang_pending_open_order_id', '$safeOrderId');
+                    window.dispatchEvent(new CustomEvent('tumpang:openOrder', {
+                        detail: { orderId: '$safeOrderId', orderNumber: '$safeOrderNum' }
+                    }));
+                } catch (e) {}
+            })();
+        """.trimIndent()
+        runOnUiThread {
             webView.evaluateJavascript(script, null)
+        }
+    }
+
+    /**
+     * Notifies an already-open foreground WebView to refresh its order list when an FCM order arrives,
+     * without changing tabs intrusively or playing a duplicate Web Audio ringtone.
+     */
+    private fun dispatchForegroundOrderRefreshToWeb(orderId: String, orderNumber: String) {
+        if (!::webView.isInitialized) return
+        val safeOrderId = escapeJsString(orderId)
+        val safeOrderNum = escapeJsString(orderNumber)
+        val script = """
+            (function() {
+                try {
+                    window.dispatchEvent(new CustomEvent('tumpang:newOrderPush', {
+                        detail: { orderId: '$safeOrderId', orderNumber: '$safeOrderNum' }
+                    }));
+                } catch (e) {}
+            })();
+        """.trimIndent()
+        runOnUiThread {
+            webView.evaluateJavascript(script, null)
+        }
+    }
+
+    private fun registerConnectivityMonitor() {
+        try {
+            val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+            val req = NetworkRequest.Builder()
+                .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                .build()
+            cm.registerNetworkCallback(req, networkCallback)
+            networkCallbackRegistered = true
+        } catch (e: Exception) {
+            Log.w(TAG, "Unable to register NetworkCallback: ${e.message}")
+        }
+    }
+
+    private fun handleNetworkRestored() {
+        val prefs = getSharedPreferences(TumpangFirebaseMessagingService.PREFS_NAME, Context.MODE_PRIVATE)
+        val merchantId = prefs.getString(TumpangFirebaseMessagingService.KEY_MERCHANT_ID, null)
+        val authToken = prefs.getString(TumpangFirebaseMessagingService.KEY_AUTH_TOKEN, null)
+        val fcmToken = prefs.getString(TumpangFirebaseMessagingService.KEY_FCM_TOKEN, null)
+        val tokenSynced = prefs.getBoolean(TumpangFirebaseMessagingService.KEY_TOKEN_SYNCED, false)
+
+        if (!merchantId.isNullOrBlank() && !authToken.isNullOrBlank()) {
+            CoroutineScope(Dispatchers.IO).launch {
+                if (!tokenSynced && !fcmToken.isNullOrBlank()) {
+                    TumpangFirebaseMessagingService.syncTokenWithBackendSync(
+                        context = applicationContext,
+                        merchantId = merchantId,
+                        fcmToken = fcmToken,
+                        authToken = authToken
+                    )
+                }
+
+                // Flush any pending/retrying outbox push notifications missed while device was offline
+                try {
+                    val body = JSONObject().put("entityId", merchantId).toString()
+                        .toRequestBody("application/json".toMediaType())
+                    val req = Request.Builder()
+                        .url("${TumpangFirebaseMessagingService.SERVER_URL}/api/push/retry-pending")
+                        .post(body)
+                        .addHeader("Authorization", "Bearer $authToken")
+                        .build()
+                    httpClient.newCall(req).execute().close()
+                } catch (ignored: Exception) {}
+            }
+        }
+
+        if (::webView.isInitialized) {
+            runOnUiThread {
+                webView.evaluateJavascript(
+                    "try { window.dispatchEvent(new CustomEvent('tumpang:networkRestored')); } catch(e) {}",
+                    null
+                )
+            }
         }
     }
 
@@ -276,7 +428,6 @@ class MainActivity : AppCompatActivity() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             val status = ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
             if (status != PackageManager.PERMISSION_GRANTED) {
-                Log.i(TAG, "Requesting POST_NOTIFICATIONS runtime permission...")
                 notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
             }
         }
@@ -300,7 +451,16 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
-        webView.destroy()
+        if (networkCallbackRegistered) {
+            try {
+                val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+                cm.unregisterNetworkCallback(networkCallback)
+            } catch (ignored: Exception) {}
+            networkCallbackRegistered = false
+        }
+        if (::webView.isInitialized) {
+            webView.destroy()
+        }
         super.onDestroy()
     }
 }

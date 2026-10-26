@@ -1,131 +1,67 @@
 # TumpangGo Merchant Android APK — Native Firebase Cloud Messaging (FCM)
 
-Aplikasi Android Native khusus untuk Mitra Toko / Dapur Kuliner TumpangGo.
-Menjamin penerimaan notifikasi pesanan baru dengan suara dering telepon langsung saat:
-- Layar HP mati / terkunci
-- Aplikasi sedang ditutup (swipe-kill)
-- Aplikasi berada di latar belakang (background)
+Aplikasi Android Native (WebView + Native FCM Service) untuk Mitra Toko **TumpangGo Merchant** (`https://tumpanggo.vercel.app/merchant`).
+
+Dirancang agar notifikasi pesanan baru tetap muncul dan berdering dengan suara khusus (`res/raw/order_ringtone.wav`) saat:
+- Aplikasi berada di latar belakang (*background*)
+- Layar HP mati / terkunci (*locked screen* / *Doze mode*)
+- Aplikasi ditutup dari *recent apps* (*swipe-closed*)
+- Proses aplikasi dihentikan sistem Android karena keterbatasan RAM (*OS process-killed*)
+
+> **Catatan Batasan Sistem Operasi Android (`Force Stop` / *Paksa Berhenti*):**
+> Sesuai desain keamanan sistem operasi Android (AOSP), apabila pengguna secara manual membuka **Pengaturan Android -> Aplikasi -> TumpangGo Merchant -> Paksa Berhenti (*Force Stop*)**, sistem Android menempatkan aplikasi ke dalam status *stopped state* dan menahan seluruh pengiriman broadcast maupun FCM hingga pengguna membuka aplikasi kembali satu kali secara manual. Selain kondisi *Force Stop* manual tersebut, notifikasi tetap berjalan di background, layar mati, maupun saat di-*swipe* dari *recent apps*.
 
 ---
 
-## 1. Arsitektur Push Notification Native
+## 1. Alur Push Notification Produksi
 
-```
-[Pelanggan Buat Pesanan & Bayar]
-                │
-                ▼
-[Backend: Order Status -> PAYMENT_VERIFIED]
-                │
-                ├──▶ [Web Push VAPID] (Browser Desktop / Chrome)
-                │
-                └──▶ [Firebase Admin FCM SDK]
-                            │ (Priority: HIGH, Sound: order_ringtone)
-                            ▼
-                [Google FCM Servers]
-                            │
-                            ▼
-        [Android OS (WakeLock / Doze Bypass)]
-                            │
-                            ▼
-    [TumpangFirebaseMessagingService.kt]
-                            │
-                            ▼
-    [NotificationManager: NotificationChannel]
-    - Channel: "Pesanan Baru TumpangGo Merchant"
-    - Suara: res/raw/order_ringtone.wav (Dering Telepon 440Hz+480Hz)
-    - Getaran: [0, 500, 200, 500, 200, 800]
-    - Prioritas: IMPORTANCE_HIGH (Head-up banner)
-    - Stacking: Ringkasan multi-pesanan ("X Pesanan Baru")
-                            │
-                            ▼ (Tapped)
-        [MainActivity.kt (WebView Bridge)]
-    - Membuka halaman detail pesanan di /merchant?orderId=...
-    - Menghapus notifikasi dari status bar
-```
+1. Pelanggan membuat pesanan baru (`POST /api/orders` -> `foodDb.createOrder`).
+2. **Setelah** pesanan berhasil dipersistensikan ke Supabase PostgreSQL (`orders`), backend mencatat event idempoten di `push_notification_events` (`new_order:<orderId>`) dan mengambil seluruh token perangkat toko terkait dari tabel `push_subscriptions`.
+3. Backend mengirim **High-Priority Data-Only FCM Message** melalui Firebase Admin SDK (`android.priority = "high"`, tanpa blok `notification` tingkat atas agar Google Play Services tidak melewati `TumpangFirebaseMessagingService`).
+4. Di perangkat Android, `TumpangFirebaseMessagingService.onMessageReceived()` dieksekusi secara native tanpa bergantung pada Activity maupun WebView:
+   - Memverifikasi `merchantId` cocok dengan toko yang sedang login pada perangkat.
+   - Melakukan deduplikasi `eventId` & rekonsiliasi daftar `unhandledOrderIds`.
+   - Menampilkan notifikasi pada channel **`Pesanan Baru TumpangGo Merchant`** (`tumpanggo_merchant_orders`) dengan suara `res/raw/order_ringtone.wav`:
+     - 1 pesanan belum ditangani: **`1 Pesanan Baru`**
+     - Beberapa pesanan belum ditangani: **`3 Pesanan Baru`** (*"Ada 3 pesanan baru yang perlu diperiksa untuk toko Anda."*) menggunakan `GROUP_ORDERS` + `InboxStyle` summary + `GROUP_ALERT_CHILDREN` (tanpa suara ganda).
+5. Saat notifikasi ditekan:
+   - Membuka `MainActivity` dan menyimpan target `orderId` secara aman.
+   - Memverifikasi sesi login toko terlebih dahulu (jika sesi kedaluwarsa, pengguna login ulang lalu otomatis diarahkan ke rincian pesanan tersebut).
+   - Membuka modal **Rincian Pesanan** yang memuat status terbaru langsung dari API backend dan memperbarui jumlah notifikasi tanpa mengubah status transaksi secara otomatis.
 
 ---
 
-## 2. Struktur Proyek Android
+## 2. Konfigurasi Manual yang Diperlukan Sebelum Build Produksi
 
-```
-android/
-├── build.gradle                               # Top-level Gradle
-├── settings.gradle                            # Module registry
-├── gradle.properties                          # Build optimizations
-├── app/
-│   ├── build.gradle                           # App dependencies (FCM BOM, Coroutines, OkHttp)
-│   ├── google-services.json                   # Konfigurasi Google Services
-│   ├── proguard-rules.pro                     # Rule obfuscation untuk Bridge & Firebase
-│   └── src/
-│       └── main/
-│           ├── AndroidManifest.xml            # Permissions & Service declaration
-│           ├── java/com/tumpanggo/merchant/
-│           │   ├── TumpangMerchantApplication.kt  # Channel bootstrap
-│           │   ├── MainActivity.kt               # WebView & Intent router
-│           │   ├── NotificationHelper.kt         # Builder notifikasi & ringkasan
-│           │   ├── TumpangFirebaseMessagingService.kt # FCM background listener
-│           │   └── MerchantWebBridge.kt          # JavaScript bridge interface
-│           └── res/
-│               ├── raw/
-│               │   └── order_ringtone.wav        # Suara nada dering autentik
-│               ├── values/                       # strings, colors, styles
-│               └── mipmap-*/                     # Ikon aplikasi
-```
-
----
-
-## 3. Langkah Menyiapkan `google-services.json` di Firebase Console
-
-1. Buka [Firebase Console](https://console.firebase.google.com/) dan pilih proyek Anda (`tumpanggo-70479`).
-2. Masuk ke **Project Settings** (ikon gerigi di kiri atas) -> tab **General**.
-3. Di bagian **Your apps**, klik **Add app** -> pilih **Android**.
-4. Masukkan konfigurasi berikut:
-   - **Android package name:** `com.tumpanggo.merchant`
-   - **App nickname:** `TumpangGo Merchant`
-5. Klik **Register app**.
-6. Unduh file `google-services.json` dan letakkan di folder:
+### A. File `android/app/google-services.json` (Wajib untuk Build APK Release)
+1. Buka [Firebase Console](https://console.firebase.google.com/) -> pilih project **`tumpanggo-70479`**.
+2. Buka **Project Settings** -> tab **General** -> bagian **Your apps**.
+3. Tambahkan atau pilih aplikasi Android dengan package name persis:
+   `com.tumpanggo.merchant`
+4. Unduh **`google-services.json`** asli dari Firebase Console dan simpan di:
    `android/app/google-services.json`
-7. Selesai!
+   *(Lihat `android/app/google-services.json.example` untuk referensi struktur. Jangan membuat isi dummy).*
 
----
-
-## 4. Konfigurasi Backend (Vercel / Supabase)
-
-Pastikan variabel lingkungan server berikut telah dikonfigurasi:
-- `FIREBASE_SERVICE_ACCOUNT_KEY`: JSON Service Account dari Firebase Console (Project Settings > Service Accounts > Generate new private key).
+### B. Environment Variable di Vercel (`https://tumpanggo.vercel.app`)
+Pastikan variabel berikut diset pada **Vercel Project Settings -> Environment Variables** (hanya di server, **jangan** di `VITE_*` atau kode frontend):
+- `FIREBASE_SERVICE_ACCOUNT_KEY`: JSON Service Account dari Firebase Console (*Project Settings -> Service Accounts -> Generate new private key*) untuk project `tumpanggo-70479`.
 - `SUPABASE_URL`: `https://epqpysiezdwyzrcebqey.supabase.co`
-- `SUPABASE_ANON_KEY`: Kunci anon Supabase.
+- `SUPABASE_SERVICE_ROLE_KEY`: Kunci `service_role` Supabase agar backend serverless dapat membaca/menulis `orders`, `push_subscriptions`, dan `push_notification_events` melewati RLS.
 
-Ketika pesanan diverifikasi (`PAYMENT_VERIFIED`), backend secara otomatis mengirim pesan FCM ke seluruh token perangkat merchant yang terdaftar di tabel `push_subscriptions`.
+### C. Migrasi Tabel Supabase (`supabase_schema.sql`)
+Jalankan blok SQL terbaru di `supabase_schema.sql` pada **Supabase SQL Editor** untuk memastikan:
+- Policy `service_role_full_access_push_subs` aktif pada tabel `push_subscriptions`.
+- Tabel outbox `push_notification_events` beserta indeksnya tersedia.
 
 ---
 
-## 5. Cara Kompilasi & Build APK
+## 3. Cara Build APK (Android Studio / CLI dengan JDK 17 + Android SDK 34)
 
-### Menggunakan Android Studio:
-1. Buka folder `android/` di **Android Studio**.
-2. Biarkan Gradle melakukan sync dependencies (`firebase-messaging`, `kotlin-android`, dll.).
-3. Pilih target device (emulator atau HP Android fisik via USB Debugging).
-4. Klik tombol **Run (Shift + F10)** atau pilih **Build > Build Bundle(s) / APK(s) > Build APK(s)**.
-5. File APK akan terbentuk di `android/app/build/outputs/apk/debug/app-debug.apk`.
-
-### Menggunakan Command Line:
 ```bash
 cd android
+# Debug APK (package tetap com.tumpanggo.merchant agar cocok dengan google-services.json)
 ./gradlew assembleDebug
-# atau untuk release:
+
+# Release APK (wajib ada android/app/google-services.json)
 ./gradlew assembleRelease
 ```
-
----
-
-## 6. Pengujian Notifikasi Native di HP
-
-1. Buka aplikasi **TumpangGo Merchant** di HP Android.
-2. Ketika muncul dialog *"Izinkan TumpangGo Merchant mengirimkan notifikasi?"*, pilih **Izinkan** (*Allow*).
-3. Masuk dengan akun toko merchant Anda.
-4. Di tab **Profil / Pengaturan**, periksa kartu:
-   **Aplikasi Android Native (FCM)** -> status **FCM Terhubung**.
-5. Tekan tombol **Tes Notifikasi FCM** atau **Tes Nada Dering Native**.
-6. Kunci layar HP Anda atau tutup aplikasi, lalu lakukan tes order pembayaran terverifikasi.
-7. HP akan berdering kencang dengan nada dering pesanan masuk dan menampilkan banner notifikasi detail pesanan.

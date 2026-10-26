@@ -1,14 +1,25 @@
 /**
  * @license
  * SPDX-License-Identifier: Apache-2.0
- * 
- * Web Push Subscription Hook for TumpangGo Merchant & Driver
- * Handles browser notification permissions, service worker push registration,
- * and background notification testing.
+ *
+ * Web Push Subscription Hook for TumpangGo Merchant & Driver (Browser / PWA only).
+ * Automatically disables browser PushManager inside the Native Android APK WebView
+ * so Web Push and Native Android FCM never duplicate notifications on the same device.
  */
 
 import { useState, useEffect, useCallback } from 'react';
 import { apiFetch as fetch } from '../utils/apiClient.ts';
+
+function isRunningInsideNativeAndroidBridge(): boolean {
+  if (typeof window === 'undefined') return false;
+  const win = window as any;
+  const bridge = win.TumpangNativeBridge || win.AndroidBridge;
+  try {
+    return Boolean(bridge && typeof bridge.isNativeApp === 'function' && bridge.isNativeApp());
+  } catch {
+    return false;
+  }
+}
 
 function urlBase64ToUint8Array(base64String: string): Uint8Array {
   const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
@@ -32,9 +43,15 @@ export function useWebPush(role: 'MERCHANT' | 'DRIVER', entityId: string) {
   const [loading, setLoading] = useState<boolean>(false);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
 
-  // Check support and current registration status on mount
   useEffect(() => {
     if (typeof window === 'undefined') return;
+
+    // Strictly separate Browser/PWA Web Push from Native Android FCM
+    if (isRunningInsideNativeAndroidBridge()) {
+      setIsSupported(false);
+      setIsSubscribed(false);
+      return;
+    }
 
     const supported = 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
     setIsSupported(supported);
@@ -53,8 +70,11 @@ export function useWebPush(role: 'MERCHANT' | 'DRIVER', entityId: string) {
     }
   }, [role, entityId]);
 
-  // Subscribe to Web Push
   const subscribe = useCallback(async (): Promise<boolean> => {
+    if (isRunningInsideNativeAndroidBridge()) {
+      return false;
+    }
+
     if (!isSupported) {
       setStatusMessage('Browser ini tidak mendukung Web Push Notifications.');
       return false;
@@ -69,7 +89,6 @@ export function useWebPush(role: 'MERCHANT' | 'DRIVER', entityId: string) {
     setStatusMessage(null);
 
     try {
-      // 1. Request permission
       const perm = await Notification.requestPermission();
       setPermission(perm);
 
@@ -78,7 +97,6 @@ export function useWebPush(role: 'MERCHANT' | 'DRIVER', entityId: string) {
         return false;
       }
 
-      // 2. Fetch VAPID Public Key from backend
       const vapidRes = await fetch('/api/push/vapid-key');
       if (!vapidRes.ok) {
         throw new Error('Gagal mengambil kunci otorisasi notifikasi push.');
@@ -88,7 +106,6 @@ export function useWebPush(role: 'MERCHANT' | 'DRIVER', entityId: string) {
         throw new Error('Kunci VAPID belum dikonfigurasi di server.');
       }
 
-      // 3. Register with Service Worker Push Manager
       const registration = await navigator.serviceWorker.ready;
       let subscription = await registration.pushManager.getSubscription();
 
@@ -100,7 +117,6 @@ export function useWebPush(role: 'MERCHANT' | 'DRIVER', entityId: string) {
         });
       }
 
-      // 4. Send subscription record to backend
       const subJson = subscription.toJSON();
       const saveRes = await fetch('/api/push/subscribe', {
         method: 'POST',
@@ -122,7 +138,7 @@ export function useWebPush(role: 'MERCHANT' | 'DRIVER', entityId: string) {
       }
 
       setIsSubscribed(true);
-      setStatusMessage('Notifikasi pesanan berhasil diaktifkan untuk perangkat ini!');
+      setStatusMessage('Notifikasi pesanan berhasil diaktifkan untuk browser ini!');
       return true;
     } catch (err: any) {
       console.error('[useWebPush] Subscription error:', err);
@@ -133,7 +149,6 @@ export function useWebPush(role: 'MERCHANT' | 'DRIVER', entityId: string) {
     }
   }, [isSupported, entityId, role]);
 
-  // Unsubscribe from Web Push
   const unsubscribe = useCallback(async (): Promise<boolean> => {
     if (!isSupported) return false;
     setLoading(true);
@@ -146,16 +161,15 @@ export function useWebPush(role: 'MERCHANT' | 'DRIVER', entityId: string) {
         const endpoint = subscription.endpoint;
         await subscription.unsubscribe();
 
-        // Invalidate in backend
         await fetch('/api/push/unsubscribe', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ endpoint })
+          body: JSON.stringify({ endpoint, entityId })
         }).catch(() => {});
       }
 
       setIsSubscribed(false);
-      setStatusMessage('Notifikasi pesanan telah dinonaktifkan.');
+      setStatusMessage('Notifikasi browser telah dinonaktifkan.');
       return true;
     } catch (err: any) {
       console.error('[useWebPush] Unsubscribe error:', err);
@@ -164,12 +178,12 @@ export function useWebPush(role: 'MERCHANT' | 'DRIVER', entityId: string) {
     } finally {
       setLoading(false);
     }
-  }, [isSupported]);
+  }, [isSupported, entityId]);
 
-  // Dispatch Test Push
   const sendTestNotification = useCallback(async (): Promise<boolean> => {
     if (!entityId) return false;
     setLoading(true);
+    setStatusMessage(null);
 
     try {
       const res = await fetch('/api/push/test', {
@@ -183,7 +197,7 @@ export function useWebPush(role: 'MERCHANT' | 'DRIVER', entityId: string) {
         setStatusMessage(data.message || 'Notifikasi tes berhasil dikirim!');
         return true;
       } else {
-        setStatusMessage(data.error || 'Gagal mengirim notifikasi tes.');
+        setStatusMessage(data.message || data.error || 'Gagal mengirim notifikasi tes.');
         return false;
       }
     } catch (err: any) {

@@ -533,7 +533,8 @@ export const COLLECTION_TO_TABLE: Record<string, string> = {
   testimonials: 'testimonials',
   auditLogs: 'audit_logs',
   systemConfig: 'system_config',
-  pushSubscriptions: 'push_subscriptions'
+  pushSubscriptions: 'push_subscriptions',
+  pushNotificationEvents: 'push_notification_events'
 };
 
 function mapPushSubscriptionToDb(sub: any): Record<string, any> {
@@ -568,6 +569,44 @@ function mapPushSubscriptionFromDb(row: any): any {
   };
 }
 
+function mapPushEventToDb(ev: any): Record<string, any> {
+  return {
+    id: ev.id,
+    order_id: ev.orderId,
+    merchant_id: ev.merchantId,
+    event_type: ev.eventType || 'NEW_ORDER',
+    status: ev.status || 'PENDING',
+    attempts: Number(ev.attempts) || 0,
+    sent_fcm: Number(ev.sentFCM ?? ev.sentCount ?? 0) || 0,
+    sent_web_push: Number(ev.sentWebPush ?? 0) || 0,
+    last_error: ev.lastError || null,
+    payload: ev.payload || null,
+    created_at: ev.createdAt || new Date().toISOString(),
+    updated_at: ev.updatedAt || new Date().toISOString()
+  };
+}
+
+function mapPushEventFromDb(row: any): any {
+  const sentFCM = Number(row.sent_fcm) || 0;
+  const sentWebPush = Number(row.sent_web_push) || 0;
+  return {
+    id: row.id,
+    orderId: row.order_id,
+    merchantId: row.merchant_id,
+    eventType: row.event_type || 'NEW_ORDER',
+    status: row.status || 'PENDING',
+    attempts: Number(row.attempts) || 0,
+    sentFCM,
+    sentWebPush,
+    sentCount: sentFCM + sentWebPush,
+    failedCount: 0,
+    lastError: row.last_error || undefined,
+    payload: row.payload || undefined,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
+  };
+}
+
 export function mapEntityToDb(collection: string, data: any): Record<string, any> {
   switch (collection) {
     case 'merchants': return mapMerchantToDb(data);
@@ -581,6 +620,7 @@ export function mapEntityToDb(collection: string, data: any): Record<string, any
     case 'auditLogs': return mapAuditLogToDb(data);
     case 'systemConfig': return mapSystemConfigToDb(data);
     case 'pushSubscriptions': return mapPushSubscriptionToDb(data);
+    case 'pushNotificationEvents': return mapPushEventToDb(data);
     default: return { ...data };
   }
 }
@@ -598,6 +638,7 @@ export function mapEntityFromDb(collection: string, row: any): any {
     case 'auditLogs': return mapAuditLogFromDb(row);
     case 'systemConfig': return mapSystemConfigFromDb(row);
     case 'pushSubscriptions': return mapPushSubscriptionFromDb(row);
+    case 'pushNotificationEvents': return mapPushEventFromDb(row);
     default: return row;
   }
 }
@@ -1309,4 +1350,215 @@ export async function fetchOrdersByDriverFromSupabase(driverId: string): Promise
     clearTimeout(timeoutId);
   }
 }
+
+/**
+ * Granular serverless-safe query for push subscriptions belonging to a specific role and entityId.
+ * Ensures Vercel cold-start Lambdas always retrieve live FCM tokens & Web Push endpoints from PostgreSQL.
+ */
+export async function fetchPushSubscriptionsForEntityFromSupabase(
+  role: 'MERCHANT' | 'DRIVER' | 'CUSTOMER',
+  entityId: string
+): Promise<any[]> {
+  if (testSupabaseMock?.fetchResult !== undefined) {
+    return testSupabaseMock.fetchResult;
+  }
+  const client = getSupabaseClient();
+  if (!client || !entityId) return [];
+
+  const cleanEntityId = String(entityId).trim();
+  const bareId = cleanEntityId.replace(/^merchant_/, '').replace(/^driver_/, '');
+  const candidateIds = Array.from(new Set([
+    cleanEntityId,
+    bareId,
+    role === 'MERCHANT' ? `merchant_${bareId}` : (role === 'DRIVER' ? `driver_${bareId}` : cleanEntityId)
+  ])).filter(Boolean);
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 8000);
+
+  try {
+    const { data, error } = await client
+      .from('push_subscriptions')
+      .select('*')
+      .eq('role', role)
+      .in('entity_id', candidateIds)
+      .abortSignal(controller.signal);
+
+    if (error) {
+      const formatted = formatSupabaseError(error);
+      console.warn(`[SupabaseAdapter] fetchPushSubscriptionsForEntity failed:`, formatted.message);
+      return [];
+    }
+
+    return (data || []).map(row => mapPushSubscriptionFromDb(row));
+  } catch (err: any) {
+    const formatted = formatSupabaseError(err);
+    console.warn(`[SupabaseAdapter] Exception in fetchPushSubscriptionsForEntity:`, formatted.message);
+    return [];
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+/**
+ * Finds an existing push subscription in Supabase by FCM token or Web Push endpoint
+ * so re-registrations across stateless serverless instances reuse the canonical primary key.
+ */
+export async function findPushSubscriptionInSupabase(params: {
+  fcmToken?: string;
+  oldFcmToken?: string;
+  endpoint?: string;
+}): Promise<any | null> {
+  if (testSupabaseMock) return null;
+  const client = getSupabaseClient();
+  if (!client) return null;
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 6000);
+
+  try {
+    const tokens = [params.fcmToken, params.oldFcmToken].filter((t): t is string => Boolean(t && t.trim()));
+    if (tokens.length > 0) {
+      const { data, error } = await client
+        .from('push_subscriptions')
+        .select('*')
+        .in('fcm_token', tokens)
+        .limit(1)
+        .abortSignal(controller.signal);
+      if (!error && data && data.length > 0) {
+        return mapPushSubscriptionFromDb(data[0]);
+      }
+    }
+
+    if (params.endpoint && params.endpoint.trim()) {
+      const { data, error } = await client
+        .from('push_subscriptions')
+        .select('*')
+        .eq('subscription->>endpoint', params.endpoint.trim())
+        .limit(1)
+        .abortSignal(controller.signal);
+      if (!error && data && data.length > 0) {
+        return mapPushSubscriptionFromDb(data[0]);
+      }
+    }
+
+    return null;
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+/**
+ * Deletes push subscriptions in Supabase matching id, fcm_token, or Web Push endpoint,
+ * even when invoked from a cold-started serverless instance with empty local memory.
+ */
+export async function deletePushSubscriptionFromSupabaseByIdentifier(
+  identifier: string,
+  entityId?: string
+): Promise<boolean> {
+  if (testSupabaseMock) {
+    testSupabaseMock.onDelete?.('pushSubscriptions', identifier);
+    return testSupabaseMock.deleteSuccess !== false;
+  }
+  const client = getSupabaseClient();
+  if (!client || !identifier) return false;
+
+  const clean = identifier.trim();
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 8000);
+
+  try {
+    // 1. Delete by id or fcm_token
+    let q1 = client.from('push_subscriptions').delete().or(`id.eq.${clean},fcm_token.eq.${clean}`);
+    if (entityId && entityId.trim()) {
+      q1 = q1.eq('entity_id', entityId.trim());
+    }
+    await q1.abortSignal(controller.signal);
+
+    // 2. If identifier looks like a URL endpoint, also delete matching JSONB endpoint
+    if (clean.startsWith('http://') || clean.startsWith('https://')) {
+      let q2 = client.from('push_subscriptions').delete().eq('subscription->>endpoint', clean);
+      if (entityId && entityId.trim()) {
+        q2 = q2.eq('entity_id', entityId.trim());
+      }
+      await q2.abortSignal(controller.signal);
+    }
+
+    return true;
+  } catch (err: any) {
+    const formatted = formatSupabaseError(err);
+    console.warn(`[SupabaseAdapter] deletePushSubscriptionFromSupabaseByIdentifier warning:`, formatted.message);
+    return false;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+/**
+ * Fetches a single push notification event by ID from Supabase for serverless deduplication.
+ */
+export async function fetchPushEventByIdFromSupabase(eventId: string): Promise<any | null> {
+  if (testSupabaseMock) return null;
+  const client = getSupabaseClient();
+  if (!client || !eventId) return null;
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 6000);
+
+  try {
+    const { data, error } = await client
+      .from('push_notification_events')
+      .select('*')
+      .eq('id', eventId)
+      .limit(1)
+      .abortSignal(controller.signal);
+
+    if (error || !data || data.length === 0) return null;
+    return mapPushEventFromDb(data[0]);
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+/**
+ * Fetches recent FAILED or PENDING push outbox events for a merchant (within last 2 hours)
+ * so retries can run safely on serverless requests without permanent background workers.
+ */
+export async function fetchRetryablePushEventsFromSupabase(merchantId?: string, limit = 25): Promise<any[]> {
+  if (testSupabaseMock) return [];
+  const client = getSupabaseClient();
+  if (!client) return [];
+
+  const cutoffIso = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 8000);
+
+  try {
+    let query = client
+      .from('push_notification_events')
+      .select('*')
+      .in('status', ['RETRYING', 'FAILED', 'PENDING'])
+      .lt('attempts', 5)
+      .gte('created_at', cutoffIso)
+      .order('created_at', { ascending: true })
+      .limit(Math.max(1, Math.min(limit, 50)));
+
+    if (merchantId && merchantId.trim()) {
+      query = query.eq('merchant_id', merchantId.trim());
+    }
+
+    const { data, error } = await query.abortSignal(controller.signal);
+    if (error || !data) return [];
+    return data.map(row => mapPushEventFromDb(row));
+  } catch {
+    return [];
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
 

@@ -299,8 +299,11 @@ export default function MerchantView({ merchantId: rawMerchantId, onLogout, onSe
   const [showPendingVerification, setShowPendingVerification] = useState(false);
 
 
-  // E-Receipt modal viewer
+  // E-Receipt modal viewer & Deep-Linked Order Detail modal
   const [selectedReceiptOrder, setSelectedReceiptOrder] = useState<Order | null>(null);
+  const [inspectedOrder, setInspectedOrder] = useState<Order | null>(null);
+  const [inspectedOrderLoading, setInspectedOrderLoading] = useState<boolean>(false);
+  const [inspectedOrderError, setInspectedOrderError] = useState<string | null>(null);
 
   // Loading & Action states
   const [loading, setLoading] = useState(true);
@@ -310,6 +313,20 @@ export default function MerchantView({ merchantId: rawMerchantId, onLogout, onSe
   const [rejectModal, setRejectModal] = useState<{ orderId: string; visible: boolean; reason: string } | null>(null);
   const [actionLoadingOrderId, setActionLoadingOrderId] = useState<string | null>(null);
   const cookingNow = useCookingTicker();
+
+  const {
+    isNativeApp,
+    fcmToken,
+    nativeDiagnostics,
+    notifyOrderHandled,
+    syncNativePendingOrders,
+    clearNativeMerchantSession,
+    playNativeTestSound,
+    requestNativeNotificationPermission,
+    openNativeNotificationSettings
+  } = useNativeBridge(effectiveMerchantId, typeof window !== 'undefined' ? safeStorage.getItem('tumpang_auth_token') : null);
+
+  // Suppress Web Audio synthesis when inside Native Android APK so native FCM channel audio never double-rings
   const {
     isRinging,
     isMuted,
@@ -317,7 +334,7 @@ export default function MerchantView({ merchantId: rawMerchantId, onLogout, onSe
     dismissAlert,
     toggleMute,
     unlockAudio
-  } = useOrderRingtone(orders, !loading);
+  } = useOrderRingtone(orders, !loading, isNativeApp);
 
   const {
     isSupported: isPushSupported,
@@ -329,29 +346,6 @@ export default function MerchantView({ merchantId: rawMerchantId, onLogout, onSe
     sendTestNotification: sendTestPush,
     clearStatusMessage: clearPushStatusMsg
   } = useWebPush('MERCHANT', effectiveMerchantId);
-
-  const {
-    isNativeApp,
-    fcmToken,
-    notifyOrderHandled,
-    playNativeTestSound,
-    requestNativeNotificationPermission
-  } = useNativeBridge(effectiveMerchantId, typeof window !== 'undefined' ? localStorage.getItem('tumpang_auth_token') : null);
-
-  // Listen for native Android intent when an order notification is tapped
-  useEffect(() => {
-    const handleOpenOrder = (e: any) => {
-      const targetId = e?.detail?.orderId;
-      if (targetId) {
-        setActiveTab('incoming');
-        setOperationalSubTab('perlu_masak');
-        dismissAlert();
-        notifyOrderHandled(targetId);
-      }
-    };
-    window.addEventListener('tumpang:openOrder', handleOpenOrder);
-    return () => window.removeEventListener('tumpang:openOrder', handleOpenOrder);
-  }, [dismissAlert, notifyOrderHandled]);
 
   // Menu editor states
   const [selectedMenuCategory, setSelectedMenuCategory] = useState<string>('ALL');
@@ -383,7 +377,7 @@ export default function MerchantView({ merchantId: rawMerchantId, onLogout, onSe
     onRefresh: async () => {
       await fetchMerchantData(true);
     },
-    disabled: showItemForm || Boolean(rejectModal) || Boolean(selectedReceiptOrder)
+    disabled: showItemForm || Boolean(rejectModal) || Boolean(selectedReceiptOrder) || Boolean(inspectedOrder) || inspectedOrderLoading
   });
 
   const isMountedRef = useRef(true);
@@ -426,6 +420,157 @@ export default function MerchantView({ merchantId: rawMerchantId, onLogout, onSe
 
     return () => {
       clearInterval(pollInterval);
+    };
+  }, [effectiveMerchantId]);
+
+  // Keep native Android notification tray count synchronized with live unhandled backend orders
+  useEffect(() => {
+    if (!isNativeApp || loading || !Array.isArray(orders)) return;
+    const nowMs = Date.now();
+    const unhandledIds = orders
+      .filter(o => {
+        if (!o) return false;
+        if (o.status === OrderStatus.PAYMENT_VERIFIED || o.status === OrderStatus.WAITING_PAYMENT_VERIFICATION) {
+          return true;
+        }
+        if (o.status === OrderStatus.WAITING_PAYMENT) {
+          if (o.paymentExpiresAt) {
+            const exp = new Date(o.paymentExpiresAt).getTime();
+            if (!isNaN(exp) && exp < nowMs) return false;
+          }
+          return true;
+        }
+        return false;
+      })
+      .map(o => o.id);
+    syncNativePendingOrders(unhandledIds);
+  }, [isNativeApp, loading, orders, syncNativePendingOrders]);
+
+  // Authoritative deep-link order opener: always fetches live order state from backend API
+  // and updates notification count WITHOUT mutating order transaction status automatically.
+  const openOrderDetailFromNotification = async (rawOrderId: string) => {
+    const cleanTargetId = String(rawOrderId || '').trim();
+    if (!cleanTargetId || !effectiveMerchantId) return;
+
+    // Clear persisted pending target & clean URL query param so reloads do not re-pop modal
+    safeStorage.removeItem('tumpang_pending_open_order_id');
+    if (typeof window !== 'undefined' && window.location.search.includes('orderId=')) {
+      const url = new URL(window.location.href);
+      url.searchParams.delete('orderId');
+      window.history.replaceState({}, '', url.pathname + (url.search ? url.search : ''));
+    }
+
+    dismissAlert();
+    notifyOrderHandled(cleanTargetId);
+
+    setInspectedOrderLoading(true);
+    setInspectedOrderError(null);
+
+    try {
+      const ordRes = await fetch(`/api/merchants/${encodeURIComponent(effectiveMerchantId)}/orders`);
+      const freshList = ordRes.ok ? extractArrayResponse<Order>(await ordRes.json(), 'orders') : orders;
+      if (isMountedRef.current && Array.isArray(freshList) && freshList.length > 0) {
+        setOrders(freshList);
+        setLastRefreshedAt(new Date());
+      }
+
+      const matched = (freshList || []).find(
+        o => o && (o.id === cleanTargetId || o.orderNumber === cleanTargetId)
+      );
+
+      if (!matched) {
+        setInspectedOrder(null);
+        setInspectedOrderError('Pesanan tidak ditemukan pada toko ini atau sudah tidak tersedia.');
+        return;
+      }
+
+      setInspectedOrder(matched);
+
+      // Route background tab contextually to match authoritative order status
+      if (matched.status === OrderStatus.PAYMENT_VERIFIED) {
+        setActiveTab('incoming');
+        setOperationalSubTab('perlu_masak');
+      } else if (
+        matched.status === OrderStatus.WAITING_PAYMENT ||
+        matched.status === OrderStatus.WAITING_PAYMENT_VERIFICATION
+      ) {
+        setActiveTab('incoming');
+        setOperationalSubTab('perlu_masak');
+        setShowPendingVerification(true);
+      } else if (matched.status === OrderStatus.COOKING) {
+        setActiveTab('incoming');
+        setOperationalSubTab('cooking');
+      } else if (matched.status === OrderStatus.READY_FOR_PICKUP) {
+        setActiveTab('incoming');
+        setOperationalSubTab('ready');
+      } else {
+        setActiveTab('history');
+      }
+    } catch {
+      const fallbackMatch = orders.find(o => o && (o.id === cleanTargetId || o.orderNumber === cleanTargetId));
+      if (fallbackMatch) {
+        setInspectedOrder(fallbackMatch);
+      } else {
+        setInspectedOrderError('Gagal memuat rincian pesanan terbaru. Periksa koneksi internet Anda.');
+      }
+    } finally {
+      if (isMountedRef.current) {
+        setInspectedOrderLoading(false);
+      }
+    }
+  };
+
+  // Handle notification deep-links (initial URL ?orderId=, post-login pending orderId, Native PendingIntent, PWA SW postMessage)
+  // as well as foreground FCM order refresh & offline->online network recovery events.
+  useEffect(() => {
+    if (!effectiveMerchantId) return;
+
+    const params = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null;
+    const urlOrderId = params?.get('orderId')?.trim();
+    const storedPendingOrderId = safeStorage.getItem('tumpang_pending_open_order_id')?.trim();
+    const initialTarget = urlOrderId || storedPendingOrderId;
+
+    if (initialTarget) {
+      openOrderDetailFromNotification(initialTarget);
+    }
+
+    const handleNativeOpenOrder = (e: any) => {
+      const targetId = e?.detail?.orderId;
+      if (targetId) {
+        openOrderDetailFromNotification(targetId);
+      }
+    };
+
+    const handleForegroundPush = () => {
+      fetchMerchantData(true);
+    };
+
+    const handleNetworkRestored = () => {
+      fetchMerchantData(true);
+    };
+
+    const handleSwMessage = (event: MessageEvent) => {
+      if (event.data?.type === 'TUMPANG_OPEN_ORDER' && event.data?.orderId) {
+        openOrderDetailFromNotification(event.data.orderId);
+      }
+    };
+
+    window.addEventListener('tumpang:openOrder', handleNativeOpenOrder);
+    window.addEventListener('tumpang:newOrderPush', handleForegroundPush);
+    window.addEventListener('tumpang:networkRestored', handleNetworkRestored);
+    window.addEventListener('online', handleNetworkRestored);
+    if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
+      navigator.serviceWorker.addEventListener('message', handleSwMessage);
+    }
+
+    return () => {
+      window.removeEventListener('tumpang:openOrder', handleNativeOpenOrder);
+      window.removeEventListener('tumpang:newOrderPush', handleForegroundPush);
+      window.removeEventListener('tumpang:networkRestored', handleNetworkRestored);
+      window.removeEventListener('online', handleNetworkRestored);
+      if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
+        navigator.serviceWorker.removeEventListener('message', handleSwMessage);
+      }
     };
   }, [effectiveMerchantId]);
 
@@ -813,6 +958,7 @@ export default function MerchantView({ merchantId: rawMerchantId, onLogout, onSe
 
   const handleConfirmLogout = () => {
     if (window.confirm('Apakah Anda yakin ingin keluar dari Portal Toko?')) {
+      clearNativeMerchantSession();
       onLogout();
     }
   };
@@ -2627,18 +2773,52 @@ export default function MerchantView({ merchantId: rawMerchantId, onLogout, onSe
                 {/* Native Android APK Push Notification Status or Web Push Notification Settings */}
                 {isNativeApp ? (
                   <div className="bg-emerald-50/70 rounded-2xl border border-emerald-200/90 p-4 sm:p-5 shadow-xs space-y-2.5">
-                    <div className="flex items-center justify-between">
+                    <div className="flex items-center justify-between gap-2">
                       <span className="text-xs font-bold text-emerald-950 flex items-center gap-1.5">
                         <Bell className="w-4 h-4 text-emerald-700 animate-pulse" />
                         Aplikasi Android Native (FCM)
                       </span>
-                      <span className="text-[10px] font-extrabold px-2.5 py-0.5 rounded-full bg-emerald-200 text-emerald-900">
-                        {fcmToken ? 'FCM Terhubung' : 'Memuat Kunci...'}
+                      <span className={`text-[10px] font-extrabold px-2.5 py-0.5 rounded-full ${
+                        nativeDiagnostics && !nativeDiagnostics.firebaseInitialized
+                          ? 'bg-amber-200 text-amber-900'
+                          : fcmToken
+                            ? 'bg-emerald-200 text-emerald-900'
+                            : 'bg-slate-200 text-slate-700'
+                      }`}>
+                        {nativeDiagnostics && !nativeDiagnostics.firebaseInitialized
+                          ? 'Perlu google-services.json'
+                          : fcmToken
+                            ? 'FCM Terhubung'
+                            : 'Memuat Token...'}
                       </span>
                     </div>
                     <p className="text-[11px] text-emerald-900/80 leading-relaxed">
-                      Peringatan pesanan baru dipicu langsung oleh sistem Android melalui Firebase Cloud Messaging. Suara panggilan telepon akan tetap berdering kencang saat HP terkunci atau aplikasi ditutup.
+                      Notifikasi dikirim melalui channel <strong>Pesanan Baru TumpangGo Merchant</strong> menggunakan Firebase Cloud Messaging native sehingga tetap berbunyi saat layar terkunci atau aplikasi ditutup.
                     </p>
+
+                    {nativeDiagnostics && (!nativeDiagnostics.appNotificationsEnabled || nativeDiagnostics.channelBlocked || !nativeDiagnostics.channelSoundEnabled) && (
+                      <div className="p-2.5 bg-amber-50 border border-amber-200 rounded-xl text-[11px] text-amber-950 space-y-1.5">
+                        <div className="font-bold flex items-center gap-1.5 text-amber-900">
+                          <AlertTriangle className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                          <span>Pengaturan Suara / Notifikasi Android Perlu Diperiksa</span>
+                        </div>
+                        <p className="text-[10px] text-amber-800 leading-relaxed">
+                          {!nativeDiagnostics.appNotificationsEnabled
+                            ? 'Izin notifikasi aplikasi sedang dinonaktifkan di pengaturan sistem Android.'
+                            : nativeDiagnostics.channelBlocked
+                              ? 'Channel "Pesanan Baru TumpangGo Merchant" sedang diblokir di pengaturan Android.'
+                              : 'Suara pada channel "Pesanan Baru TumpangGo Merchant" sedang dimatikan/hening.'}
+                        </p>
+                        <button
+                          type="button"
+                          onClick={openNativeNotificationSettings}
+                          className="min-h-[34px] px-3 py-1 bg-amber-600 hover:bg-amber-700 text-white font-bold text-[11px] rounded-lg cursor-pointer"
+                        >
+                          Buka Pengaturan Channel Android
+                        </button>
+                      </div>
+                    )}
+
                     <div className="flex flex-wrap gap-2 pt-1">
                       <button
                         type="button"
@@ -2655,7 +2835,14 @@ export default function MerchantView({ merchantId: rawMerchantId, onLogout, onSe
                         className="min-h-[38px] px-3 py-1.5 bg-white border border-emerald-300 hover:bg-emerald-100 text-emerald-900 font-bold text-xs rounded-xl shadow-2xs cursor-pointer flex items-center gap-1.5"
                       >
                         <Volume2 className="w-3.5 h-3.5" />
-                        Tes Nada Dering Native
+                        Tes Suara Khusus
+                      </button>
+                      <button
+                        type="button"
+                        onClick={openNativeNotificationSettings}
+                        className="min-h-[38px] px-3 py-1.5 bg-white border border-emerald-300 hover:bg-emerald-100 text-emerald-800 font-bold text-xs rounded-xl cursor-pointer"
+                      >
+                        Pengaturan Channel
                       </button>
                       <button
                         type="button"
@@ -3057,6 +3244,223 @@ export default function MerchantView({ merchantId: rawMerchantId, onLogout, onSe
                 className="flex-1 min-h-[44px] py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold cursor-pointer"
               >
                 Tolak Pesanan
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 3. Deep-Linked Order Detail Modal (Opened when Merchant taps Push Notification) */}
+      {(inspectedOrderLoading || inspectedOrder || inspectedOrderError) && (
+        <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4">
+          <div className="bg-white rounded-2xl max-w-md w-full shadow-2xl flex flex-col max-h-[90dvh] overflow-hidden border border-slate-200">
+            <div className="p-4 border-b border-slate-100 flex items-center justify-between bg-slate-50">
+              <div>
+                <span className="text-[10px] font-extrabold uppercase tracking-wider text-emerald-700 block">
+                  Rincian Pesanan Toko
+                </span>
+                <h3 className="font-display font-extrabold text-sm sm:text-base text-slate-900">
+                  {inspectedOrder ? `#${inspectedOrder.orderNumber || inspectedOrder.id}` : 'Memuat Pesanan...'}
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setInspectedOrder(null);
+                  setInspectedOrderError(null);
+                }}
+                className="w-9 h-9 rounded-xl flex items-center justify-center text-slate-400 hover:text-slate-700 hover:bg-slate-200/70 cursor-pointer"
+                aria-label="Tutup Rincian Pesanan"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-4 space-y-3.5 overflow-y-auto flex-1">
+              {inspectedOrderLoading ? (
+                <div className="py-8 text-center space-y-2">
+                  <RefreshCw className="w-6 h-6 text-emerald-600 animate-spin mx-auto" />
+                  <p className="text-xs font-semibold text-slate-600">
+                    Memverifikasi status pesanan terbaru dari server...
+                  </p>
+                </div>
+              ) : inspectedOrderError ? (
+                <div className="p-3.5 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-800 space-y-1">
+                  <p className="font-bold">Tidak Dapat Membuka Pesanan</p>
+                  <p>{inspectedOrderError}</p>
+                </div>
+              ) : inspectedOrder && (
+                <>
+                  {/* Authoritative Backend Status Badge */}
+                  <div className="flex items-center justify-between gap-2 p-3 rounded-xl bg-slate-50 border border-slate-200/80">
+                    <div>
+                      <span className="text-[10px] font-bold text-slate-400 uppercase block">Status Server Saat Ini</span>
+                      <span className="text-xs font-extrabold text-slate-900">
+                        {inspectedOrder.status === OrderStatus.PAYMENT_VERIFIED
+                          ? 'Pembayaran Terverifikasi — Siap Dimasak'
+                          : inspectedOrder.status === OrderStatus.WAITING_PAYMENT_VERIFICATION
+                            ? 'Menunggu Verifikasi Pembayaran Admin'
+                            : inspectedOrder.status === OrderStatus.WAITING_PAYMENT
+                              ? 'Pesanan Baru — Menunggu Pembayaran'
+                              : inspectedOrder.status === OrderStatus.COOKING
+                                ? 'Sedang Dimasak di Dapur'
+                                : inspectedOrder.status === OrderStatus.READY_FOR_PICKUP
+                                  ? 'Makanan Siap Diambil Kurir'
+                                  : inspectedOrder.status}
+                      </span>
+                    </div>
+                    <span className="text-[10px] font-mono text-slate-500 shrink-0">
+                      {new Date(inspectedOrder.createdAt).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })} WIB
+                    </span>
+                  </div>
+
+                  {/* Customer Info */}
+                  <div className="p-3 rounded-xl border border-slate-200/80 space-y-1.5 text-xs">
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-slate-900">{inspectedOrder.customerName}</span>
+                      {inspectedOrder.customerPhone && (
+                        <a
+                          href={`https://wa.me/${inspectedOrder.customerPhone.replace(/[^0-9]/g, '')}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-emerald-700 font-mono font-bold text-[11px] inline-flex items-center gap-1"
+                        >
+                          <Phone className="w-3 h-3" />
+                          {inspectedOrder.customerPhone}
+                        </a>
+                      )}
+                    </div>
+                    <div className="flex items-start gap-1.5 text-[11px] text-slate-600">
+                      <MapPin className="w-3.5 h-3.5 text-slate-400 shrink-0 mt-0.5" />
+                      <span>
+                        {inspectedOrder.deliveryAddress}
+                        {inspectedOrder.landmark ? ` (${inspectedOrder.landmark})` : ''}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Order Items */}
+                  <div className="p-3 rounded-xl bg-slate-50 border border-slate-200/80 space-y-2">
+                    <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">
+                      Daftar Menu Pesanan
+                    </span>
+                    {(inspectedOrder.items || []).map((item, idx) => (
+                      <div key={idx} className="space-y-0.5 border-b border-slate-200/60 last:border-b-0 pb-1.5 last:pb-0">
+                        <div className="flex justify-between text-xs text-slate-900">
+                          <span className="font-semibold">
+                            <strong className="text-emerald-700 mr-1">{item.quantity}x</strong>
+                            {item.name}
+                          </span>
+                          <span className="font-mono font-semibold">
+                            Rp {(item.price * item.quantity).toLocaleString('id-ID')}
+                          </span>
+                        </div>
+                        {item.notes && (
+                          <p className="text-[11px] text-amber-800 bg-amber-50 px-2 py-0.5 rounded">
+                            Catatan: {item.notes}
+                          </p>
+                        )}
+                      </div>
+                    ))}
+                    <div className="pt-2 border-t border-slate-200 flex justify-between items-center text-xs font-extrabold text-slate-900">
+                      <span>Subtotal Menu Toko</span>
+                      <span className="font-mono text-emerald-700">
+                        Rp {(inspectedOrder.subtotal || 0).toLocaleString('id-ID')}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Contextual Actions Based on Authoritative Status */}
+                  {inspectedOrder.status === OrderStatus.PAYMENT_VERIFIED && (
+                    <div className="space-y-2.5 pt-1">
+                      <div>
+                        <label className="text-[11px] font-bold text-slate-700 block mb-1">
+                          Estimasi Waktu Masak (Menit)
+                        </label>
+                        <div className="grid grid-cols-4 gap-1.5">
+                          {[10, 15, 20, 30].map(mins => {
+                            const selected = (cookEstimateInput[inspectedOrder.id] || 15) === mins;
+                            return (
+                              <button
+                                key={mins}
+                                type="button"
+                                onClick={() => setCookEstimateInput(prev => ({ ...prev, [inspectedOrder.id]: mins }))}
+                                className={`py-2 rounded-lg text-xs font-bold border cursor-pointer ${
+                                  selected
+                                    ? 'bg-emerald-700 text-white border-emerald-700'
+                                    : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+                                }`}
+                              >
+                                {mins}m
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const targetId = inspectedOrder.id;
+                            setInspectedOrder(null);
+                            setRejectModal({ orderId: targetId, visible: true, reason: '' });
+                          }}
+                          className="px-3.5 min-h-[44px] rounded-xl border border-rose-200 bg-rose-50 text-rose-700 text-xs font-bold cursor-pointer"
+                        >
+                          Tolak
+                        </button>
+                        <button
+                          type="button"
+                          disabled={actionLoadingOrderId === inspectedOrder.id}
+                          onClick={async () => {
+                            const targetId = inspectedOrder.id;
+                            await acceptOrder(targetId);
+                            setInspectedOrder(null);
+                          }}
+                          className="flex-1 min-h-[44px] rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-extrabold cursor-pointer disabled:opacity-50"
+                        >
+                          {actionLoadingOrderId === inspectedOrder.id ? 'Memproses...' : 'Terima & Mulai Masak'}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {(inspectedOrder.status === OrderStatus.WAITING_PAYMENT ||
+                    inspectedOrder.status === OrderStatus.WAITING_PAYMENT_VERIFICATION) && (
+                    <div className="p-3 rounded-xl bg-amber-50 border border-amber-200 text-[11px] text-amber-950 leading-relaxed">
+                      Pesanan baru telah masuk ke sistem. Dapur dapat menyiapkan bahan sambil menunggu konfirmasi pembayaran diverifikasi oleh sistem/admin sebelum klik mulai masak.
+                    </div>
+                  )}
+
+                  {inspectedOrder.status === OrderStatus.COOKING && (
+                    <button
+                      type="button"
+                      disabled={actionLoadingOrderId === inspectedOrder.id}
+                      onClick={async () => {
+                        const targetId = inspectedOrder.id;
+                        await setOrderReady(targetId);
+                        setInspectedOrder(null);
+                      }}
+                      className="w-full min-h-[44px] rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-extrabold cursor-pointer disabled:opacity-50"
+                    >
+                      {actionLoadingOrderId === inspectedOrder.id ? 'Memproses...' : 'Makanan Siap Diambil'}
+                    </button>
+                  )}
+                </>
+              )}
+            </div>
+
+            <div className="p-3.5 border-t border-slate-100 bg-slate-50 flex justify-end">
+              <button
+                type="button"
+                onClick={() => {
+                  setInspectedOrder(null);
+                  setInspectedOrderError(null);
+                }}
+                className="w-full min-h-[42px] rounded-xl bg-slate-200/80 hover:bg-slate-300/80 text-slate-800 text-xs font-bold cursor-pointer"
+              >
+                Tutup Rincian
               </button>
             </div>
           </div>

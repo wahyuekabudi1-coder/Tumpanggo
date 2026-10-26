@@ -1,14 +1,14 @@
 /**
  * @license
  * SPDX-License-Identifier: Apache-2.0
- * 
+ *
  * TumpangGo Service Worker
  * Secure static asset caching & offline shell for Customer, Merchant, Driver & Admin PWA.
- * Includes Web Push notification handling when dashboard/app is in background.
+ * Includes Web Push notification handling when browser/PWA is in background.
  * Strictly bypasses API requests, authentication, and QRIS endpoints to prevent stale data.
  */
 
-const CACHE_NAME = 'tumpanggo-pwa-v19';
+const CACHE_NAME = 'tumpanggo-pwa-v20';
 const STATIC_ASSETS = [
   '/',
   '/index.html',
@@ -37,9 +37,7 @@ const STATIC_ASSETS = [
   '/favicon.svg'
 ];
 
-// Helper to asynchronously resolve cached app shell for navigation requests
 async function resolveNavigationShell(request, url) {
-  // 1. Try exact matched request from cache (ignoring search params like ?id=... or ?source=pwa)
   const exact = await caches.match(request, { ignoreSearch: true });
   if (exact) return exact;
 
@@ -50,7 +48,6 @@ async function resolveNavigationShell(request, url) {
     path = String(url || '').toLowerCase();
   }
 
-  // 2. Try role-specific entry points if available in cache
   if (path === '/merchant' || path.startsWith('/merchant/')) {
     const merchantCached = await caches.match('/merchant', { ignoreSearch: true });
     if (merchantCached) return merchantCached;
@@ -68,14 +65,12 @@ async function resolveNavigationShell(request, url) {
     if (adminFlat) return adminFlat;
   }
 
-  // 3. Guaranteed universal SPA shell fallback
   const indexCached = await caches.match('/index.html', { ignoreSearch: true });
   if (indexCached) return indexCached;
 
   const rootCached = await caches.match('/', { ignoreSearch: true });
   if (rootCached) return rootCached;
 
-  // 4. Resilient inline offline HTML fallback: never return undefined for HTML navigation
   return new Response(
     '<!doctype html><html lang="id"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>TumpangGo Offline</title><style>body{font-family:sans-serif;background:#F4F7F5;color:#1e293b;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;margin:0;padding:24px;box-sizing:border-box;text-align:center}h2{color:#15803d;margin-bottom:8px}button{margin-top:16px;padding:10px 24px;background:#15803d;color:#fff;border:none;border-radius:10px;font-weight:700;font-size:14px;cursor:pointer}</style></head><body><h2>Koneksi Terputus</h2><p>Halaman TumpangGo belum dapat dimuat karena tidak ada koneksi internet aktif.</p><button onclick="window.location.reload()">Muat Ulang</button></body></html>',
     {
@@ -85,7 +80,6 @@ async function resolveNavigationShell(request, url) {
   );
 }
 
-// Install Event - Precache static app shell with resilient individual caching
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then(async (cache) => {
@@ -101,7 +95,6 @@ self.addEventListener('install', (event) => {
   self.skipWaiting();
 });
 
-// Activate Event - Clean up old cache versions immediately
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys().then((keys) => {
@@ -117,16 +110,13 @@ self.addEventListener('activate', (event) => {
   self.clients.claim();
 });
 
-// Fetch Event - Network First with offline app-shell fallback
 self.addEventListener('fetch', (event) => {
   const url = event.request.url;
 
-  // Immediately bypass non-GET requests
   if (event.request.method !== 'GET') {
     return;
   }
 
-  // Bypass cross-origin requests
   if (!url.startsWith(self.location.origin)) {
     return;
   }
@@ -138,9 +128,6 @@ self.addEventListener('fetch', (event) => {
     pathname = String(url || '').toLowerCase();
   }
 
-  // CRITICAL SECURITY & CONSISTENCY:
-  // Strictly bypass API endpoints, authentication, QRIS assets, payment proofs, and dev-server files.
-  // Never intercept, cache, or replace API responses with HTML fallback.
   if (
     pathname === '/api' ||
     pathname.startsWith('/api/') ||
@@ -165,7 +152,6 @@ self.addEventListener('fetch', (event) => {
     fetch(event.request)
       .then(async (networkResponse) => {
         const isNavigation = event.request.mode === 'navigate' || event.request.headers.get('accept')?.includes('text/html');
-        // If server unexpectedly returns 404 or error for an HTML navigation route, fallback gracefully to cached app shell
         if (networkResponse && networkResponse.status >= 400 && isNavigation) {
           return await resolveNavigationShell(event.request, url);
         }
@@ -190,33 +176,42 @@ self.addEventListener('fetch', (event) => {
 });
 
 // =========================================================================
-// WEB PUSH NOTIFICATION LISTENERS (Merchant & Driver Background Alerts)
+// WEB PUSH NOTIFICATION LISTENERS (Browser & PWA Only — Separate from Android FCM)
 // =========================================================================
 
 self.addEventListener('push', (event) => {
-  let data = {};
+  let payload = {};
   if (event.data) {
     try {
-      data = event.data.json();
+      payload = event.data.json();
     } catch {
-      data = { title: 'TumpangGo', body: event.data.text() };
+      payload = { title: 'TumpangGo', body: event.data.text() };
     }
   }
 
-  const title = data.title || 'Pesanan Baru TumpangGo!';
+  const nestedData = payload.data || {};
+  const orderId = nestedData.orderId || '';
+  const role = nestedData.role || payload.role || 'MERCHANT';
+  const defaultPath = role === 'DRIVER' ? '/driver' : '/merchant';
+  const targetUrl = payload.url || (orderId ? `${defaultPath}?orderId=${encodeURIComponent(orderId)}` : defaultPath);
+
+  const title = payload.title || '1 Pesanan Baru';
   const options = {
-    body: data.body || 'Ada pesanan baru yang siap diproses di dapur Anda.',
-    icon: '/pwa-192x192.png',
+    body: payload.body || 'Ada pesanan baru yang perlu diperiksa untuk toko Anda.',
+    icon: role === 'MERCHANT' ? '/pwa-merchant-192x192.png' : '/pwa-192x192.png',
     badge: '/favicon.svg',
-    tag: data.tag || 'tumpanggo-order-' + Date.now(),
+    tag: payload.tag || (orderId ? `order-${orderId}` : 'tumpanggo-order-' + Date.now()),
+    renotify: true,
     vibrate: [300, 150, 300, 150, 450],
     requireInteraction: true,
     data: {
-      url: data.url || (data.role === 'DRIVER' ? '/driver' : '/merchant'),
+      url: targetUrl,
+      orderId,
+      eventId: payload.eventId || nestedData.eventId || '',
       timestamp: Date.now()
     },
     actions: [
-      { action: 'open', title: 'Buka Pesanan' },
+      { action: 'open', title: 'Periksa Pesanan' },
       { action: 'dismiss', title: 'Tutup' }
     ]
   };
@@ -233,25 +228,39 @@ self.addEventListener('notificationclick', (event) => {
     return;
   }
 
-  const targetUrl = (event.notification.data && event.notification.data.url) || '/';
+  const notifData = event.notification.data || {};
+  const targetUrl = notifData.url || '/merchant';
+  const orderId = notifData.orderId || '';
 
   event.waitUntil(
-    clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
-      // Find matching portal window (merchant, driver, or customer)
+    clients.matchAll({ type: 'window', includeUncontrolled: true }).then(async (clientList) => {
       for (const client of clientList) {
         if (!client.url || !('focus' in client)) continue;
         const cUrl = client.url.toLowerCase();
-        if (targetUrl.includes('merchant') && (cUrl.includes('/merchant') || cUrl.includes('role=merchant'))) {
-          return client.focus();
-        }
-        if (targetUrl.includes('driver') && (cUrl.includes('/driver') || cUrl.includes('role=driver'))) {
-          return client.focus();
-        }
-        if (!targetUrl.includes('merchant') && !targetUrl.includes('driver') && !cUrl.includes('/merchant') && !cUrl.includes('/driver')) {
+        const isMerchantTarget = targetUrl.includes('merchant');
+        const isDriverTarget = targetUrl.includes('driver');
+
+        if (
+          (isMerchantTarget && (cUrl.includes('/merchant') || cUrl.includes('role=merchant'))) ||
+          (isDriverTarget && (cUrl.includes('/driver') || cUrl.includes('role=driver')))
+        ) {
+          if (orderId) {
+            try {
+              client.postMessage({
+                type: 'TUMPANG_OPEN_ORDER',
+                orderId,
+                url: targetUrl
+              });
+            } catch {}
+          } else if ('navigate' in client) {
+            try {
+              await client.navigate(targetUrl);
+            } catch {}
+          }
           return client.focus();
         }
       }
-      // Otherwise open a new window
+
       if (clients.openWindow) {
         return clients.openWindow(targetUrl);
       }
