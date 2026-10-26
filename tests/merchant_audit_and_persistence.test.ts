@@ -85,7 +85,24 @@ async function runAuditTests() {
 
   // Live Database Test: Update Merchant Photo and Verify Persistence
   await foodDb.ensureInitialized();
-  const allMerchants = await foodDb.getMerchants();
+  let allMerchants = await foodDb.getMerchants();
+  let createdTempMerchant = false;
+  if (allMerchants.length === 0) {
+    const tempM = await foodDb.createMerchant('admin_test', {
+      name: 'Warung Audit Persistence',
+      ownerName: 'Pemilik Audit',
+      address: 'Jl. Raya Tumpang No. 1, Tumpang',
+      phone: '081234567899',
+      village: 'Tumpang',
+      isActive: true,
+      openStatus: true,
+      categories: ['Nasi & Lauk'],
+      image: 'data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEASABIAAD/2wBDAP//////////////////////////////////////////////////////////////////////////////////////wgALCAABAAEBAREA/8QAFBABAAAAAAAAAAAAAAAAAAAAAP/aAAgBAQABPxA=',
+      businessPhoto: 'data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEASABIAAD/2wBDAP//////////////////////////////////////////////////////////////////////////////////////wgALCAABAAEBAREA/8QAFBABAAAAAAAAAAAAAAAAAAAAAP/aAAgBAQABPxA='
+    }, 'ADMIN');
+    allMerchants = [tempM];
+    createdTempMerchant = true;
+  }
   assert(allMerchants.length > 0, 'Database contains registered merchants to test persistence');
   
   const testMerchant = allMerchants[0];
@@ -106,10 +123,14 @@ async function runAuditTests() {
   assert(readbackMerchant !== null && readbackMerchant.image === testDataUrl, 'Store photo survives readback from persistent storage');
 
   // Restore original state
-  await foodDb.updateMerchant('test_user', testMerchant.id, {
-    image: originalImage,
-    businessPhoto: originalImage
-  }, 'ADMIN');
+  if (createdTempMerchant) {
+    await foodDb.deleteMerchant('admin_test', testMerchant.id, 'ADMIN');
+  } else {
+    await foodDb.updateMerchant('test_user', testMerchant.id, {
+      image: originalImage,
+      businessPhoto: originalImage
+    }, 'ADMIN');
+  }
   console.log('  ✅ [PASS] Database state cleanly restored after persistence test');
   passed++;
 
