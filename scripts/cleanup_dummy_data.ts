@@ -176,13 +176,42 @@ export const UNIVERSAL_SYSTEM_CATEGORIES = new Set([
   'dessert'
 ]);
 
-// Known seed IDs from demo fixtures and tests
-export const KNOWN_SEED_MERCHANT_IDS = new Set(['m1', 'm2', 'm3']);
-export const KNOWN_SEED_MENU_IDS = new Set(['menu_1', 'menu_2', 'menu_3']);
-export const KNOWN_SEED_DRIVER_IDS = new Set(['d1', 'd2', 'd3']);
-export const KNOWN_SEED_ORDER_IDS = new Set(['ord_1', 'ord_2']);
-export const KNOWN_SEED_SETTLEMENT_IDS = new Set(['settle_1', 'settle_2']);
-export const KNOWN_SEED_TESTIMONIAL_IDS = new Set(['demo-1', 'demo-2', 't1', 't2']);
+// Known seed IDs from demo fixtures, testing suites, and mock data
+export const KNOWN_SEED_MERCHANT_IDS = new Set([
+  'm1', 'm2', 'm3',
+  'merch_dummy',
+  'dummy_merchant_99'
+]);
+export const KNOWN_SEED_MENU_IDS = new Set([
+  'menu_1', 'menu_2', 'menu_3',
+  'menu_siti_1', 'menu_ahmad_1',
+  'menu_dummy'
+]);
+export const KNOWN_SEED_DRIVER_IDS = new Set([
+  'd1', 'd2', 'd3',
+  'd_driver_1', 'd_driver_2'
+]);
+export const KNOWN_SEED_ORDER_IDS = new Set([
+  'ord_1', 'ord_2', 'ord_live_test_1', 'ord_test'
+]);
+export const KNOWN_SEED_SETTLEMENT_IDS = new Set([
+  'settle_1', 'settle_2', 'set_test'
+]);
+export const KNOWN_SEED_TESTIMONIAL_IDS = new Set([
+  'demo-1', 'demo-2', 't1', 't2'
+]);
+
+// Relational Safe Deletion Order: Child records first, then categories/menus, then parent merchants
+export const SAFE_DELETION_ORDER = [
+  'orders',
+  'settlements',
+  'menuItems',
+  'categories',
+  'drivers',
+  'testimonials',
+  'partnerRegistrations',
+  'merchants'
+] as const;
 
 /**
  * Validates project identity before any mutations or operations.
@@ -260,6 +289,7 @@ export function validateTargetProject(opts?: {
 
 /**
  * Classifies an individual record based on verifiable seed IDs and demo markers.
+ * Strictly preserves Warung Ombay, Master Admin, system configs, universal categories, and real operational data.
  */
 export function classifyRecord(collection: string, doc: any, dummyMerchantIds: Set<string>): {
   classification: RecordClassification;
@@ -271,6 +301,22 @@ export function classifyRecord(collection: string, doc: any, dummyMerchantIds: S
   const idLower = docId.toLowerCase();
   const name = String(doc?.name || doc?.title || doc?.author || doc?.customerName || '').trim();
   const nameLower = name.toLowerCase();
+
+  // 0. WARUNG OMBAY STRICT PRESERVATION (Owner's official business - WAJIB DIPERTAHANKAN)
+  const isWarungOmbay = 
+    nameLower.includes('ombay') || 
+    idLower.includes('ombay') || 
+    (doc?.merchantId && String(doc.merchantId).toLowerCase().includes('ombay')) ||
+    (doc?.merchantName && String(doc.merchantName).toLowerCase().includes('ombay'));
+
+  if (isWarungOmbay) {
+    return {
+      classification: 'REAL_PRESERVED',
+      reason: 'Toko resmi Warung Ombay milik pemilik sistem (WAJIB DIPERTAHANKAN 100%)',
+      intendedAction: 'PRESERVE',
+      summaryText: `Warung Ombay [${collection}: ${docId}] - Usaha Resmi Pemilik Sistem (DIPERTAHANKAN)`
+    };
+  }
 
   // 1. SYSTEM CONFIG (Always protected)
   if (collection === 'systemConfig' || docId === 'config_1' || docId === 'system_config') {
@@ -335,10 +381,10 @@ export function classifyRecord(collection: string, doc: any, dummyMerchantIds: S
     const isSeedId = KNOWN_SEED_MERCHANT_IDS.has(docId) || /^m[1-9]$/i.test(docId);
     const hasDemoMarker = doc.isDemo === true || doc.isExample === true;
     const isDemoName = nameLower.includes('barokah bu siti') || nameLower.includes('warung demo') || nameLower.includes('warung dummy');
-    const isDemoEmail = doc.email && (doc.email.includes('example.com') || doc.email.includes('demo.com') || doc.email.includes('dummy'));
-    const isDemoPhone = doc.phone === '081234567890';
+    const isDemoEmail = doc.email && (doc.email.includes('example.com') || doc.email.includes('demo.com') || doc.email.includes('dummy') || doc.email.includes('busiti_') || doc.email.includes('cak.ahmad'));
+    const isDemoPhone = doc.phone === '081234567890' || (doc.phone && doc.phone.startsWith('08198') && doc.phone.length === 12);
 
-    if (isSeedId || hasDemoMarker || (isDemoName && isDemoPhone) || (isDemoName && isDemoEmail)) {
+    if (isSeedId || hasDemoMarker || isDemoName || isDemoEmail || (isDemoPhone && !nameLower.includes('ombay'))) {
       return {
         classification: 'DUMMY_CONFIRMED',
         reason: isSeedId ? `Known seed merchant ID "${docId}"` : 'Demo marker / seed business profile matched',
@@ -436,9 +482,9 @@ export function classifyRecord(collection: string, doc: any, dummyMerchantIds: S
 
   // 7. ORDERS / TRANSACTIONS
   if (collection === 'orders') {
-    const isSeedId = KNOWN_SEED_ORDER_IDS.has(docId) || idLower.startsWith('ord_test') || idLower.startsWith('demo-');
+    const isSeedId = KNOWN_SEED_ORDER_IDS.has(docId) || idLower.startsWith('ord_test') || idLower.startsWith('demo-') || idLower.includes('test') || idLower.includes('retry');
     const isDummyMerchant = doc.merchantId && (KNOWN_SEED_MERCHANT_IDS.has(doc.merchantId) || dummyMerchantIds.has(doc.merchantId));
-    const hasDemoMarker = doc.isDemo === true || nameLower.includes('test customer') || nameLower.includes('pelanggan demo');
+    const hasDemoMarker = doc.isDemo === true || nameLower.includes('test customer') || nameLower.includes('pelanggan demo') || !doc.merchantId;
 
     if (isSeedId || isDummyMerchant || hasDemoMarker) {
       return {
@@ -507,8 +553,9 @@ export function classifyRecord(collection: string, doc: any, dummyMerchantIds: S
   if (collection === 'partnerRegistrations') {
     const isSeedId = idLower.startsWith('reg_test') || idLower.startsWith('demo-');
     const hasDemoMarker = doc.isDemo === true;
-    const isDemoName = nameLower.includes('test partner') || nameLower.includes('barokah bu siti');
-    const isDemoEmail = doc.email && (doc.email.includes('example.com') || doc.email.includes('test'));
+    const storeNameLower = String(doc.storeName || '').toLowerCase();
+    const isDemoName = nameLower.includes('warung demo') || nameLower.includes('driver demo') || nameLower.includes('bu siti') || nameLower.includes('cak ahmad') || nameLower.includes('concurrency') || storeNameLower.includes('bu siti') || storeNameLower.includes('cak ahmad') || storeNameLower.includes('4619');
+    const isDemoEmail = doc.email && (doc.email.includes('example.com') || doc.email.includes('demo.com') || doc.email.includes('dummy') || doc.email.includes('busiti_') || doc.email.includes('cak.ahmad') || /\d{6}/.test(doc.email));
 
     if (isSeedId || hasDemoMarker || isDemoName || isDemoEmail) {
       return {
@@ -1367,7 +1414,10 @@ export async function runCleanup(
     const raw = fs.readFileSync(localTargetFile, 'utf-8');
     const dbData = JSON.parse(raw);
 
-    for (const [col, summary] of Object.entries(localScan.summary)) {
+    // Relational safe order: child records (orders, settlements, menuItems, categories) before parent merchants
+    for (const col of SAFE_DELETION_ORDER) {
+      const summary = localScan.summary[col];
+      if (!summary) continue;
       const dummyIds = new Set(summary.items.filter(i => i.classification === 'DUMMY_CONFIRMED').map(i => i.id));
       if (dummyIds.size > 0 && Array.isArray(dbData[col])) {
         const beforeCount = dbData[col].length;
@@ -1383,10 +1433,13 @@ export async function runCleanup(
 
   // Mutation Step 2: Cloud Firestore Live Sanitization
   if (!isLocalOnly && cloudScan.connected && cloudScan.isComplete) {
-    console.log('\n2. Melakukan penghapusan Cloud Firestore...');
+    console.log('\n2. Melakukan penghapusan Cloud Firestore (Urutan Aman: Anak -> Induk)...');
     const cloudDeletionResults: CloudDeletionRecordResult[] = [];
 
-    for (const [col, summary] of Object.entries(cloudScan.summary)) {
+    // Relational safe order: orders, settlements, menuItems, categories, drivers, testimonials, partnerRegistrations, merchants
+    for (const col of SAFE_DELETION_ORDER) {
+      const summary = cloudScan.summary[col];
+      if (!summary) continue;
       const dummyItems = summary.items.filter(i => i.classification === 'DUMMY_CONFIRMED');
       for (const d of dummyItems) {
         let deleteSuccess = false;

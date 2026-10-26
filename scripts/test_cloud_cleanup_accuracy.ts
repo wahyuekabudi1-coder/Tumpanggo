@@ -61,6 +61,14 @@ async function runTestSuite() {
   const resMReal = classifyRecord('merchants', realMerchant, dummyMerchantIds);
   assert(resMReal.classification === 'REAL_PRESERVED' && resMReal.intendedAction === 'PRESERVE', 'Real merchant with address and phone PRESERVED');
 
+  const ombayMerchant = { id: 'merch_warung_ombay', name: 'Warung Ombay', ownerName: 'Pemilik Sistem', phone: '08123456789' };
+  const resMOmbay = classifyRecord('merchants', ombayMerchant, dummyMerchantIds);
+  assert(resMOmbay.classification === 'REAL_PRESERVED' && resMOmbay.intendedAction === 'PRESERVE', 'Warung Ombay (Owner Store) 100% strictly PRESERVED');
+
+  const ombayMenu = { id: 'menu_ombay_01', name: 'Spesial Ombay', price: 20000, merchantId: 'merch_warung_ombay' };
+  const resMenuOmbay = classifyRecord('menuItems', ombayMenu, dummyMerchantIds);
+  assert(resMenuOmbay.classification === 'REAL_PRESERVED' && resMenuOmbay.intendedAction === 'PRESERVE', 'Warung Ombay menu item 100% strictly PRESERVED');
+
   const ambiguousMerchant = { id: 'm_unknown_01', name: 'Warung X' };
   const resMAmbiguous = classifyRecord('merchants', ambiguousMerchant, dummyMerchantIds);
   assert(resMAmbiguous.classification === 'MANUAL_REVIEW_REQUIRED' && resMAmbiguous.intendedAction === 'FLAG_FOR_REVIEW', 'Incomplete merchant flagged for MANUAL_REVIEW_REQUIRED');

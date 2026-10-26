@@ -36,13 +36,42 @@ export const UNIVERSAL_SYSTEM_CATEGORIES = new Set([
   'dessert'
 ]);
 
-// Known seed IDs from demo fixtures and tests
-export const KNOWN_SEED_MERCHANT_IDS = new Set(['m1', 'm2', 'm3']);
-export const KNOWN_SEED_MENU_IDS = new Set(['menu_1', 'menu_2', 'menu_3']);
-export const KNOWN_SEED_DRIVER_IDS = new Set(['d1', 'd2', 'd3']);
-export const KNOWN_SEED_ORDER_IDS = new Set(['ord_1', 'ord_2']);
-export const KNOWN_SEED_SETTLEMENT_IDS = new Set(['settle_1', 'settle_2']);
-export const KNOWN_SEED_TESTIMONIAL_IDS = new Set(['demo-1', 'demo-2', 't1', 't2']);
+// Known seed IDs from demo fixtures, testing suites, and mock data
+export const KNOWN_SEED_MERCHANT_IDS = new Set([
+  'm1', 'm2', 'm3',
+  'merch_dummy',
+  'dummy_merchant_99'
+]);
+export const KNOWN_SEED_MENU_IDS = new Set([
+  'menu_1', 'menu_2', 'menu_3',
+  'menu_siti_1', 'menu_ahmad_1',
+  'menu_dummy'
+]);
+export const KNOWN_SEED_DRIVER_IDS = new Set([
+  'd1', 'd2', 'd3',
+  'd_driver_1', 'd_driver_2'
+]);
+export const KNOWN_SEED_ORDER_IDS = new Set([
+  'ord_1', 'ord_2', 'ord_live_test_1', 'ord_test'
+]);
+export const KNOWN_SEED_SETTLEMENT_IDS = new Set([
+  'settle_1', 'settle_2', 'set_test'
+]);
+export const KNOWN_SEED_TESTIMONIAL_IDS = new Set([
+  'demo-1', 'demo-2', 't1', 't2'
+]);
+
+// Relational Safe Deletion Order: Child records first, then categories/menus, then parent merchants
+export const SAFE_DELETION_ORDER = [
+  'orders',
+  'settlements',
+  'menuItems',
+  'categories',
+  'drivers',
+  'testimonials',
+  'partnerRegistrations',
+  'merchants'
+] as const;
 
 export type RecordClassification = 'DUMMY_CONFIRMED' | 'REAL_PRESERVED' | 'MANUAL_REVIEW_REQUIRED';
 
@@ -54,7 +83,8 @@ export interface RecordClassificationResult {
 }
 
 /**
- * Classifies an individual record based on verifiable seed IDs and demo markers.
+ * Classifies an individual record based on verifiable seed IDs, demo markers, and business rules.
+ * Strictly preserves Warung Ombay, Master Admin, system configs, universal categories, and real operational data.
  */
 export function classifyRecord(
   collection: string, 
@@ -65,6 +95,22 @@ export function classifyRecord(
   const idLower = docId.toLowerCase();
   const name = String(doc?.name || doc?.title || doc?.author || doc?.customerName || '').trim();
   const nameLower = name.toLowerCase();
+
+  // 0. WARUNG OMBAY STRICT PRESERVATION (Owner's official business - WAJIB DIPERTAHANKAN)
+  const isWarungOmbay = 
+    nameLower.includes('ombay') || 
+    idLower.includes('ombay') || 
+    (doc?.merchantId && String(doc.merchantId).toLowerCase().includes('ombay')) ||
+    (doc?.merchantName && String(doc.merchantName).toLowerCase().includes('ombay'));
+
+  if (isWarungOmbay) {
+    return {
+      classification: 'REAL_PRESERVED',
+      reason: 'Toko resmi Warung Ombay milik pemilik sistem (WAJIB DIPERTAHANKAN 100%)',
+      intendedAction: 'PRESERVE',
+      summaryText: `Warung Ombay [${collection}: ${docId}] - Usaha Resmi Pemilik Sistem (DIPERTAHANKAN)`
+    };
+  }
 
   // 1. SYSTEM CONFIG (Always protected)
   if (collection === 'systemConfig' || docId === 'config_1' || docId === 'system_config') {
@@ -129,10 +175,10 @@ export function classifyRecord(
     const isSeedId = KNOWN_SEED_MERCHANT_IDS.has(docId) || /^m[1-9]$/i.test(docId);
     const hasDemoMarker = doc.isDemo === true || doc.isExample === true;
     const isDemoName = nameLower.includes('barokah bu siti') || nameLower.includes('warung demo') || nameLower.includes('warung dummy');
-    const isDemoEmail = doc.email && (doc.email.includes('example.com') || doc.email.includes('demo.com') || doc.email.includes('dummy'));
-    const isDemoPhone = doc.phone === '081234567890';
+    const isDemoEmail = doc.email && (doc.email.includes('example.com') || doc.email.includes('demo.com') || doc.email.includes('dummy') || doc.email.includes('busiti_') || doc.email.includes('cak.ahmad'));
+    const isDemoPhone = doc.phone === '081234567890' || (doc.phone && doc.phone.startsWith('08198') && doc.phone.length === 12);
 
-    if (isSeedId || hasDemoMarker || (isDemoName && isDemoPhone) || (isDemoName && isDemoEmail)) {
+    if (isSeedId || hasDemoMarker || isDemoName || isDemoEmail || (isDemoPhone && !nameLower.includes('ombay'))) {
       return {
         classification: 'DUMMY_CONFIRMED',
         reason: isSeedId ? `Seed ID merchant contoh "${docId}"` : 'Marker demo / profil usaha contoh teridentifikasi',
@@ -229,9 +275,9 @@ export function classifyRecord(
 
   // 7. ORDERS / TRANSACTIONS
   if (collection === 'orders') {
-    const isSeedId = KNOWN_SEED_ORDER_IDS.has(docId) || idLower.startsWith('ord_test') || idLower.startsWith('demo-');
+    const isSeedId = KNOWN_SEED_ORDER_IDS.has(docId) || idLower.startsWith('ord_test') || idLower.startsWith('demo-') || idLower.includes('test') || idLower.includes('retry');
     const isDummyMerchant = doc.merchantId && (KNOWN_SEED_MERCHANT_IDS.has(doc.merchantId) || dummyMerchantIds.has(doc.merchantId));
-    const hasDemoMarker = doc.isDemo === true || nameLower.includes('test customer') || nameLower.includes('pelanggan demo');
+    const hasDemoMarker = doc.isDemo === true || nameLower.includes('test customer') || nameLower.includes('pelanggan demo') || !doc.merchantId;
 
     if (isSeedId || isDummyMerchant || hasDemoMarker) {
       return {
@@ -298,11 +344,13 @@ export function classifyRecord(
 
   // 10. PARTNER REGISTRATIONS
   if (collection === 'partnerRegistrations') {
+    const isSeedId = idLower.startsWith('reg_test') || idLower.startsWith('demo-');
     const hasDemoMarker = doc.isDemo === true;
-    const isDemoEmail = doc.email && (doc.email.includes('example.com') || doc.email.includes('demo.com') || doc.email.includes('dummy'));
-    const isDemoName = nameLower.includes('warung demo') || nameLower.includes('driver demo');
+    const storeNameLower = String(doc.storeName || '').toLowerCase();
+    const isDemoName = nameLower.includes('warung demo') || nameLower.includes('driver demo') || nameLower.includes('bu siti') || nameLower.includes('cak ahmad') || nameLower.includes('concurrency') || storeNameLower.includes('bu siti') || storeNameLower.includes('cak ahmad') || storeNameLower.includes('4619');
+    const isDemoEmail = doc.email && (doc.email.includes('example.com') || doc.email.includes('demo.com') || doc.email.includes('dummy') || doc.email.includes('busiti_') || doc.email.includes('cak.ahmad') || /\d{6}/.test(doc.email));
 
-    if (hasDemoMarker || isDemoEmail || isDemoName) {
+    if (hasDemoMarker || isDemoEmail || isDemoName || isSeedId) {
       return {
         classification: 'DUMMY_CONFIRMED',
         reason: 'Pendaftaran mitra dummy atau email testing',

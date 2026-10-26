@@ -1,0 +1,494 @@
+{
+  "merchants": [],
+  "categories": [],
+  "menuItems": [],
+  "orders": [
+    {
+      "id": "ord_retry_test",
+      "status": "WAITING_PAYMENT",
+      "total": 20000,
+      "orderNumber": "TF-RETRY_TEST"
+    }
+  ],
+  "drivers": [],
+  "settlements": [],
+  "auditLogs": [
+    {
+      "id": "log_yrnfs3u",
+      "action": "Created",
+      "userId": "admin_test",
+      "role": "ADMIN",
+      "details": "Created merchant Sate Ayam Madura 461930",
+      "createdAt": "2026-10-26T09:21:01.938Z"
+    },
+    {
+      "id": "log_meg5eu0",
+      "action": "Created",
+      "userId": "m_zf6gy9n",
+      "role": "MERCHANT",
+      "details": "Created category Menu Utama",
+      "createdAt": "2026-10-26T09:21:01.938Z"
+    },
+    {
+      "id": "log_gem9rep",
+      "action": "Submitted",
+      "userId": "CUSTOMER",
+      "role": "CUSTOMER",
+      "details": "Submitted partner registration for Rudi Hartono 461930 (MERCHANT)",
+      "createdAt": "2026-10-26T09:21:01.937Z"
+    },
+    {
+      "id": "log_82z7jgg",
+      "action": "Deleted",
+      "userId": "admin_test",
+      "role": "ADMIN",
+      "details": "Deleted merchant Warung Nasi Pecel 461915",
+      "createdAt": "2026-10-26T09:21:01.929Z"
+    },
+    {
+      "id": "log_2japq7g",
+      "action": "Approved",
+      "userId": "admin_test",
+      "role": "ADMIN",
+      "details": "Approved partner registration reg_g0e6txo (Dewi Lestari 461915)",
+      "createdAt": "2026-10-26T09:21:01.928Z"
+    },
+    {
+      "id": "log_5i5a3rm",
+      "action": "Created",
+      "userId": "admin_test",
+      "role": "ADMIN",
+      "details": "Created merchant Warung Nasi Pecel 461915",
+      "createdAt": "2026-10-26T09:21:01.927Z"
+    },
+    {
+      "id": "log_c38241y",
+      "action": "Created",
+      "userId": "m_ury8mp5",
+      "role": "MERCHANT",
+      "details": "Created category Menu Utama",
+      "createdAt": "2026-10-26T09:21:01.926Z"
+    },
+    {
+      "id": "log_51jznlf",
+      "action": "Submitted",
+      "userId": "CUSTOMER",
+      "role": "CUSTOMER",
+      "details": "Submitted partner registration for Dewi Lestari 461915 (MERCHANT)",
+      "createdAt": "2026-10-26T09:21:01.925Z"
+    },
+    {
+      "id": "log_185351v",
+      "action": "Deleted",
+      "userId": "admin_test",
+      "role": "ADMIN",
+      "details": "Deleted driver Kurir Kilat Tumpang 466093",
+      "createdAt": "2026-10-26T09:21:01.914Z"
+    },
+    {
+      "id": "log_0xpi5xr",
+      "action": "Created",
+      "userId": "admin_test",
+      "role": "ADMIN",
+      "details": "Created driver Kurir Kilat Tumpang 466093",
+      "createdAt": "2026-10-26T09:21:01.913Z"
+    },
+    {
+      "id": "log_4xry780",
+      "action": "Deleted",
+      "userId": "admin_test",
+      "role": "ADMIN",
+      "details": "Deleted merchant Kedai Minuman Test 135587",
+      "createdAt": "2026-10-26T09:21:01.912Z"
+    },
+    {
+      "id": "log_684v748",
+      "action": "Created",
+      "userId": "m_c4jsqo3",
+      "role": "MERCHANT",
+      "details": "Created menu item Jus Alpukat Kocok",
+      "createdAt": "2026-10-26T09:21:01.911Z"
+    },
+    {
+      "id": "log_asjcmv6",
+      "action": "Created",
+      "userId": "m_c4jsqo3",
+      "role": "MERCHANT",
+      "details": "Created category Jus Buah Segar",
+      "createdAt": "2026-10-26T09:21:01.911Z"
+    },
+    {
+      "id": "log_cz3t5s6",
+      "action": "Created",
+      "userId": "admin_test",
+      "role": "ADMIN",
+      "details": "Created merchant Kedai Minuman Test 135587",
+      "createdAt": "2026-10-26T09:21:01.910Z"
+    },
+    {
+      "id": "log_srdw87h",
+      "action": "Created",
+      "userId": "m_c4jsqo3",
+      "role": "MERCHANT",
+      "details": "Created category Menu Utama",
+      "createdAt": "2026-10-26T09:21:01.910Z"
+    },
+    {
+      "id": "log_98vvoir",
+      "action": "Deleted",
+      "userId": "admin_test",
+      "role": "ADMIN",
+      "details": "Deleted merchant Warung Bakso Test 420130",
+      "createdAt": "2026-10-26T09:21:01.900Z"
+    },
+    {
+      "id": "log_e526d0n",
+      "action": "Created",
+      "userId": "m_budrqek",
+      "role": "MERCHANT",
+      "details": "Created menu item Bakso Urat Komplit",
+      "createdAt": "2026-10-26T09:21:01.899Z"
+    },
+    {
+      "id": "log_g7wvuzv",
+      "action": "Created",
+      "userId": "m_budrqek",
+      "role": "MERCHANT",
+      "details": "Created category Bakso Istimewa",
+      "createdAt": "2026-10-26T09:21:01.898Z"
+    },
+    {
+      "id": "log_unv0lmf",
+      "action": "Created",
+      "userId": "admin_test",
+      "role": "ADMIN",
+      "details": "Created merchant Warung Bakso Test 420130",
+      "createdAt": "2026-10-26T09:21:01.897Z"
+    },
+    {
+      "id": "log_g4nlauh",
+      "action": "Created",
+      "userId": "m_budrqek",
+      "role": "MERCHANT",
+      "details": "Created category Menu Utama",
+      "createdAt": "2026-10-26T09:21:01.897Z"
+    },
+    {
+      "id": "log_bhtydin",
+      "action": "Updated",
+      "userId": "test_user",
+      "role": "ADMIN",
+      "details": "Updated merchant Warung Cloud Asli",
+      "createdAt": "2026-10-26T09:20:57.889Z"
+    },
+    {
+      "id": "log_693gxr3",
+      "action": "Updated",
+      "userId": "test_user",
+      "role": "MERCHANT",
+      "details": "Updated merchant Warung Cloud Asli",
+      "createdAt": "2026-10-26T09:20:57.888Z"
+    },
+    {
+      "id": "log_pvlbp2t",
+      "action": "Activated",
+      "userId": "m_cloud_authoritative_test",
+      "role": "MERCHANT",
+      "details": "Activated merchant store Warung Cloud Otoritatif",
+      "createdAt": "2026-10-26T09:20:53.439Z"
+    },
+    {
+      "id": "log_b523r7j",
+      "action": "Activated",
+      "userId": "m_sec_consistent_test",
+      "role": "MERCHANT",
+      "details": "Activated merchant store Warung Konsisten",
+      "createdAt": "2026-10-26T09:20:53.365Z"
+    },
+    {
+      "id": "log_fxpskg4",
+      "action": "Updated",
+      "userId": "u_admin_audit",
+      "role": "ADMIN",
+      "details": "Updated driver Driver Audit Suspended",
+      "createdAt": "2026-10-26T09:20:53.260Z"
+    },
+    {
+      "id": "log_7bn0ftw",
+      "action": "Updated",
+      "userId": "u_driver_act",
+      "role": "DRIVER",
+      "details": "Updated driver Driver Audit Active",
+      "createdAt": "2026-10-26T09:20:53.252Z"
+    },
+    {
+      "id": "log_sdvu166",
+      "action": "Updated",
+      "userId": "u_driver_susp",
+      "role": "DRIVER",
+      "details": "Updated driver Driver Audit Suspended",
+      "createdAt": "2026-10-26T09:20:53.240Z"
+    },
+    {
+      "id": "log_wwqmx6q",
+      "action": "Updated",
+      "userId": "u_admin_audit",
+      "role": "ADMIN",
+      "details": "Updated merchant Warung Audit Active",
+      "createdAt": "2026-10-26T09:20:53.234Z"
+    },
+    {
+      "id": "log_t3m2iyt",
+      "action": "Updated",
+      "userId": "u_merchant_susp",
+      "role": "MERCHANT",
+      "details": "Updated merchant Warung Audit Active",
+      "createdAt": "2026-10-26T09:20:53.228Z"
+    },
+    {
+      "id": "log_wh581mp",
+      "action": "Updated",
+      "userId": "u_merchant_susp",
+      "role": "MERCHANT",
+      "details": "Updated merchant Warung Audit Active",
+      "createdAt": "2026-10-26T09:20:53.220Z"
+    },
+    {
+      "id": "log_nmv22oj",
+      "action": "Activated",
+      "userId": "m_sec_concurrent_test",
+      "role": "MERCHANT",
+      "details": "Activated merchant store Warung Concurrent Race Test",
+      "createdAt": "2026-10-26T09:20:53.145Z"
+    },
+    {
+      "id": "log_ohlxp3g",
+      "action": "Activated",
+      "userId": "m_sec_test_inactive",
+      "role": "MERCHANT",
+      "details": "Activated merchant store Warung Audit Inactive",
+      "createdAt": "2026-10-26T09:20:53.086Z"
+    },
+    {
+      "id": "log_0fjzb57",
+      "action": "Activated",
+      "userId": "m_sec_test_inactive",
+      "role": "MERCHANT",
+      "details": "Activated merchant store Warung Audit Inactive",
+      "createdAt": "2026-10-26T09:20:53.024Z"
+    },
+    {
+      "id": "log_kiwfal1",
+      "action": "Admin",
+      "userId": "admin_authorized",
+      "role": "ADMIN",
+      "details": "Admin admin_authorized memverifikasi pembayaran LUNAS & menerbitkan receipt #TG-RCP-9D3PI1A untuk pesanan #ord_9d3pi1a (Total: Rp 47.067)",
+      "createdAt": "2026-10-26T09:20:46.512Z"
+    },
+    {
+      "id": "log_htq9std",
+      "action": "Updated",
+      "userId": "admin_authorized",
+      "role": "ADMIN",
+      "details": "Updated order ord_9d3pi1a status from WAITING_PAYMENT_VERIFICATION to PAYMENT_VERIFIED",
+      "createdAt": "2026-10-26T09:20:46.507Z"
+    },
+    {
+      "id": "log_y78qiv2",
+      "action": "Updated",
+      "userId": "customer",
+      "role": "CUSTOMER",
+      "details": "Updated order ord_9d3pi1a status from WAITING_PAYMENT to WAITING_PAYMENT_VERIFICATION",
+      "createdAt": "2026-10-26T09:20:46.504Z"
+    },
+    {
+      "id": "log_cmnl4j7",
+      "action": "Created",
+      "userId": "CUSTOMER",
+      "role": "CUSTOMER",
+      "details": "Created order TF-20261026-001 (ID: ord_9d3pi1a) Total: Rp 47,067 (UniqueCode: 67)",
+      "createdAt": "2026-10-26T09:20:46.502Z"
+    },
+    {
+      "id": "log_bol5not",
+      "action": "Created",
+      "userId": "m_cloud_persisted",
+      "role": "MERCHANT",
+      "details": "Created menu item Nasi Rawon",
+      "createdAt": "2026-10-26T09:20:46.483Z"
+    },
+    {
+      "id": "log_2xqq4xf",
+      "action": "Created",
+      "userId": "m_cloud_persisted",
+      "role": "MERCHANT",
+      "details": "Created category Menu Utama",
+      "createdAt": "2026-10-26T09:20:46.482Z"
+    },
+    {
+      "id": "log_ox5pkds",
+      "action": "Approved",
+      "userId": "admin_1",
+      "role": "ADMIN",
+      "details": "Approved partner registration reg_jbaz2ob (Ahmad Concurrency 446465)",
+      "createdAt": "2026-10-26T09:20:46.467Z"
+    },
+    {
+      "id": "log_3cyqp0s",
+      "action": "Created",
+      "userId": "admin_1",
+      "role": "ADMIN",
+      "details": "Created merchant Bakso Cak Ahmad 446465",
+      "createdAt": "2026-10-26T09:20:46.466Z"
+    },
+    {
+      "id": "log_grdzn79",
+      "action": "Created",
+      "userId": "m_6rewnrd",
+      "role": "MERCHANT",
+      "details": "Created category Menu Utama",
+      "createdAt": "2026-10-26T09:20:46.465Z"
+    },
+    {
+      "id": "log_zw8m8gj",
+      "action": "Submitted",
+      "userId": "CUSTOMER",
+      "role": "CUSTOMER",
+      "details": "Submitted partner registration for Ahmad Concurrency 446465 (MERCHANT)",
+      "createdAt": "2026-10-26T09:20:46.463Z"
+    },
+    {
+      "id": "log_vckj79t",
+      "action": "Approved",
+      "userId": "admin_1",
+      "role": "ADMIN",
+      "details": "Approved partner registration reg_d0krovp (Siti Aminah)",
+      "createdAt": "2026-10-26T09:20:46.454Z"
+    },
+    {
+      "id": "log_ydves7q",
+      "action": "Created",
+      "userId": "admin_1",
+      "role": "ADMIN",
+      "details": "Created merchant Warung Bu Siti 446440",
+      "createdAt": "2026-10-26T09:20:46.453Z"
+    },
+    {
+      "id": "log_lt1l1ul",
+      "action": "Created",
+      "userId": "m_kkrfeug",
+      "role": "MERCHANT",
+      "details": "Created category Menu Utama",
+      "createdAt": "2026-10-26T09:20:46.453Z"
+    },
+    {
+      "id": "log_ucz8a2t",
+      "action": "Submitted",
+      "userId": "CUSTOMER",
+      "role": "CUSTOMER",
+      "details": "Submitted partner registration for Siti Aminah (MERCHANT)",
+      "createdAt": "2026-10-26T09:20:46.449Z"
+    }
+  ],
+  "systemConfig": {
+    "serviceFee": 2000,
+    "deliveryFeePerKm": 1500,
+    "defaultDeliveryFee": 5000,
+    "commissionPercent": 10,
+    "assignmentMode": "MANUAL",
+    "qrisImage": "/qris-merchant.png",
+    "systemOpen": true,
+    "masterAccount": {
+      "email": "tumpanggo@gmail.com",
+      "passwordHash": "pbkdf2$10000$4c7036001d50522cd4175b6232b40aad$b5f3d7b506f49149654de3e909498cbb35386d145a0e27af0020584daf5131f0a887106dbf9784e5de51b7027dc473a150d7d12b42174ad3bf6bdbf6caa2ca3f",
+      "updatedAt": "2026-10-26T09:12:36.205Z"
+    }
+  },
+  "partnerRegistrations": [
+    {
+      "name": "Siti Aminah",
+      "storeName": "Warung Bu Siti 446440",
+      "phone": "081984464401",
+      "email": "busiti_446440@gmail.com",
+      "password": "pbkdf2$10000$97c5e6568b56bd1ec3333f4b1ac33e5a$9fadc64e6ebb0ce913b07f18626d6ec67c610a13d70b7eb01a4def41c0d84db231ae1515403cd0821b385da4ae8c4ea94b123b6e8b109139a5da55b1ea89d1d1",
+      "type": "MERCHANT",
+      "category": "Nasi & Lauk",
+      "storeAddress": "Jl. Malangsuko No. 44, Tumpang",
+      "businessPhoto": "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQ==",
+      "idPhoto": "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQ==",
+      "id": "reg_d0krovp",
+      "status": "APPROVED",
+      "contractVersion": "PKS-TUMPANGGO-2026.1",
+      "contractAgreedAt": "2026-10-26T09:20:46.449Z",
+      "createdAt": "2026-10-26T09:20:46.449Z",
+      "storeId": "m_kkrfeug",
+      "approvedAt": "2026-10-26T09:20:46.453Z",
+      "approvedBy": "admin_1",
+      "activationToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkFDVElWQVRJT04ifQ.eyJ0eXAiOiJNRVJDSEFOVF9BQ1RJVkFUSU9OIiwibWVyY2hhbnRJZCI6Im1fa2tyZmV1ZyIsImVtYWlsIjoiYnVzaXRpXzQ0NjQ0MEBnbWFpbC5jb20iLCJleHAiOjE3OTMxNzkyNDZ9.H5-wOZN5VbBhWbDm7C6zT_j6MVuJH8V5eVUiZMIVOKg"
+    },
+    {
+      "name": "Ahmad Concurrency 446465",
+      "storeName": "Bakso Cak Ahmad 446465",
+      "phone": "081984464659",
+      "email": "cak.ahmad_446465@gmail.com",
+      "password": "pbkdf2$10000$183ef244d6a51248ebd6958b7422ef06$7eb69291a9d6833612f48de46eedb6927bf3e775ba8774f0243e109d45903896c5c9363fad4d8c5a782814eae175bbd4b2432f5032ddba5ba2d9606511f2b9d9",
+      "type": "MERCHANT",
+      "category": "Bakso & Mie",
+      "storeAddress": "Jl. Raya Jeru No. 12, Tumpang",
+      "businessPhoto": "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQ==",
+      "idPhoto": "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQ==",
+      "id": "reg_jbaz2ob",
+      "status": "APPROVED",
+      "contractVersion": "PKS-TUMPANGGO-2026.1",
+      "contractAgreedAt": "2026-10-26T09:20:46.463Z",
+      "createdAt": "2026-10-26T09:20:46.463Z",
+      "storeId": "m_6rewnrd",
+      "approvedAt": "2026-10-26T09:20:46.466Z",
+      "approvedBy": "admin_1",
+      "activationToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkFDVElWQVRJT04ifQ.eyJ0eXAiOiJNRVJDSEFOVF9BQ1RJVkFUSU9OIiwibWVyY2hhbnRJZCI6Im1fNnJld25yZCIsImVtYWlsIjoiY2FrLmFobWFkXzQ0NjQ2NUBnbWFpbC5jb20iLCJleHAiOjE3OTMxNzkyNDZ9.zQ-Z_6lGbnNPMgokfEFsTf-E03JXGpqhOiBqCiVyYSw"
+    },
+    {
+      "name": "Dewi Lestari 461915",
+      "storeName": "Warung Nasi Pecel 461915",
+      "storeAddress": "Jl. Simpang Empat Tumpang No. 461915",
+      "phone": "085746191511",
+      "email": "dewi.461915@tumpanggo.id",
+      "password": "pbkdf2$10000$8c092d2a0a9c8f2b94543ff3041fba14$7b6671fdea88742f653a657b7edce416cb7db017194daf2e1b35372665a8c8a46d0835d70cfb82ae99fe32dd65937e407bc698d1a75c57983d4e818436cc01b3",
+      "type": "MERCHANT",
+      "category": "Nasi & Lauk",
+      "businessPhoto": "/umkm-activity.jpg",
+      "idPhoto": "/umkm-activity.jpg",
+      "id": "reg_g0e6txo",
+      "status": "APPROVED",
+      "contractVersion": "PKS-TUMPANGGO-2026.1",
+      "contractAgreedAt": "2026-10-26T09:21:01.924Z",
+      "createdAt": "2026-10-26T09:21:01.924Z",
+      "storeId": "m_ury8mp5",
+      "approvedAt": "2026-10-26T09:21:01.927Z",
+      "approvedBy": "admin_test",
+      "activationToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkFDVElWQVRJT04ifQ.eyJ0eXAiOiJNRVJDSEFOVF9BQ1RJVkFUSU9OIiwibWVyY2hhbnRJZCI6Im1fdXJ5OG1wNSIsImVtYWlsIjoiZGV3aS40NjE5MTVAdHVtcGFuZ2dvLmlkIiwiZXhwIjoxNzkzMTc5MjYxfQ.-ROf3O5-bHlw9nCvT0rL_WGhADuwWkZLUZ0u6C2hu6s"
+    },
+    {
+      "name": "Rudi Hartono 461930",
+      "storeName": "Sate Ayam Madura 461930",
+      "storeAddress": "Jl. Raya Tumpang Timur No. 461930",
+      "phone": "085846193022",
+      "email": "rudi.461930@tumpanggo.id",
+      "password": "pbkdf2$10000$8727195b679e7a9b22a71c761fec7925$ba9f022229e1fa30af404eba60c3c20f28e62cc708b2abf35adad389f5b6996343e11559fcb9cc6c37924679b672c5edf018922aebcc2efa5ba1a1fd663e2a67",
+      "type": "MERCHANT",
+      "category": "Sate & Bakaran",
+      "businessPhoto": "/umkm-activity.jpg",
+      "idPhoto": "/umkm-activity.jpg",
+      "id": "reg_dsixude",
+      "status": "PENDING",
+      "contractVersion": "PKS-TUMPANGGO-2026.1",
+      "contractAgreedAt": "2026-10-26T09:21:01.936Z",
+      "createdAt": "2026-10-26T09:21:01.936Z",
+      "approvedAt": "2026-10-26T09:21:01.938Z",
+      "approvedBy": "admin_test",
+      "activationToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkFDVElWQVRJT04ifQ.eyJ0eXAiOiJNRVJDSEFOVF9BQ1RJVkFUSU9OIiwibWVyY2hhbnRJZCI6Im1femY2Z3k5biIsImVtYWlsIjoicnVkaS40NjE5MzBAdHVtcGFuZ2dvLmlkIiwiZXhwIjoxNzkzMTc5MjYxfQ.bCjfKNUX5FzB39pmuc2XhyLxEGAVdGCVYluIUt4YXQc"
+    }
+  ],
+  "testimonials": [],
+  "pushSubscriptions": []
+}

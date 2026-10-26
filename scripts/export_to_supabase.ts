@@ -8,6 +8,7 @@
 
 import fs from 'fs';
 import path from 'path';
+import { classifyRecord } from '../src/server/services/cleanupService';
 
 interface MigrationData {
   merchants?: any[];
@@ -27,18 +28,81 @@ function escapeSqlString(val: any): string {
   if (typeof val === 'boolean') return val ? 'true' : 'false';
   if (typeof val === 'number') return isNaN(val) ? '0' : String(val);
   if (typeof val === 'object') {
-    const jsonStr = JSON.stringify(val);
+    const jsonStr = JSON.stringify(val).replace(/\0/g, '');
     return `'${jsonStr.replace(/'/g, "''")}'::jsonb`;
   }
-  const str = String(val);
+  const str = String(val).replace(/\0/g, '');
   return `'${str.replace(/'/g, "''")}'`;
 }
 
 export function generateSupabaseSqlDump(data: MigrationData): string {
+  // Pre-classification pass: identify dummy merchants
+  const dummyMerchantIds = new Set<string>();
+  for (const m of (data.merchants || [])) {
+    const res = classifyRecord('merchants', m, dummyMerchantIds);
+    if (res.classification === 'DUMMY_CONFIRMED') {
+      dummyMerchantIds.add(m.id);
+    }
+  }
+
+  // Filter valid real records
+  const validMerchants = (data.merchants || []).filter(m => {
+    if (!m.id) return false;
+    const res = classifyRecord('merchants', m, dummyMerchantIds);
+    return res.classification === 'REAL_PRESERVED';
+  });
+  const validMerchantIdSet = new Set(validMerchants.map(m => m.id));
+
+  const validCategories = (data.categories || []).filter(c => {
+    if (!c.id || !c.merchantId || !validMerchantIdSet.has(c.merchantId)) return false;
+    const res = classifyRecord('categories', c, dummyMerchantIds);
+    return res.classification === 'REAL_PRESERVED';
+  });
+  const validCategoryIdSet = new Set(validCategories.map(c => c.id));
+
+  const validMenuItems = (data.menuItems || []).filter(item => {
+    if (!item.id || !item.merchantId || !validMerchantIdSet.has(item.merchantId)) return false;
+    if (item.categoryId && !validCategoryIdSet.has(item.categoryId)) return false;
+    const res = classifyRecord('menuItems', item, dummyMerchantIds);
+    return res.classification === 'REAL_PRESERVED';
+  });
+
+  const validDrivers = (data.drivers || []).filter(d => {
+    if (!d.id) return false;
+    const res = classifyRecord('drivers', d, dummyMerchantIds);
+    return res.classification === 'REAL_PRESERVED';
+  });
+
+  const validOrders = (data.orders || []).filter(o => {
+    if (!o.id || !o.merchantId || !validMerchantIdSet.has(o.merchantId)) return false;
+    const res = classifyRecord('orders', o, dummyMerchantIds);
+    return res.classification === 'REAL_PRESERVED';
+  });
+
+  const validSettlements = (data.settlements || []).filter(s => {
+    if (!s.id || !s.merchantId || !validMerchantIdSet.has(s.merchantId)) return false;
+    const res = classifyRecord('settlements', s, dummyMerchantIds);
+    return res.classification === 'REAL_PRESERVED';
+  });
+
+  const validTestimonials = (data.testimonials || []).filter(t => {
+    if (!t.id) return false;
+    const res = classifyRecord('testimonials', t, dummyMerchantIds);
+    return res.classification === 'REAL_PRESERVED';
+  });
+
+  const validRegs = (data.partnerRegistrations || []).filter(r => {
+    if (!r.id) return false;
+    const res = classifyRecord('partnerRegistrations', r, dummyMerchantIds);
+    return res.classification === 'REAL_PRESERVED';
+  });
+
   const lines: string[] = [];
   lines.push('-- =====================================================================');
-  lines.push('-- TUMPANGGO SUPABASE DATA IMPORT DUMP');
+  lines.push('-- TUMPANGGO SUPABASE PRODUCTION DATA IMPORT DUMP');
   lines.push(`-- Generated: ${new Date().toISOString()}`);
+  lines.push('-- Strict Foreign Key & Anti-Dummy Sanitization Active');
+  lines.push('-- Warung Ombay & Core Operational Data Protected');
   lines.push('-- =====================================================================\n');
   lines.push('BEGIN;\n');
 
@@ -66,10 +130,8 @@ ON CONFLICT (id) DO UPDATE SET
   }
 
   // 2. Merchants
-  const merchants = data.merchants || [];
-  lines.push(`-- 2. Merchants (${merchants.length} records)`);
-  for (const m of merchants) {
-    if (!m.id) continue;
+  lines.push(`-- 2. Merchants (${validMerchants.length} real records)`);
+  for (const m of validMerchants) {
     lines.push(`INSERT INTO merchants (id, name, owner_name, phone, email, password_hash, address, latitude, longitude, open_time, close_time, bank_name, bank_account, bank_holder, active, rating, cook_time_estimate, image, business_photo, description, category, qris_image, is_activated, created_at, updated_at)
 VALUES (
   ${escapeSqlString(m.id)},
@@ -77,7 +139,7 @@ VALUES (
   ${escapeSqlString(m.ownerName || '')},
   ${escapeSqlString(m.phone || '')},
   ${escapeSqlString(m.email || '')},
-  ${escapeSqlString(m.password || '')},
+  ${escapeSqlString(m.password || m.password_hash || m.passwordHash || '')},
   ${escapeSqlString(m.address || '')},
   ${m.latitude || -7.9942},
   ${m.longitude || 112.7667},
@@ -103,10 +165,8 @@ ON CONFLICT (id) DO NOTHING;`);
   lines.push('');
 
   // 3. Categories
-  const categories = data.categories || [];
-  lines.push(`-- 3. Categories (${categories.length} records)`);
-  for (const c of categories) {
-    if (!c.id || !c.merchantId) continue;
+  lines.push(`-- 3. Categories (${validCategories.length} records)`);
+  for (const c of validCategories) {
     lines.push(`INSERT INTO categories (id, merchant_id, name, order_index)
 VALUES (
   ${escapeSqlString(c.id)},
@@ -119,9 +179,8 @@ ON CONFLICT (id) DO NOTHING;`);
   lines.push('');
 
   // 4. Menu Items
-  const items = (data.menuItems || []).filter(item => item.id && item.merchantId);
-  lines.push(`-- 4. Menu Items (${items.length} records)`);
-  for (const item of items) {
+  lines.push(`-- 4. Menu Items (${validMenuItems.length} records)`);
+  for (const item of validMenuItems) {
     lines.push(`INSERT INTO menu_items (id, merchant_id, category_id, name, description, price, available, image, created_at, updated_at)
 VALUES (
   ${escapeSqlString(item.id)},
@@ -140,17 +199,15 @@ ON CONFLICT (id) DO NOTHING;`);
   lines.push('');
 
   // 5. Drivers
-  const drivers = data.drivers || [];
-  lines.push(`-- 5. Drivers (${drivers.length} records)`);
-  for (const d of drivers) {
-    if (!d.id) continue;
+  lines.push(`-- 5. Drivers (${validDrivers.length} records)`);
+  for (const d of validDrivers) {
     lines.push(`INSERT INTO drivers (id, name, phone, email, password_hash, active, online, latitude, longitude, created_at, updated_at)
 VALUES (
   ${escapeSqlString(d.id)},
   ${escapeSqlString(d.name || 'Kurir')},
   ${escapeSqlString(d.phone || '')},
   ${escapeSqlString(d.email || '')},
-  ${escapeSqlString(d.password || '')},
+  ${escapeSqlString(d.password || d.password_hash || '')},
   ${d.active !== false},
   ${d.online === true},
   ${d.latitude || -7.9942},
@@ -163,10 +220,8 @@ ON CONFLICT (id) DO NOTHING;`);
   lines.push('');
 
   // 6. Testimonials
-  const testimonials = data.testimonials || [];
-  lines.push(`-- 6. Testimonials (${testimonials.length} records)`);
-  for (const t of testimonials) {
-    if (!t.id) continue;
+  lines.push(`-- 6. Testimonials (${validTestimonials.length} records)`);
+  for (const t of validTestimonials) {
     lines.push(`INSERT INTO testimonials (id, user_name, merchant_name, category, title, content, avatar_url, role_detail, rating, consent_approved, status, display_order, created_at, updated_at)
 VALUES (
   ${escapeSqlString(t.id)},
@@ -186,10 +241,11 @@ VALUES (
 )
 ON CONFLICT (id) DO NOTHING;`);
   }
+  lines.push('');
+
   // 7. Orders
-  const orders = (data.orders || []).filter(o => o.id && o.merchantId && o.merchantId.trim() !== '' && o.id !== 'ord_retry_test');
-  lines.push(`-- 7. Orders (${orders.length} records)`);
-  for (const o of orders) {
+  lines.push(`-- 7. Orders (${validOrders.length} records)`);
+  for (const o of validOrders) {
     lines.push(`INSERT INTO orders (id, unique_code, total, status, merchant_id, merchant_name, customer_name, customer_phone, delivery_address, delivery_details, landmark, latitude, longitude, subtotal, delivery_fee, service_fee, driver_id, driver_name, payment_status, payment_method, payment_proof, payment_proof_uploaded_at, payment_rejection_reason, payment_verified_by, payment_verified_at, delivery_proof, is_settled, pre_order_date, payment_expires_at, items, created_at, updated_at)
 VALUES (
   ${escapeSqlString(o.id)},
@@ -230,9 +286,8 @@ ON CONFLICT (id) DO NOTHING;`);
   lines.push('');
 
   // 8. Settlements
-  const settlements = (data.settlements || []).filter(s => s.id && s.merchantId && s.merchantId.trim() !== '');
-  lines.push(`-- 8. Settlements (${settlements.length} records)`);
-  for (const s of settlements) {
+  lines.push(`-- 8. Settlements (${validSettlements.length} records)`);
+  for (const s of validSettlements) {
     lines.push(`INSERT INTO settlements (id, merchant_id, merchant_name, order_count, total_sales, total_commission, amount_to_pay, status, bank_name, bank_account, bank_holder, paid_at, created_at)
 VALUES (
   ${escapeSqlString(s.id)},
@@ -254,10 +309,8 @@ ON CONFLICT (id) DO NOTHING;`);
   lines.push('');
 
   // 9. Partner Registrations
-  const regs = data.partnerRegistrations || [];
-  lines.push(`-- 9. Partner Registrations (${regs.length} records)`);
-  for (const r of regs) {
-    if (!r.id) continue;
+  lines.push(`-- 9. Partner Registrations (${validRegs.length} records)`);
+  for (const r of validRegs) {
     lines.push(`INSERT INTO partner_registrations (id, type, name, store_name, phone, email, address, status, notes, created_at, updated_at)
 VALUES (
   ${escapeSqlString(r.id)},
