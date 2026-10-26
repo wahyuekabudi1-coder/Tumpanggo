@@ -10,7 +10,7 @@ import express from 'express';
 import { foodDb } from './db';
 import { foodConfig, validateProductionEnvironment } from './config';
 import { isFirestoreAdminConfigured, isUsingServiceAccount, testFirestoreConnection, getFirestoreDiagnosticStatus, getAdminDb, safeAdminCountDocs } from './firebaseAdmin';
-import { isSupabaseConfigured, __setSupabaseMockForTesting } from './supabaseAdapter';
+import { isSupabaseConfigured, getSupabaseClient, testSupabaseConnection, __setSupabaseMockForTesting } from './supabaseAdapter';
 import { authenticateToken } from './auth';
 import { authRouter } from './routes/authRoutes';
 import { merchantRouter } from './routes/merchantRoutes';
@@ -273,6 +273,26 @@ app.get('/api/health', async (req, res) => {
   }
 });
 
+// Dedicated Supabase PostgreSQL Connection Probe endpoint for on-demand validation
+app.get('/api/health/supabase-probe', async (req, res) => {
+  try {
+    const probe = await testSupabaseConnection();
+    res.status(probe.connected ? 200 : 503).json({
+      system: 'tumpang-food',
+      probeOrigin: 'Dedicated Supabase PostgreSQL Diagnostic Probe',
+      result: probe,
+      timestamp: new Date().toISOString()
+    });
+  } catch (err: any) {
+    console.error('[TumpangFood Supabase Probe Error]', err);
+    res.status(500).json({
+      system: 'tumpang-food',
+      error: err.message || 'Diagnostic probe error',
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
 // Dedicated Firestore Connection Probe endpoint for on-demand validation
 app.get('/api/health/firestore-probe', async (req, res) => {
   try {
@@ -293,9 +313,72 @@ app.get('/api/health/firestore-probe', async (req, res) => {
   }
 });
 
-// Safe diagnostic endpoint to verify live Firestore document counts without exposing secrets
+// Safe diagnostic endpoint to verify live Supabase or Firestore document counts without exposing secrets
 app.get('/api/health/catalog-status', async (req, res) => {
   try {
+    if (isSupabaseConfigured()) {
+      const probe = await testSupabaseConnection();
+      let merchantsCount = 0;
+      let categoriesCount = 0;
+      let menuItemsCount = 0;
+      let merchantRegistrationsCount = 0;
+      let driversCount = 0;
+      let ordersCount = 0;
+      let settlementsCount = 0;
+
+      if (probe.connected) {
+        const client = getSupabaseClient();
+        if (client) {
+          try {
+            const [mRes, cRes, iRes, rRes, dRes, oRes, sRes] = await Promise.all([
+              client.from('merchants').select('id', { count: 'exact', head: true }),
+              client.from('categories').select('id', { count: 'exact', head: true }),
+              client.from('menu_items').select('id', { count: 'exact', head: true }),
+              client.from('partner_registrations').select('id', { count: 'exact', head: true }).eq('type', 'MERCHANT'),
+              client.from('drivers').select('id', { count: 'exact', head: true }),
+              client.from('orders').select('id', { count: 'exact', head: true }),
+              client.from('settlements').select('id', { count: 'exact', head: true })
+            ]);
+            merchantsCount = mRes.count ?? 0;
+            categoriesCount = cRes.count ?? 0;
+            menuItemsCount = iRes.count ?? 0;
+            merchantRegistrationsCount = rRes.count ?? 0;
+            driversCount = dRes.count ?? 0;
+            ordersCount = oRes.count ?? 0;
+            settlementsCount = sRes.count ?? 0;
+          } catch {}
+        }
+      } else {
+        const rawData = (foodDb as any).data;
+        merchantsCount = rawData?.merchants?.length || 0;
+        categoriesCount = rawData?.categories?.length || 0;
+        menuItemsCount = rawData?.menuItems?.length || 0;
+        merchantRegistrationsCount = rawData?.partnerRegistrations?.filter((r: any) => r.type === 'MERCHANT').length || 0;
+        driversCount = rawData?.drivers?.length || 0;
+        ordersCount = rawData?.orders?.length || 0;
+        settlementsCount = rawData?.settlements?.length || 0;
+      }
+
+      return res.status(probe.connected ? 200 : (foodConfig.isProduction ? 503 : 200)).json({
+        system: 'tumpang-food',
+        database: 'Supabase PostgreSQL',
+        url: foodConfig.supabase.url,
+        storageMode: probe.connected ? 'supabase_postgresql_verified' : 'local_snapshot',
+        liveCloudConnected: probe.connected,
+        isProduction: foodConfig.isProduction,
+        counts: {
+          merchantsCount,
+          categoriesCount,
+          menuItemsCount,
+          merchantRegistrationsCount,
+          driversCount,
+          ordersCount,
+          settlementsCount
+        },
+        timestamp: new Date().toISOString()
+      });
+    }
+
     const probe = await testFirestoreConnection();
     const adminDb = getAdminDb();
 

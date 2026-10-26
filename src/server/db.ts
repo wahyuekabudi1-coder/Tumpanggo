@@ -1294,7 +1294,7 @@ export class FoodDatabase {
       if (isSupabaseConfigured()) {
         const probe = await testSupabaseConnection();
         if (!probe.connected) {
-          throw new Error(`[Produksi] Koneksi Supabase PostgreSQL tidak aktif (${probe.error}).`);
+          throw new Error(`[Produksi] Koneksi Supabase PostgreSQL tidak aktif ([${probe.category || 'NETWORK'}] ${probe.error}).`);
         }
         return;
       }
@@ -1357,10 +1357,10 @@ export class FoodDatabase {
         liveCloudConnected: isConnected,
         canRead: true,
         canWrite: isConnected ? true : !foodConfig.isProduction,
-        diagnosticReason: isConnected ? 'SUPABASE_CONNECTED' : 'SUPABASE_UNREACHABLE',
+        diagnosticReason: isConnected ? 'SUPABASE_CONNECTED' : (probe.category || 'SUPABASE_UNREACHABLE'),
         diagnosticDetail: isConnected 
           ? 'Terhubung langsung ke Supabase PostgreSQL cloud database.' 
-          : `Gagal menghubungi Supabase: ${probe.error}`,
+          : `Gagal menghubungi Supabase: [${probe.category || 'NETWORK'}] ${probe.error}`,
         cloudError: probe.error
       };
     }

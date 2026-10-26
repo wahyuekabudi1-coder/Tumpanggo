@@ -9,7 +9,15 @@
 import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
+import dns from 'dns';
 import dotenv from 'dotenv';
+
+// Prioritize IPv4 DNS lookups on Node.js 18+ to prevent serverless IPv6 connection timeout / fetch failed
+try {
+  if (typeof (dns as any).setDefaultResultOrder === 'function') {
+    (dns as any).setDefaultResultOrder('ipv4first');
+  }
+} catch {}
 
 // Safely read explicit .env files to preserve special characters (such as # or quotes)
 // without truncation or automatic guessing
@@ -59,10 +67,16 @@ const localDbFile = isServerless
   ? path.join('/tmp', 'tumpang_food_db.json')
   : path.join(process.cwd(), 'tumpang_food_db.json');
 
-function cleanEnvSecret(val?: string, fallback = ''): string {
+export function cleanEnvSecret(val?: string, fallback = ''): string {
   if (!val) return fallback;
-  let clean = val.trim();
-  if ((clean.startsWith('"') && clean.endsWith('"')) || (clean.startsWith("'") && clean.endsWith("'"))) {
+  // Strip control characters, carriage returns, newlines, and tabs that break Node.js HTTP header parsing
+  let clean = val.replace(/[\r\n\t]/g, '').trim();
+  // Strip surrounding quotes or backticks iteratively
+  while (
+    (clean.startsWith('"') && clean.endsWith('"')) ||
+    (clean.startsWith("'") && clean.endsWith("'")) ||
+    (clean.startsWith('`') && clean.endsWith('`'))
+  ) {
     clean = clean.slice(1, -1).trim();
   }
   return clean || fallback;
@@ -97,12 +111,26 @@ function resolveServerPort(): number {
 }
 
 export function normalizeSupabaseUrl(raw?: string, fallback = 'https://epqpyieszdwyzrcbeqey.supabase.co'): string {
-  let url = cleanEnvSecret(raw, fallback);
+  let url = cleanEnvSecret(raw);
   if (!url) return fallback;
+
+  // Handle accidental 20-character project ref e.g. "epqpyieszdwyzrcbeqey"
+  if (/^[a-z0-9]{20}$/i.test(url)) {
+    return `https://${url.toLowerCase()}.supabase.co`;
+  }
+
+  // Prepend https:// if protocol is missing
   if (!url.startsWith('http://') && !url.startsWith('https://')) {
     url = `https://${url}`;
   }
-  return url.replace(/\/+$/, '');
+
+  try {
+    const parsed = new URL(url);
+    // Origin cleanly discards any sub-path (e.g. /rest/v1 or trailing slashes), giving pure canonical origin
+    return parsed.origin;
+  } catch {
+    return url.replace(/\/+$/, '');
+  }
 }
 
 // Production Strict Verification
@@ -128,9 +156,9 @@ export function validateProductionEnvironment(): { isValid: boolean; errors: str
     errors.push('FOOD_ADMIN_PASSWORD tidak boleh menggunakan kata sandi default/contoh ("TumpangGoAdmin#2026") pada mode produksi.');
   }
 
-  const rawSupabaseUrl = cleanEnvSecret(process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL);
   const rawSupabaseKey = cleanEnvSecret(process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_KEY);
-  const hasSupabase = Boolean(rawSupabaseUrl && rawSupabaseKey);
+  const rawSupabaseUrl = cleanEnvSecret(process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL, 'https://epqpyieszdwyzrcbeqey.supabase.co');
+  const hasSupabase = Boolean(rawSupabaseKey && rawSupabaseKey.length >= 20);
 
   if (hasSupabase) {
     // Validate Supabase URL format strictly
@@ -301,9 +329,8 @@ export const foodConfig = {
       return cleanEnvSecret(process.env.SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY);
     },
     get isConfigured(): boolean {
-      const url = cleanEnvSecret(process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL);
       const key = cleanEnvSecret(process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_KEY);
-      return Boolean(url && key);
+      return Boolean(key && key.length >= 20);
     }
   },
 

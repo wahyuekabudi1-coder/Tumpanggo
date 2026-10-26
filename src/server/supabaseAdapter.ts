@@ -7,8 +7,16 @@
  * Implements granular table queries, strict parameter filtering, and zero whole-table scans.
  */
 
+import dns from 'dns';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { foodConfig } from './config';
+
+// Prioritize IPv4 DNS lookups on Node.js 18+ to eliminate serverless IPv6 connection timeout / fetch failed
+try {
+  if (typeof (dns as any).setDefaultResultOrder === 'function') {
+    (dns as any).setDefaultResultOrder('ipv4first');
+  }
+} catch {}
 import {
   Merchant, Category, MenuItem, Order, Driver, Settlement, AuditLog, SystemConfig,
   PartnerRegistration, Testimonial
@@ -514,7 +522,7 @@ export function mapEntityFromDb(collection: string, row: any): any {
 // -----------------------------------------------------------------------------
 
 // -----------------------------------------------------------------------------
-// Live Supabase Database Operations & Error Diagnostics
+// Live Supabase Database Operations & Safe Server Diagnostics
 // -----------------------------------------------------------------------------
 
 let lastSupabaseError: string | null = null;
@@ -523,121 +531,228 @@ export function getLastSupabaseError(): string | null {
   return lastSupabaseError;
 }
 
-export function formatSupabaseError(err: any): { message: string; code?: string; category: string } {
+/**
+ * Sanitizes any secret keys, JWT tokens, Bearer headers, or sensitive strings from log messages
+ */
+export function sanitizeErrorText(text: string): string {
+  if (!text) return '';
+  return String(text)
+    .replace(/eyJ[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+/g, '[REDACTED_JWT]')
+    .replace(/sbp_[a-zA-Z0-9_-]+/g, '[REDACTED_SUPABASE_KEY]')
+    .replace(/Bearer\s+[^\s"'\n]+/gi, 'Bearer [REDACTED]')
+    .replace(/apikey:\s*[^\s"'\n]+/gi, 'apikey: [REDACTED]')
+    .replace(/password['"]?\s*[:=]\s*['"][^'"]+['"]/gi, 'password="[REDACTED]"');
+}
+
+export interface SupabaseDiagnosticDetail {
+  message: string;
+  code?: string;
+  category: 'AUTH' | 'DNS' | 'TLS' | 'NETWORK_TIMEOUT' | 'CONNECTION_REFUSED' | 'TABLE_NOT_FOUND' | 'RLS_DENIED' | 'HTTP_ERROR' | 'NETWORK' | 'UNKNOWN';
+  causeCode?: string;
+  causeSyscall?: string;
+  causeHostname?: string;
+  causeMessage?: string;
+}
+
+export function formatSupabaseError(err: any): SupabaseDiagnosticDetail {
   if (!err) return { message: 'Unknown error', category: 'UNKNOWN' };
 
-  // PostgREST structured error
+  let targetHost = 'epqpyieszdwyzrcbeqey.supabase.co';
+  try {
+    targetHost = new URL(foodConfig.supabase.url).hostname;
+  } catch {}
+
+  // 1. PostgREST structured error from response body
   if (err.code || err.hint || err.details) {
     const code = String(err.code || '');
-    const rawMsg = String(err.message || '');
+    const rawMsg = sanitizeErrorText(String(err.message || ''));
     if (code === 'PGRST301' || rawMsg.toLowerCase().includes('jwt') || rawMsg.toLowerCase().includes('apikey')) {
       return {
         message: `Autentikasi Supabase gagal (HTTP 401/PGRST301): Kredensial SUPABASE_SERVICE_ROLE_KEY tidak valid atau token kedaluwarsa.`,
         code: code || 'AUTH_FAILURE',
-        category: 'AUTH'
+        category: 'AUTH',
+        causeCode: code,
+        causeMessage: rawMsg,
+        causeHostname: targetHost
       };
     }
     if (code === '42P01') {
       return {
-        message: `Tabel database PostgreSQL tidak ditemukan (${rawMsg}). Pastikan migrasi SQL Supabase telah diaplikasikan.`,
+        message: `Tabel database PostgreSQL tidak ditemukan di Supabase (${rawMsg}). Pastikan migrasi SQL Supabase telah diaplikasikan.`,
         code,
-        category: 'TABLE_NOT_FOUND'
+        category: 'TABLE_NOT_FOUND',
+        causeCode: code,
+        causeMessage: rawMsg,
+        causeHostname: targetHost
       };
     }
     if (code === '42501') {
       return {
         message: `Izin ditolak oleh Row Level Security (RLS) PostgreSQL: ${rawMsg}.`,
         code,
-        category: 'RLS_DENIED'
+        category: 'RLS_DENIED',
+        causeCode: code,
+        causeMessage: rawMsg,
+        causeHostname: targetHost
       };
     }
     return {
       message: `Supabase PostgREST error [${code}]: ${rawMsg}`,
       code,
-      category: 'HTTP_ERROR'
+      category: 'HTTP_ERROR',
+      causeCode: code,
+      causeMessage: rawMsg,
+      causeHostname: targetHost
     };
   }
 
-  // Network and fetch-level errors from Node.js (undici)
-  const cause = (err as any)?.cause;
-  const causeCode = cause?.code || (err as any)?.code;
-  const causeMsg = cause?.message || '';
-  const errName = err.name || '';
-  const rawMsg = err.message || '';
+  // 2. Deep inspection of Node.js / Undici network failure
+  let cause = (err as any)?.cause;
+  if (cause && Array.isArray((cause as any).errors) && (cause as any).errors.length > 0) {
+    cause = (cause as any).errors[0];
+  }
+  if (cause && cause.cause) {
+    cause = cause.cause;
+  }
 
-  if (causeCode === 'ENOTFOUND' || rawMsg.includes('ENOTFOUND') || causeMsg.includes('ENOTFOUND')) {
-    let host = 'epqpyieszdwyzrcbeqey.supabase.co';
-    try {
-      host = new URL(foodConfig.supabase.url).hostname;
-    } catch {}
+  const causeCode = String(cause?.code || (err as any)?.code || '');
+  const causeSyscall = cause?.syscall ? String(cause.syscall) : undefined;
+  const causeHostname = cause?.hostname ? String(cause.hostname) : targetHost;
+  const causeMsg = sanitizeErrorText(cause?.message || '');
+  const rawMsg = sanitizeErrorText(err?.message || '');
+  const errName = String(err?.name || '');
+
+  // DNS Failure (ENOTFOUND, EAI_AGAIN)
+  if (causeCode === 'ENOTFOUND' || causeCode === 'EAI_AGAIN' || rawMsg.includes('ENOTFOUND') || causeMsg.includes('ENOTFOUND')) {
     return {
-      message: `DNS resolution gagal (ENOTFOUND) untuk host "${host}". Periksa apakah project Supabase dalam kondisi aktif (tidak paused) atau domain valid.`,
-      code: 'ENOTFOUND',
-      category: 'DNS'
+      message: `DNS resolution gagal (${causeCode || 'ENOTFOUND'}) untuk host "${causeHostname}". Periksa koneksi jaringan Vercel atau keaktifan project Supabase.`,
+      code: causeCode || 'ENOTFOUND',
+      category: 'DNS',
+      causeCode: causeCode || 'ENOTFOUND',
+      causeSyscall: causeSyscall || 'getaddrinfo',
+      causeHostname,
+      causeMessage: causeMsg || rawMsg
     };
   }
 
-  if (causeCode === 'ECONNREFUSED' || rawMsg.includes('ECONNREFUSED')) {
+  // Connection refused / reset
+  if (causeCode === 'ECONNREFUSED' || causeCode === 'ECONNRESET' || rawMsg.includes('ECONNREFUSED')) {
     return {
-      message: `Koneksi ditolak (ECONNREFUSED) oleh endpoint Supabase. Server database mungkin sedang offline.`,
-      code: 'ECONNREFUSED',
-      category: 'CONNECTION_REFUSED'
+      message: `Koneksi ditolak (${causeCode}) oleh endpoint Supabase (${causeHostname}).`,
+      code: causeCode,
+      category: 'CONNECTION_REFUSED',
+      causeCode,
+      causeSyscall: causeSyscall || 'connect',
+      causeHostname,
+      causeMessage: causeMsg || rawMsg
     };
   }
 
+  // Network Timeout / Abort
   if (
     causeCode === 'ETIMEDOUT' ||
     causeCode === 'UND_ERR_CONNECT_TIMEOUT' ||
     errName === 'AbortError' ||
-    rawMsg.includes('timeout') ||
-    rawMsg.includes('aborted')
+    rawMsg.toLowerCase().includes('timeout') ||
+    rawMsg.toLowerCase().includes('aborted')
   ) {
     return {
-      message: `Waktu koneksi ke Supabase habis (Timeout). Latensi jaringan atau server database lambat merespons.`,
-      code: 'ETIMEDOUT',
-      category: 'NETWORK_TIMEOUT'
+      message: `Waktu koneksi ke Supabase (${causeHostname}) habis (Timeout). Latensi jaringan melebihi batas waktu 10 detik.`,
+      code: causeCode || 'ETIMEDOUT',
+      category: 'NETWORK_TIMEOUT',
+      causeCode: causeCode || 'ETIMEDOUT',
+      causeSyscall: causeSyscall || 'connect',
+      causeHostname,
+      causeMessage: causeMsg || rawMsg
     };
   }
 
+  // TLS / SSL Failure
   if (
-    causeCode?.startsWith('CERT_') ||
-    causeCode?.includes('SSL') ||
-    causeCode?.includes('TLS') ||
-    causeMsg.includes('certificate') ||
-    causeMsg.includes('SSL')
+    causeCode.startsWith('CERT_') ||
+    causeCode.includes('SSL') ||
+    causeCode.includes('TLS') ||
+    causeCode === 'DEPTH_ZERO_SELF_SIGNED_CERT' ||
+    causeCode === 'UNABLE_TO_VERIFY_LEAF_SIGNATURE' ||
+    causeMsg.toLowerCase().includes('certificate') ||
+    causeMsg.toLowerCase().includes('ssl') ||
+    causeMsg.toLowerCase().includes('tls')
   ) {
     return {
       message: `Kegagalan verifikasi TLS/SSL saat menghubungi Supabase (${causeCode || causeMsg}).`,
       code: causeCode || 'TLS_ERROR',
-      category: 'TLS'
+      category: 'TLS',
+      causeCode: causeCode || 'TLS_ERROR',
+      causeHostname,
+      causeMessage: causeMsg || rawMsg
     };
   }
 
+  // Invalid character in HTTP header (newline / carriage return in key)
+  if (
+    causeCode === 'ERR_INVALID_CHAR' ||
+    rawMsg.includes('Invalid character in header') ||
+    causeMsg.includes('Invalid character in header')
+  ) {
+    return {
+      message: 'Karakter tidak valid (seperti newline tersembunyi) ditemukan pada SUPABASE_SERVICE_ROLE_KEY di Vercel.',
+      code: 'ERR_INVALID_CHAR',
+      category: 'AUTH',
+      causeCode: 'ERR_INVALID_CHAR',
+      causeHostname,
+      causeMessage: 'Invalid character in headerContent'
+    };
+  }
+
+  // Undici fetch failed
   if (errName === 'TypeError' && rawMsg === 'fetch failed') {
     return {
-      message: causeMsg ? `Koneksi fetch gagal (${causeCode || 'NETWORK_ERROR'}: ${causeMsg})` : 'Koneksi jaringan fetch ke Supabase gagal.',
+      message: causeMsg 
+        ? `Koneksi fetch gagal [${causeCode || 'NETWORK_ERROR'}]: ${causeMsg}` 
+        : `Koneksi fetch ke Supabase (${causeHostname}) gagal tanpa respons server.`,
       code: causeCode || 'FETCH_FAILED',
-      category: 'NETWORK'
+      category: 'NETWORK',
+      causeCode: causeCode || 'FETCH_FAILED',
+      causeSyscall,
+      causeHostname,
+      causeMessage: causeMsg || rawMsg
     };
   }
 
   return {
     message: rawMsg || String(err),
-    code: causeCode,
-    category: 'UNKNOWN'
+    code: causeCode || undefined,
+    category: 'UNKNOWN',
+    causeCode: causeCode || undefined,
+    causeSyscall,
+    causeHostname,
+    causeMessage: causeMsg || undefined
   };
 }
 
 export async function testSupabaseConnection(): Promise<{
   connected: boolean;
   url: string;
+  host: string;
   latencyMs?: number;
   error?: string;
   errorCode?: string;
   category?: string;
+  causeCode?: string;
+  causeSyscall?: string;
+  causeHostname?: string;
+  causeMessage?: string;
 }> {
+  let targetHost = 'epqpyieszdwyzrcbeqey.supabase.co';
+  try {
+    targetHost = new URL(foodConfig.supabase.url).hostname;
+  } catch {}
+
   if (testSupabaseMock?.probeResult !== undefined) {
-    return { ...testSupabaseMock.probeResult };
+    return {
+      host: targetHost,
+      ...testSupabaseMock.probeResult
+    };
   }
 
   const client = getSupabaseClient();
@@ -645,48 +760,61 @@ export async function testSupabaseConnection(): Promise<{
     return {
       connected: false,
       url: foodConfig.supabase.url,
-      error: 'Supabase credentials not configured (SUPABASE_SERVICE_ROLE_KEY missing).',
-      category: 'AUTH'
+      host: targetHost,
+      error: 'Supabase credentials not configured (SUPABASE_SERVICE_ROLE_KEY missing or too short).',
+      category: 'AUTH',
+      errorCode: 'AUTH_MISSING_KEY'
     };
   }
 
   const start = Date.now();
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 6000);
+  const timeoutId = setTimeout(() => controller.abort(), 10000);
 
   try {
-    const { error } = await client
-      .from('system_config')
-      .select('id')
+    // Probe primary operational table "merchants" first
+    const { data: mData, error: mError } = await client
+      .from('merchants')
+      .select('id, name')
       .limit(1)
       .abortSignal(controller.signal);
 
-    if (error) {
-      if (error.code === '42P01') {
-        const mProbe = await client
-          .from('merchants')
+    if (mError) {
+      // If merchants table does not exist (42P01), probe system_config as fallback
+      if (mError.code === '42P01') {
+        const { error: cfgError } = await client
+          .from('system_config')
           .select('id')
           .limit(1)
           .abortSignal(controller.signal);
-        if (!mProbe.error) {
+
+        if (!cfgError) {
           lastSupabaseError = null;
           return {
             connected: true,
             url: foodConfig.supabase.url,
-            latencyMs: Date.now() - start
+            host: targetHost,
+            latencyMs: Date.now() - start,
+            category: 'OK'
           };
         }
       }
 
-      const formatted = formatSupabaseError(error);
+      const formatted = formatSupabaseError(mError);
       lastSupabaseError = formatted.message;
+      console.warn(`[Supabase Connection Probe Failed] Category: ${formatted.category}, Code: ${formatted.causeCode || formatted.code}, Host: ${targetHost}: ${formatted.message}`);
       return {
         connected: false,
         url: foodConfig.supabase.url,
+        host: targetHost,
         latencyMs: Date.now() - start,
         error: formatted.message,
         errorCode: formatted.code,
-        category: formatted.category
+        category: formatted.category,
+        causeCode: formatted.causeCode,
+        causeSyscall: formatted.causeSyscall,
+        causeHostname: formatted.causeHostname,
+        causeMessage: formatted.causeMessage
       };
     }
 
@@ -694,18 +822,26 @@ export async function testSupabaseConnection(): Promise<{
     return {
       connected: true,
       url: foodConfig.supabase.url,
-      latencyMs: Date.now() - start
+      host: targetHost,
+      latencyMs: Date.now() - start,
+      category: 'OK'
     };
   } catch (err: any) {
     const formatted = formatSupabaseError(err);
     lastSupabaseError = formatted.message;
+    console.error(`[Supabase Connection Probe Exception] Category: ${formatted.category}, CauseCode: ${formatted.causeCode}, Syscall: ${formatted.causeSyscall || 'N/A'}, Host: ${targetHost}: ${formatted.message}`);
     return {
       connected: false,
       url: foodConfig.supabase.url,
+      host: targetHost,
       latencyMs: Date.now() - start,
       error: formatted.message,
       errorCode: formatted.code,
-      category: formatted.category
+      category: formatted.category,
+      causeCode: formatted.causeCode,
+      causeSyscall: formatted.causeSyscall,
+      causeHostname: formatted.causeHostname,
+      causeMessage: formatted.causeMessage
     };
   } finally {
     clearTimeout(timeoutId);
