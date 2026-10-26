@@ -19,6 +19,9 @@ import fs from 'fs';
 import path from 'path';
 import {
   executeProductionFirestoreExport,
+  exportSingleCollection,
+  compileExportArtifacts,
+  escapeSqlString,
   validateExportData,
   sanitizeDocument,
   normalizeTimestamp,
@@ -388,6 +391,63 @@ async function runTestSuite() {
     regularAdminAllowedForGeneralAdmin = true;
   });
   assert(regularAdminAllowedForGeneralAdmin, 'Peran ADMIN tetap diizinkan pada endpoint umum ADMIN');
+
+  console.log('\n--- TEST SUITE 10: Pengujian Chunked Export & Kompilasi In-Memory ---');
+  const mockDbForChunking = createMockFirestore({
+    merchants: [
+      { id: 'm1', name: 'Warung A', ownerName: 'Budi', phone: '081234', active: true },
+      { id: 'm2', name: 'Warung B', ownerName: 'Dewi', phone: '085678', active: true }
+    ],
+    categories: [
+      { id: 'cat1', merchantId: 'm1', name: 'Makanan' }
+    ]
+  });
+
+  const singleColResult = await exportSingleCollection('merchants', {
+    customDb: mockDbForChunking as any,
+    batchSize: 10
+  });
+
+  assert(singleColResult.success, 'exportSingleCollection berhasil membaca koleksi tunggal');
+  assert(singleColResult.data.length === 2, 'Koleksi merchants diekspor dengan 2 dokumen');
+  assert(singleColResult.stats.status === 'SUCCESS', 'Status ekspor koleksi tunggal adalah SUCCESS');
+
+  const compiledResult = compileExportArtifacts({
+    merchants: singleColResult.data,
+    categories: [{ id: 'cat1', merchantId: 'm1', name: 'Makanan' }]
+  }, {
+    targetProjectId: 'tumpanggo-70479',
+    durationMs: 850
+  });
+
+  assert(compiledResult.manifest.isProductionFirestore === true, 'Manifest hasil kompilasi bertanda isProductionFirestore: true');
+  assert(compiledResult.manifest.totalDocumentsExported === 3, 'Total dokumen terkompilasi tepat 3 dokumen');
+  assert(compiledResult.sqlContent.includes('INSERT INTO merchants'), 'SQL dump berisi pernyataan INSERT merchants');
+  assert(compiledResult.sqlContent.includes('COMMIT;'), 'SQL dump dibungkus COMMIT');
+  assert(compiledResult.reportMarkdown.includes('Laporan Ekspor Cloud Firestore'), 'Laporan Markdown terkompilasi dengan benar');
+
+  // Test SQL escaping against null bytes
+  const sqlNullEscaped = escapeSqlString('Hello\0World');
+  assert(!sqlNullEscaped.includes('\0') && sqlNullEscaped === "'HelloWorld'", 'escapeSqlString membersihkan null bytes (\\0)');
+
+  // Test automatic password hashing of legacy plaintext merchant password
+  const sanitizedPlainMerchant = sanitizeDocument('merchants', {
+    id: 'm_plain',
+    name: 'Warung Plain',
+    password: 'mySecretPassword123',
+    fcmToken: 'secret_fcm_token_12345'
+  });
+  assert(sanitizedPlainMerchant.password === undefined, 'Password plaintext dihapus dari merchant');
+  assert(sanitizedPlainMerchant.fcmToken === undefined, 'fcmToken dihapus dari merchant');
+  assert(sanitizedPlainMerchant.password_hash.startsWith('pbkdf2$'), 'Password plaintext otomatis dikonversi ke hash PBKDF2');
+
+  // Test that arbitrary collection keys are discarded by compileExportArtifacts
+  const compiledArbitrary = compileExportArtifacts({
+    merchants: [{ id: 'm1', name: 'Warung A' }],
+    maliciousCollection: [{ id: 'evil1', data: 'injected' }]
+  } as any);
+  assert((compiledArbitrary.manifest.collections as any).maliciousCollection === undefined, 'Koleksi arbitrer/tidak sah otomatis dibuang');
+  assert(!compiledArbitrary.sqlContent.includes('maliciousCollection'), 'Koleksi arbitrer tidak masuk ke SQL dump');
 
   console.log('\n=====================================================================');
   console.log(`HASIL AKHIR: ${passedTests}/${totalTests} PENGUJIAN BERHASIL.`);

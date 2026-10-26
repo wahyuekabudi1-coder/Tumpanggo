@@ -14,7 +14,12 @@ import { Router, Request, Response } from 'express';
 import { foodDb } from '../db';
 import { requireRole } from '../auth';
 import { getFirestoreDiagnosticStatus, isUsingServiceAccount } from '../firebaseAdmin';
-import { executeProductionFirestoreExport } from '../services/firestoreProductionExportService';
+import { 
+  executeProductionFirestoreExport,
+  exportSingleCollection,
+  compileExportArtifacts,
+  TARGET_COLLECTIONS
+} from '../services/firestoreProductionExportService';
 
 export const adminRouter = Router();
 
@@ -236,6 +241,69 @@ adminRouter.post(['/firestore-export', '/admin/firestore-export'], requireRole([
     res.json(result);
   } catch (err: any) {
     res.status(500).json({ error: err.message || 'Gagal mengeksekusi ekspor Firestore produksi' });
+  }
+});
+
+// Single collection export with cursor pagination (Fast, avoids 10s Vercel timeout)
+adminRouter.get(['/firestore-export-collection', '/admin/firestore-export-collection'], requireRole(['MASTER_ADMIN']), async (req: Request, res: Response) => {
+  try {
+    const collection = String(req.query.collection || '').trim();
+    if (!collection) {
+      return res.status(400).json({ error: 'Parameter collection wajib diisi.' });
+    }
+    if (!TARGET_COLLECTIONS.includes(collection as any)) {
+      return res.status(400).json({ 
+        error: `Koleksi "${collection}" tidak valid. Target koleksi yang didukung: ${TARGET_COLLECTIONS.join(', ')}` 
+      });
+    }
+
+    const batchSize = Math.max(10, Math.min(500, parseInt(String(req.query.batchSize || '100'), 10) || 100));
+    const result = await exportSingleCollection(collection, { batchSize });
+    
+    if (!result.success) {
+      return res.status(500).json({
+        error: result.error || `Gagal mengekspor koleksi ${collection}`,
+        stats: result.stats
+      });
+    }
+
+    res.json({
+      success: true,
+      collection: result.collection,
+      count: result.data.length,
+      data: result.data,
+      stats: result.stats
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Gagal mengekspor koleksi Firestore' });
+  }
+});
+
+// Compile all collected batches into verified SQL dump, manifest, and report (In-memory, 0 disk I/O)
+adminRouter.post(['/firestore-export-compile', '/admin/firestore-export-compile'], requireRole(['MASTER_ADMIN']), async (req: Request, res: Response) => {
+  try {
+    const actorId = req.user?.userId || req.user?.email || 'master-admin';
+    const { collections, durationMs, statsMap } = req.body || {};
+
+    if (!collections || typeof collections !== 'object') {
+      return res.status(400).json({ error: 'Body collections wajib berupa objek kumpulan data koleksi.' });
+    }
+
+    const compiled = compileExportArtifacts(collections, {
+      durationMs: typeof durationMs === 'number' ? durationMs : 0,
+      statsMap: statsMap && typeof statsMap === 'object' ? statsMap : undefined
+    });
+
+    foodDb.log(actorId, `Compiled production Firestore export: ${compiled.manifest.totalDocumentsExported} docs across ${Object.keys(collections).length} collections`, 'ADMIN');
+
+    res.json({
+      success: true,
+      manifest: compiled.manifest,
+      sqlContent: compiled.sqlContent,
+      reportMarkdown: compiled.reportMarkdown
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Gagal mengompilasi berkas ekspor Supabase' });
   }
 });
 

@@ -220,8 +220,38 @@ export default function AdminView({ onLogout, systemConfig, onUpdateConfig, onSe
   const [exportStatus, setExportStatus] = useState<any | null>(null);
   const [loadingExportStatus, setLoadingExportStatus] = useState(false);
   const [executingExport, setExecutingExport] = useState(false);
+  const [exportStep, setExportStep] = useState<{ step: number; total: number; collection: string; status: string } | null>(null);
   const [exportResult, setExportResult] = useState<any | null>(null);
   const [exportError, setExportError] = useState<string | null>(null);
+
+  const TARGET_EXPORT_COLLECTIONS = [
+    'systemConfig',
+    'merchants',
+    'categories',
+    'menuItems',
+    'drivers',
+    'orders',
+    'settlements',
+    'partnerRegistrations',
+    'testimonials',
+    'auditLogs'
+  ];
+
+  const downloadBlob = (content: string, fileName: string, contentType = 'text/plain') => {
+    try {
+      const blob = new Blob([content], { type: contentType });
+      const blobUrl = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = blobUrl;
+      link.download = fileName;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(blobUrl);
+    } catch (err: any) {
+      console.error('Download error:', err);
+    }
+  };
 
   const fetchExportStatus = async () => {
     setLoadingExportStatus(true);
@@ -239,28 +269,99 @@ export default function AdminView({ onLogout, systemConfig, onUpdateConfig, onSe
   };
 
   const handleExecuteFirestoreExport = async () => {
-    if (!window.confirm('KONFIRMASI EKSPOR FIRESTORE PRODUKSI:\n\nProses ini membaca data Cloud Firestore project tumpanggo-70479 secara bertahap (read-only cursor pagination).\n\n• Operasi 100% aman (tidak mengubah atau menghapus data produksi).\n• Menghasilkan dump JSON per koleksi, SQL dump terverifikasi, dan manifest audit.\n• Data TIDAK akan otomatis diimpor ke Supabase.\n\nLanjutkan ekspor sekarang?')) {
+    if (!exportStatus?.configured) {
+      alert('KREDENSIAL SERVICE ACCOUNT BELUM TERPASANG DI VERCEL:\n\nVariabel lingkungan FIREBASE_SERVICE_ACCOUNT_KEY belum dikonfigurasi di Vercel Dashboard.\n\nIkuti 3 langkah grafis pada panduan di bawah untuk menambahkan kunci Service Account di Vercel Settings > Environment Variables.');
       return;
     }
+
+    if (!window.confirm('KONFIRMASI EKSPOR FIRESTORE PRODUKSI (CHUNKING SERVERLESS):\n\nProses ini membaca data Cloud Firestore project tumpanggo-70479 koleksi per koleksi untuk mencegah batas waktu timeout 10 detik di Vercel.\n\n• Operasi 100% aman (READ-ONLY, tidak mengubah atau menghapus data).\n• Menghasilkan dump SQL terverifikasi, JSON manifest, dan laporan audit.\n• Berkas akan langsung diunduh ke komputer Anda melalui browser.\n• Data TIDAK akan otomatis diimpor ke Supabase.\n\nLanjutkan ekspor sekarang?')) {
+      return;
+    }
+
     setExecutingExport(true);
     setExportResult(null);
     setExportError(null);
+    const startTime = Date.now();
+
+    const collectionsData: Record<string, any[]> = {};
+    const statsMap: Record<string, any> = {};
+
     try {
-      const res = await fetch('/api/firestore-export', { method: 'POST' });
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error || 'Gagal mengeksekusi ekspor Firestore produksi');
+      for (let i = 0; i < TARGET_EXPORT_COLLECTIONS.length; i++) {
+        const col = TARGET_EXPORT_COLLECTIONS[i];
+        setExportStep({
+          step: i + 1,
+          total: TARGET_EXPORT_COLLECTIONS.length,
+          collection: col,
+          status: `Membaca koleksi "${col}" (${i + 1}/${TARGET_EXPORT_COLLECTIONS.length})...`
+        });
+
+        const res = await fetch(`/api/firestore-export-collection?collection=${encodeURIComponent(col)}`);
+        const data = await res.json();
+        if (!res.ok) {
+          throw new Error(data.error || `Gagal membaca koleksi ${col}`);
+        }
+
+        collectionsData[col] = data.data || [];
+        statsMap[col] = data.stats;
       }
-      setExportResult(data);
+
+      setExportStep({
+        step: TARGET_EXPORT_COLLECTIONS.length,
+        total: TARGET_EXPORT_COLLECTIONS.length,
+        collection: 'Kompilasi & Validasi',
+        status: 'Memvalidasi relasi skema dan mengompilasi SQL dump...'
+      });
+
+      const compileRes = await fetch('/api/firestore-export-compile', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          collections: collectionsData,
+          durationMs: Date.now() - startTime,
+          statsMap
+        })
+      });
+
+      const compileData = await compileRes.json();
+      if (!compileRes.ok) {
+        throw new Error(compileData.error || 'Gagal mengompilasi berkas ekspor');
+      }
+
+      setExportResult(compileData);
+
+      // Trigger automatic browser download of the verified SQL dump and manifest
+      if (compileData.sqlContent) {
+        downloadBlob(compileData.sqlContent, 'production_supabase_dump.sql', 'application/sql');
+      }
+      if (compileData.manifest) {
+        downloadBlob(JSON.stringify(compileData.manifest, null, 2), 'PRODUCTION_EXPORT_MANIFEST.json', 'application/json');
+      }
+
       fetchExportStatus();
     } catch (err: any) {
       setExportError(err.message || 'Terjadi kesalahan saat mengekspor data');
     } finally {
       setExecutingExport(false);
+      setExportStep(null);
     }
   };
 
   const handleDownloadExportFile = async (folderPath: string, fileName: string) => {
+    // If we have compiled artifacts in memory, download directly from browser
+    if (exportResult?.sqlContent && fileName === 'production_supabase_dump.sql') {
+      downloadBlob(exportResult.sqlContent, fileName, 'application/sql');
+      return;
+    }
+    if (exportResult?.manifest && fileName === 'PRODUCTION_EXPORT_MANIFEST.json') {
+      downloadBlob(JSON.stringify(exportResult.manifest, null, 2), fileName, 'application/json');
+      return;
+    }
+    if (exportResult?.reportMarkdown && fileName === 'EXPORT_REPORT.md') {
+      downloadBlob(exportResult.reportMarkdown, fileName, 'text/markdown');
+      return;
+    }
+
     try {
       const folderName = folderPath.split(/[/\\]/).filter(Boolean).pop() || folderPath;
       const res = await fetch(`/api/firestore-export/download?folder=${encodeURIComponent(folderName)}&file=${encodeURIComponent(fileName)}`);
@@ -4257,7 +4358,7 @@ export default function AdminView({ onLogout, systemConfig, onUpdateConfig, onSe
                         ? 'bg-emerald-100 text-emerald-800' 
                         : 'bg-amber-100 text-amber-800'
                     }`}>
-                      {exportStatus?.configured ? '✓ Service Account Aktif' : 'Belum Dikonfigurasi'}
+                      {exportStatus?.configured ? '✓ Service Account Aktif (Siap Ekspor)' : 'Belum Dikonfigurasi di Vercel'}
                     </span>
                   </div>
 
@@ -4278,25 +4379,57 @@ export default function AdminView({ onLogout, systemConfig, onUpdateConfig, onSe
                   )}
 
                   <div className="p-2.5 bg-blue-50 text-blue-900 rounded-lg text-[11px] leading-relaxed">
-                    🛡️ <strong>Keamanan &amp; Integritas Data:</strong> Proses ini <strong>100% READ-ONLY</strong> tanpa mengubah atau menghapus data Firestore. Seluruh ID asli, hash password PBKDF2, dan struktur relasional dipertahankan, serta divalidasi terhadap constraint PostgreSQL Supabase. Hasil ekspor <strong>TIDAK otomatis diimpor</strong> ke Supabase.
+                    🛡️ <strong>Keamanan &amp; Integritas Data:</strong> Ekstraksi berjalan <strong>100% READ-ONLY</strong> menggunakan arsitektur chunking per-koleksi untuk mencegah timeout 10 detik di Vercel. Seluruh ID asli, hash password PBKDF2, dan relasi divalidasi ke PostgreSQL Supabase. Berkas SQL dump langsung diunduh ke browser tanpa disimpan publik.
                   </div>
 
-                  {/* Terminal CLI Instructions */}
-                  <div className="p-3 bg-slate-900 text-slate-100 rounded-xl text-[11px] space-y-1 font-mono">
-                    <div className="text-slate-400 font-sans font-bold text-[10px] uppercase tracking-wider">Perintah Ekspor via Terminal / CLI Server:</div>
-                    <div className="text-emerald-400">export FIREBASE_SERVICE_ACCOUNT_KEY="/path/to/service-account.json"</div>
-                    <div className="text-blue-300">npm run export:firestore:prod</div>
-                    <div className="text-slate-500 font-sans text-[10px] pt-1">
-                      * Jangan tempelkan private key ke chat. Eksekusi lokal menjaga kunci privat Anda tetap aman.
+                  {/* Panduan Grafis Penyiapan Vercel (100% Dashboard Web, Tanpa Terminal) */}
+                  {!exportStatus?.configured && (
+                    <div className="p-3.5 bg-amber-50/80 border border-amber-200 rounded-xl text-[11px] space-y-2 text-amber-950">
+                      <div className="font-bold flex items-center gap-1.5 text-amber-900">
+                        <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                        <span>Panduan 3 Langkah Menyiapkan Kredensial (100% Melalui Browser):</span>
+                      </div>
+                      <ol className="list-decimal list-inside space-y-1 text-slate-700 pl-1 leading-relaxed">
+                        <li>
+                          Buka <strong><a href="https://console.firebase.google.com/" target="_blank" rel="noopener noreferrer" className="text-blue-600 underline font-semibold">Firebase Console</a></strong> &gt; pilih project <strong>tumpanggo-70479</strong> &gt; klik ⚙️ <em>Project settings</em> &gt; tab <em>Service accounts</em> &gt; klik <strong>"Generate new private key"</strong> untuk mengunduh berkas JSON.
+                        </li>
+                        <li>
+                          Buka berkas JSON tersebut dengan <em>Notepad</em>, salin seluruh isinya, lalu buka <strong><a href="https://vercel.com/" target="_blank" rel="noopener noreferrer" className="text-blue-600 underline font-semibold">Vercel Dashboard</a></strong> &gt; Proyek TumpangGo &gt; <em>Settings</em> &gt; <em>Environment Variables</em> &gt; tambahkan <strong>FIREBASE_SERVICE_ACCOUNT_KEY</strong> dan tempelkan isinya.
+                        </li>
+                        <li>
+                          Buka tab <em>Deployments</em> di Vercel, klik <strong>Redeploy</strong> pada deployment aktif. Setelah redeploy selesai, klik tombol <em>"Periksa Status"</em> di bawah untuk memulai ekspor data.
+                        </li>
+                      </ol>
                     </div>
-                  </div>
+                  )}
+
+                  {/* Real-Time Chunked Progress Display */}
+                  {executingExport && exportStep && (
+                    <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl space-y-2">
+                      <div className="flex items-center justify-between text-xs font-bold text-blue-900">
+                        <span className="flex items-center gap-1.5">
+                          <RefreshCw className="w-3.5 h-3.5 animate-spin text-blue-600" />
+                          <span>{exportStep.status}</span>
+                        </span>
+                        <span className="font-mono text-blue-700">
+                          {exportStep.step} / {exportStep.total}
+                        </span>
+                      </div>
+                      <div className="w-full bg-blue-200 rounded-full h-2 overflow-hidden">
+                        <div 
+                          className="bg-blue-600 h-2 rounded-full transition-all duration-300"
+                          style={{ width: `${Math.round((exportStep.step / exportStep.total) * 100)}%` }}
+                        />
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 <div className="flex flex-col sm:flex-row gap-2.5">
                   <button
                     type="button"
                     onClick={fetchExportStatus}
-                    disabled={loadingExportStatus}
+                    disabled={loadingExportStatus || executingExport}
                     className="py-2.5 px-3 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl transition-all cursor-pointer flex items-center justify-center gap-1.5"
                   >
                     <RefreshCw className={`w-3.5 h-3.5 ${loadingExportStatus ? 'animate-spin' : ''}`} />
@@ -4306,11 +4439,19 @@ export default function AdminView({ onLogout, systemConfig, onUpdateConfig, onSe
                   <button
                     type="button"
                     onClick={handleExecuteFirestoreExport}
-                    disabled={executingExport}
-                    className="flex-1 py-2.5 px-4 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-bold text-xs rounded-xl transition-all shadow-xs cursor-pointer flex items-center justify-center gap-1.5"
+                    disabled={executingExport || !exportStatus?.configured}
+                    className={`flex-1 py-2.5 px-4 font-bold text-xs rounded-xl transition-all shadow-xs flex items-center justify-center gap-1.5 ${
+                      exportStatus?.configured
+                        ? 'bg-blue-600 hover:bg-blue-700 text-white cursor-pointer'
+                        : 'bg-slate-200 text-slate-400 cursor-not-allowed'
+                    }`}
                   >
                     <Download className={`w-4 h-4 ${executingExport ? 'animate-bounce' : ''}`} />
-                    <span>{executingExport ? 'Mengekspor Data Firestore (Cursor Pagination)...' : 'Mulai Ekspor Firestore Produksi'}</span>
+                    <span>
+                      {executingExport 
+                        ? (exportStep?.status || 'Mengekspor Koleksi Firestore...') 
+                        : (exportStatus?.configured ? 'Mulai Ekspor Firestore Produksi (Chunked)' : 'Kredensial Belum Dikonfigurasi di Vercel')}
+                    </span>
                   </button>
                 </div>
 
@@ -4328,7 +4469,7 @@ export default function AdminView({ onLogout, systemConfig, onUpdateConfig, onSe
                     </div>
 
                     <div className="text-[11px] space-y-1">
-                      <div>• Folder Output: <code className="font-mono bg-white px-1.5 py-0.5 rounded border border-emerald-300 font-bold">{exportResult.manifest.outputDirectory}</code></div>
+                      <div>• Jalur Unduhan: <code className="font-mono bg-white px-1.5 py-0.5 rounded border border-emerald-300 font-bold">Unduhan Langsung Browser (Blob)</code></div>
                       <div>• Validasi Relasi &amp; FK: <strong className={exportResult.manifest.validation.isValid ? 'text-emerald-700' : 'text-amber-700'}>{exportResult.manifest.validation.isValid ? '✓ Semua Relasi Valid' : '⚠️ Ada Isu Validasi'}</strong> ({exportResult.manifest.validation.totalValid} dokumen valid, {exportResult.manifest.validation.totalErrors} error, {exportResult.manifest.validation.totalWarnings} warning).</div>
                     </div>
 
@@ -4342,26 +4483,36 @@ export default function AdminView({ onLogout, systemConfig, onUpdateConfig, onSe
                     </div>
 
                     <div className="text-[10px] text-emerald-800 pt-1">
-                      📄 Berkas SQL dump (<code className="font-mono">production_supabase_dump.sql</code>), manifest JSON, dan dump JSON per koleksi telah siap di folder output untuk direview.
+                      📄 Berkas SQL dump (<code className="font-mono">production_supabase_dump.sql</code>) dan manifest audit telah otomatis diunduh ke folder Downloads peramban Anda.
                     </div>
 
                     <div className="flex flex-wrap gap-2 pt-2 border-t border-emerald-200/60">
                       <button
                         type="button"
-                        onClick={() => handleDownloadExportFile(exportResult.manifest.outputDirectory, 'production_supabase_dump.sql')}
+                        onClick={() => handleDownloadExportFile('browser-memory', 'production_supabase_dump.sql')}
                         className="py-1.5 px-3 bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-[11px] rounded-lg transition-all cursor-pointer flex items-center gap-1.5 shadow-2xs"
                       >
                         <Download className="w-3.5 h-3.5" />
-                        <span>Unduh SQL Dump (Supabase)</span>
+                        <span>Unduh Ulang SQL Dump (Supabase)</span>
                       </button>
                       <button
                         type="button"
-                        onClick={() => handleDownloadExportFile(exportResult.manifest.outputDirectory, 'PRODUCTION_EXPORT_MANIFEST.json')}
+                        onClick={() => handleDownloadExportFile('browser-memory', 'PRODUCTION_EXPORT_MANIFEST.json')}
                         className="py-1.5 px-3 bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 font-bold text-[11px] rounded-lg transition-all cursor-pointer flex items-center gap-1.5"
                       >
                         <FileText className="w-3.5 h-3.5" />
                         <span>Unduh Manifest JSON</span>
                       </button>
+                      {exportResult.reportMarkdown && (
+                        <button
+                          type="button"
+                          onClick={() => handleDownloadExportFile('browser-memory', 'EXPORT_REPORT.md')}
+                          className="py-1.5 px-3 bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 font-bold text-[11px] rounded-lg transition-all cursor-pointer flex items-center gap-1.5"
+                        >
+                          <FileText className="w-3.5 h-3.5" />
+                          <span>Unduh Laporan Audit (MD)</span>
+                        </button>
+                      )}
                     </div>
                   </div>
                 )}

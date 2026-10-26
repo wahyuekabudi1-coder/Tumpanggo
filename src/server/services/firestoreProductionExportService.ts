@@ -21,6 +21,7 @@ import os from 'os';
 import * as admin from 'firebase-admin';
 import { FieldPath, type Firestore, type DocumentSnapshot } from 'firebase-admin/firestore';
 import { getAdminDb, isUsingServiceAccount, getExpectedProjectId } from '../firebaseAdmin';
+import { hashPassword } from '../auth';
 
 export const TARGET_COLLECTIONS = [
   'systemConfig',
@@ -110,21 +111,24 @@ export function normalizeTimestamp(val: any): string | null {
 
 /**
  * Escapes values safely for PostgreSQL SQL inserts.
+ * Strips null bytes (\0) to prevent PostgreSQL string literal termination attacks.
  */
 export function escapeSqlString(val: any): string {
   if (val === null || val === undefined) return 'NULL';
   if (typeof val === 'boolean') return val ? 'true' : 'false';
   if (typeof val === 'number') return isNaN(val) ? '0' : String(val);
   if (typeof val === 'object') {
-    const jsonStr = JSON.stringify(val);
+    const jsonStr = JSON.stringify(val).replace(/\0/g, '');
     return `'${jsonStr.replace(/'/g, "''")}'::jsonb`;
   }
-  const str = String(val);
+  const str = String(val).replace(/\0/g, '');
   return `'${str.replace(/'/g, "''")}'`;
 }
 
 /**
  * Sanitizes sensitive internal fields while strictly preserving PBKDF2 hashes and essential data.
+ * - Strips server private keys, internal tokens, push subscriptions, and plaintext passwords.
+ * - Converts any legacy plaintext passwords in merchants/drivers to secure PBKDF2 hashes.
  */
 export function sanitizeDocument(collectionName: string, doc: any): any {
   if (!doc || typeof doc !== 'object') return doc;
@@ -148,12 +152,34 @@ export function sanitizeDocument(collectionName: string, doc: any): any {
     }
   }
 
-  // Strip server internal keys or tokens if accidentally stored in documents
+  // Merchant and Driver credentials hardening: Ensure NO plaintext password is ever leaked or exported
+  if (collectionName === 'merchants' || collectionName === 'drivers') {
+    if (clone.password && typeof clone.password === 'string') {
+      if (clone.password.startsWith('pbkdf2$')) {
+        clone.password_hash = clone.password;
+      } else {
+        // Legacy plaintext password: automatically upgrade to PBKDF2 hash
+        clone.password_hash = hashPassword(clone.password);
+      }
+      delete clone.password;
+    } else if (clone.passwordHash && typeof clone.passwordHash === 'string') {
+      clone.password_hash = clone.passwordHash;
+      delete clone.passwordHash;
+    }
+    delete clone.plainPassword;
+  }
+
+  // Strip server internal keys, push tokens, and session secrets
   delete clone.private_key;
   delete clone.privateKey;
   delete clone.vapidPrivateKey;
   delete clone.sessionToken;
   delete clone.apiSecret;
+  delete clone.fcmToken;
+  delete clone.pushSubscription;
+  delete clone.token;
+  delete clone.auth_token;
+  delete clone.authToken;
 
   // Normalize timestamps
   if (clone.createdAt) clone.createdAt = normalizeTimestamp(clone.createdAt);
@@ -622,6 +648,207 @@ ON CONFLICT (id) DO NOTHING;`);
 
   lines.push('COMMIT;\n');
   return lines.join('\n');
+}
+
+/**
+ * Safely exports a single Firestore collection with cursor pagination.
+ * Designed specifically for serverless execution to prevent 10s Vercel timeout.
+ */
+export async function exportSingleCollection(
+  colName: string,
+  options: { customDb?: Firestore; batchSize?: number; targetProject?: string } = {}
+): Promise<{
+  success: boolean;
+  collection: string;
+  data: any[];
+  stats: CollectionExportStats;
+  error?: string;
+}> {
+  const startTime = Date.now();
+  const db = options.customDb || getAdminDb();
+  const batchSize = Math.max(10, Math.min(500, options.batchSize || 100));
+
+  if (!db) {
+    return {
+      success: false,
+      collection: colName,
+      data: [],
+      stats: {
+        collection: colName,
+        preCount: 0,
+        exportedCount: 0,
+        batchesProcessed: 0,
+        failedCount: 1,
+        concurrentChangesDetected: 0,
+        status: 'FAILED',
+        error: 'Firestore Admin SDK instance tidak tersedia. Service Account belum aktif.'
+      },
+      error: 'Firestore Admin SDK instance tidak tersedia. Service Account belum aktif.'
+    };
+  }
+
+  let preCount = 0;
+  try {
+    const countSnap = await db.collection(colName).count().get();
+    preCount = countSnap.data().count;
+  } catch {
+    preCount = 0;
+  }
+
+  const colDocs: any[] = [];
+  let batchesProcessed = 0;
+  let failedCount = 0;
+  let concurrentChangesDetected = 0;
+  let lastDoc: DocumentSnapshot | null = null;
+  let hasMore = true;
+
+  try {
+    const MAX_SAFETY_DOCS = 5000;
+    while (hasMore && colDocs.length < MAX_SAFETY_DOCS) {
+      batchesProcessed++;
+      let query = db.collection(colName).orderBy(FieldPath.documentId()).limit(batchSize);
+      if (lastDoc) {
+        query = query.startAfter(lastDoc);
+      }
+
+      const snapshot = await query.get();
+      if (snapshot.empty) {
+        break;
+      }
+
+      for (const doc of snapshot.docs) {
+        try {
+          const rawData = doc.data() || {};
+          const cleanDoc = sanitizeDocument(colName, { id: doc.id, ...rawData });
+
+          const updatedDate = cleanDoc.updatedAt ? new Date(cleanDoc.updatedAt).getTime() : 0;
+          const createdDate = cleanDoc.createdAt ? new Date(cleanDoc.createdAt).getTime() : 0;
+          if (updatedDate > startTime || createdDate > startTime) {
+            concurrentChangesDetected++;
+          }
+
+          colDocs.push(cleanDoc);
+        } catch {
+          failedCount++;
+        }
+      }
+
+      lastDoc = snapshot.docs[snapshot.docs.length - 1];
+      if (snapshot.docs.length < batchSize || colDocs.length >= MAX_SAFETY_DOCS) {
+        hasMore = false;
+      }
+    }
+
+    const stats: CollectionExportStats = {
+      collection: colName,
+      preCount,
+      exportedCount: colDocs.length,
+      batchesProcessed,
+      failedCount,
+      concurrentChangesDetected,
+      status: colDocs.length === 0 ? 'EMPTY' : (failedCount > 0 ? 'PARTIAL' : 'SUCCESS')
+    };
+
+    return {
+      success: true,
+      collection: colName,
+      data: colDocs,
+      stats
+    };
+  } catch (err: any) {
+    return {
+      success: false,
+      collection: colName,
+      data: colDocs,
+      stats: {
+        collection: colName,
+        preCount,
+        exportedCount: colDocs.length,
+        batchesProcessed,
+        failedCount: failedCount + 1,
+        concurrentChangesDetected,
+        status: 'FAILED',
+        error: err?.message || String(err)
+      },
+      error: err?.message || String(err)
+    };
+  }
+}
+
+/**
+ * Compiles in-memory export artifacts (SQL dump, manifest, and report) from collected data.
+ * Does not require filesystem persistence, making it 100% resilient on serverless (Vercel).
+ */
+export function compileExportArtifacts(
+  collectionsData: Record<string, any[]>,
+  options: {
+    targetProjectId?: string;
+    durationMs?: number;
+    statsMap?: Record<string, CollectionExportStats>;
+    batchSize?: number;
+  } = {}
+): {
+  manifest: ProductionExportManifest;
+  sqlContent: string;
+  reportMarkdown: string;
+} {
+  const targetProject = options.targetProjectId || getExpectedProjectId();
+  const startTime = Date.now() - (options.durationMs || 1000);
+  const exportStartedAt = new Date(startTime).toISOString();
+  const exportCompletedAt = new Date().toISOString();
+  const exportId = `firestore_prod_export_${Date.now()}`;
+
+  let totalExportedDocs = 0;
+  const stats: Record<string, CollectionExportStats> = options.statsMap || {};
+
+  // Strictly filter incoming collections to allowed target collections only
+  const cleanCollectionsData: Record<string, any[]> = {};
+  for (const colName of TARGET_COLLECTIONS) {
+    const rawDocs = Array.isArray(collectionsData?.[colName]) ? collectionsData[colName] : [];
+    cleanCollectionsData[colName] = rawDocs;
+    totalExportedDocs += rawDocs.length;
+    if (!stats[colName]) {
+      stats[colName] = {
+        collection: colName,
+        preCount: rawDocs.length,
+        exportedCount: rawDocs.length,
+        batchesProcessed: 1,
+        failedCount: 0,
+        concurrentChangesDetected: 0,
+        status: rawDocs.length === 0 ? 'EMPTY' : 'SUCCESS'
+      };
+    }
+  }
+
+  const validationReport = validateExportData(cleanCollectionsData);
+
+  const manifest: ProductionExportManifest = {
+    exportId,
+    targetProjectId: targetProject,
+    exportStartedAt,
+    exportCompletedAt,
+    durationMs: options.durationMs || (Date.now() - startTime),
+    isProductionFirestore: true,
+    batchSize: options.batchSize || 100,
+    outputDirectory: 'browser-memory',
+    collections: stats,
+    totalDocumentsExported: totalExportedDocs,
+    validation: validationReport,
+    filesGenerated: [
+      'production_supabase_dump.sql',
+      'PRODUCTION_EXPORT_MANIFEST.json',
+      'EXPORT_REPORT.md'
+    ]
+  };
+
+  const sqlContent = generateProductionSupabaseSql(cleanCollectionsData, manifest);
+  const reportMarkdown = generateMarkdownReport(manifest);
+
+  return {
+    manifest,
+    sqlContent,
+    reportMarkdown
+  };
 }
 
 /**
