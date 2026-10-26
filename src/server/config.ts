@@ -119,50 +119,54 @@ export function validateProductionEnvironment(): { isValid: boolean; errors: str
     errors.push('FOOD_ADMIN_PASSWORD tidak boleh menggunakan kata sandi default/contoh ("TumpangGoAdmin#2026") pada mode produksi.');
   }
 
-  let projectId = process.env.FIREBASE_PROJECT_ID || process.env.GCP_PROJECT;
-  if (!projectId) {
-    try {
-      const configPath = path.join(process.cwd(), 'firebase-applet-config.json');
-      if (fs.existsSync(configPath)) {
-        const raw = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
-        projectId = raw.projectId;
-      }
-    } catch {}
-  }
-  if (!projectId || projectId.trim().length === 0) {
-    errors.push('FIREBASE_PROJECT_ID wajib disetel pada lingkungan produksi.');
-  }
+  const hasSupabase = Boolean((process.env.SUPABASE_URL || '').trim() && (process.env.SUPABASE_SERVICE_ROLE_KEY || '').trim());
 
-  const serviceAccount = process.env.FIREBASE_SERVICE_ACCOUNT_KEY || process.env.GOOGLE_SERVICE_ACCOUNT_KEY || process.env.GOOGLE_APPLICATION_CREDENTIALS;
-  if (!serviceAccount || serviceAccount.trim().length === 0) {
-    errors.push('FIREBASE_SERVICE_ACCOUNT_KEY wajib disetel untuk otentikasi Firebase Admin SDK pada lingkungan produksi.');
-  } else {
-    // Validate format without leaking contents
-    const raw = serviceAccount.trim();
-    let parsed: any = null;
-    try {
-      let cleanRaw = raw;
-      if ((cleanRaw.startsWith("'") && cleanRaw.endsWith("'")) || (cleanRaw.startsWith('"') && cleanRaw.endsWith('"'))) {
-        cleanRaw = cleanRaw.slice(1, -1);
-      }
-      if (cleanRaw.startsWith('{')) {
-        parsed = JSON.parse(cleanRaw);
-      } else if (process.env.GOOGLE_APPLICATION_CREDENTIALS && fs.existsSync(raw)) {
-        parsed = JSON.parse(fs.readFileSync(raw, 'utf-8'));
-      } else {
-        const decoded = Buffer.from(cleanRaw, 'base64').toString('utf-8');
-        if (decoded.trim().startsWith('{')) {
-          parsed = JSON.parse(decoded);
+  if (!hasSupabase) {
+    let projectId = process.env.FIREBASE_PROJECT_ID || process.env.GCP_PROJECT;
+    if (!projectId) {
+      try {
+        const configPath = path.join(process.cwd(), 'firebase-applet-config.json');
+        if (fs.existsSync(configPath)) {
+          const raw = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+          projectId = raw.projectId;
         }
-      }
-    } catch {
-      // Ignored here, checked below
+      } catch {}
+    }
+    if (!projectId || projectId.trim().length === 0) {
+      errors.push('FIREBASE_PROJECT_ID atau SUPABASE_URL wajib disetel pada lingkungan produksi.');
     }
 
-    if (!parsed || typeof parsed !== 'object') {
-      errors.push('FIREBASE_SERVICE_ACCOUNT_KEY tidak berformat JSON atau Base64 yang valid.');
-    } else if (!parsed.client_email || !parsed.private_key) {
-      errors.push('FIREBASE_SERVICE_ACCOUNT_KEY wajib memiliki field "client_email" dan "private_key".');
+    const serviceAccount = process.env.FIREBASE_SERVICE_ACCOUNT_KEY || process.env.GOOGLE_SERVICE_ACCOUNT_KEY || process.env.GOOGLE_APPLICATION_CREDENTIALS;
+    if (!serviceAccount || serviceAccount.trim().length === 0) {
+      errors.push('FIREBASE_SERVICE_ACCOUNT_KEY atau SUPABASE_SERVICE_ROLE_KEY wajib disetel untuk database produksi.');
+    } else {
+      // Validate format without leaking contents
+      const raw = serviceAccount.trim();
+      let parsed: any = null;
+      try {
+        let cleanRaw = raw;
+        if ((cleanRaw.startsWith("'") && cleanRaw.endsWith("'")) || (cleanRaw.startsWith('"') && cleanRaw.endsWith('"'))) {
+          cleanRaw = cleanRaw.slice(1, -1);
+        }
+        if (cleanRaw.startsWith('{')) {
+          parsed = JSON.parse(cleanRaw);
+        } else if (process.env.GOOGLE_APPLICATION_CREDENTIALS && fs.existsSync(raw)) {
+          parsed = JSON.parse(fs.readFileSync(raw, 'utf-8'));
+        } else {
+          const decoded = Buffer.from(cleanRaw, 'base64').toString('utf-8');
+          if (decoded.trim().startsWith('{')) {
+            parsed = JSON.parse(decoded);
+          }
+        }
+      } catch {
+        // Ignored here, checked below
+      }
+
+      if (!parsed || typeof parsed !== 'object') {
+        errors.push('FIREBASE_SERVICE_ACCOUNT_KEY tidak berformat JSON atau Base64 yang valid.');
+      } else if (!parsed.client_email || !parsed.private_key) {
+        errors.push('FIREBASE_SERVICE_ACCOUNT_KEY wajib memiliki field "client_email" dan "private_key".');
+      }
     }
   }
 
@@ -252,6 +256,24 @@ export const foodConfig = {
     }
   },
   
+  // Supabase PostgreSQL Configuration
+  supabase: {
+    get url(): string {
+      return (process.env.SUPABASE_URL || 'https://epqpyieszdwyzrcbeqey.supabase.co').trim();
+    },
+    get serviceRoleKey(): string {
+      return (process.env.SUPABASE_SERVICE_ROLE_KEY || '').trim();
+    },
+    get anonKey(): string {
+      return (process.env.SUPABASE_ANON_KEY || '').trim();
+    },
+    get isConfigured(): boolean {
+      const url = (process.env.SUPABASE_URL || '').trim();
+      const key = (process.env.SUPABASE_SERVICE_ROLE_KEY || '').trim();
+      return Boolean(url && key);
+    }
+  },
+
   // System operational defaults
   defaults: {
     serviceFee: 2000,

@@ -15,6 +15,7 @@
 import { Request, Response, NextFunction } from 'express';
 import crypto from 'crypto';
 import { isFirestoreAdminConfigured, getAdminDb } from '../firebaseAdmin';
+import { isSupabaseConfigured, getSupabaseClient } from '../supabaseAdapter';
 import { foodConfig } from '../config';
 
 interface RateLimitEntry {
@@ -111,9 +112,7 @@ export interface RateLimiterOptions {
 
 /**
  * Atomically check and increment a rate limit key.
- * Uses Cloud Firestore with atomic transactions.
- * Strict fail-closed policy in production: throws RateLimiterStorageError if storage fails.
- * In-memory store fallback is strictly restricted to non-production environments.
+ * Supports Supabase PostgreSQL and Cloud Firestore, with memory fallback for development.
  */
 async function recordAndCheckLimit(
   key: string,
@@ -123,10 +122,44 @@ async function recordAndCheckLimit(
   const now = Date.now();
   const windowMs = windowSeconds * 1000;
 
-  // 1. Production Mode: Firestore is mandatory; strictly fail-closed on any failure
+  // 1. Supabase PostgreSQL shared store
+  if (isSupabaseConfigured()) {
+    const client = getSupabaseClient();
+    if (client) {
+      try {
+        const { data: existing } = await client
+          .from('rate_limits')
+          .select('count, reset_at')
+          .eq('key', key)
+          .maybeSingle();
+
+        let count = 1;
+        let resetAt = now + windowMs;
+
+        if (existing && Number(existing.reset_at) > now) {
+          count = (Number(existing.count) || 0) + 1;
+          resetAt = Number(existing.reset_at);
+        }
+
+        await client
+          .from('rate_limits')
+          .upsert({ key, count, reset_at: resetAt, updated_at: now }, { onConflict: 'key' });
+
+        const allowed = count <= maxLimit;
+        return { allowed, currentCount: count, resetAt };
+      } catch (err: any) {
+        console.error('[RateLimiter] Supabase rate limit error:', err?.message || err);
+        if (foodConfig.isProduction) {
+          throw new RateLimiterStorageError('Rate limiter storage failed on Supabase in production');
+        }
+      }
+    }
+  }
+
+  // 2. Production Mode: Firestore is mandatory if Supabase not configured; strictly fail-closed on any failure
   if (foodConfig.isProduction) {
     if (!isFirestoreAdminConfigured()) {
-      throw new RateLimiterStorageError('Rate limiter requires Firestore in production');
+      throw new RateLimiterStorageError('Rate limiter requires Supabase or Firestore in production');
     }
     const adminDb = getAdminDb();
     if (!adminDb) {
@@ -160,9 +193,10 @@ async function recordAndCheckLimit(
     }
   }
 
-  // 2. Development / Test Mode: Try Firestore shared store if available
+  // 3. Development / Test Mode: Try Firestore shared store if available
   if (isFirestoreAdminConfigured()) {
     const adminDb = getAdminDb();
+
     if (adminDb) {
       try {
         const docRef = adminDb.collection('_rateLimits').doc(key);

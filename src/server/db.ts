@@ -38,6 +38,16 @@ import {
   getFirestoreDiagnosticStatus
 } from './firebaseAdmin';
 import { classifyRecord, KNOWN_SEED_MERCHANT_IDS } from './services/cleanupService';
+import {
+  isSupabaseConfigured,
+  getSupabaseClient,
+  safeSupabaseUpsertDoc,
+  safeSupabaseDeleteDoc,
+  fetchFromSupabase,
+  fetchOrdersByMerchantFromSupabase,
+  fetchOrdersByDriverFromSupabase,
+  testSupabaseConnection
+} from './supabaseAdapter';
 
 const FOOD_DB_FILE = foodConfig.localDbFile;
 const LEGACY_DB_FILE = foodConfig.legacyDbFile;
@@ -52,8 +62,37 @@ export const OFFICIAL_MERCHANT_CATEGORIES = [
   'Aneka Kopi & Teh'
 ];
 
-// Administrative Firestore set helper alias
-const safeFirestoreSetDoc = safeAdminSetDoc;
+/**
+ * Unified Cloud Persistence Set:
+ * Dynamically routes writes to Supabase PostgreSQL when configured,
+ * or Cloud Firestore Admin when configured, with local resilient fallback.
+ */
+export async function safeCloudSetDoc(collection: string, docId: string, data: any): Promise<boolean> {
+  if (isSupabaseConfigured()) {
+    return safeSupabaseUpsertDoc(collection, docId, data);
+  }
+  if (isFirestoreAdminConfigured()) {
+    return safeAdminSetDoc(collection, docId, data);
+  }
+  return true;
+}
+
+/**
+ * Unified Cloud Persistence Delete:
+ * Dynamically routes deletions to Supabase PostgreSQL or Firestore.
+ */
+export async function safeCloudDeleteDoc(collection: string, docId: string): Promise<boolean> {
+  if (isSupabaseConfigured()) {
+    return safeSupabaseDeleteDoc(collection, docId);
+  }
+  if (isFirestoreAdminConfigured()) {
+    return safeAdminDeleteDoc(collection, docId);
+  }
+  return true;
+}
+
+// Backwards-compatible alias for existing codebase
+const safeFirestoreSetDoc = safeCloudSetDoc;
 
 export interface PushSubscriptionRecord {
   id: string;
@@ -1094,8 +1133,17 @@ export class FoodDatabase {
         throw new Error(`[Produksi] Konfigurasi produksi tidak valid:\n- ${envCheck.errors.join('\n- ')}`);
       }
 
-      // 2. Initialize and verify live Cloud Firestore connection
+      // 2. Initialize and verify live database connection
       await this.ensureInitialized(forceRefresh);
+
+      // Check Supabase if configured
+      if (isSupabaseConfigured()) {
+        const probe = await testSupabaseConnection();
+        if (!probe.connected) {
+          throw new Error(`[Produksi] Koneksi Supabase PostgreSQL tidak aktif (${probe.error}).`);
+        }
+        return;
+      }
 
       // 3. Re-verify live Cloud Firestore is active
       if (!this.isInitialized || !isUsingServiceAccount() || !getAdminDb()) {
@@ -1115,17 +1163,18 @@ export class FoodDatabase {
   }
 
   /**
-   * Diagnostic assessment of runtime storage status: Cloud Firestore vs Local Resilient Snapshot.
+   * Diagnostic assessment of runtime storage status: Supabase vs Cloud Firestore vs Local Resilient Snapshot.
    */
   public async getStorageStatus(): Promise<{
-    storageMode: 'cloud_firestore_active' | 'local_resilient_snapshot';
+    storageMode: 'supabase_postgresql_active' | 'cloud_firestore_active' | 'local_resilient_snapshot';
     storageType: string;
     isUsingFallback: boolean;
-    activePersistenceType: 'CLOUD_FIRESTORE' | 'LOCAL_JSON_SNAPSHOT';
+    activePersistenceType: 'SUPABASE_POSTGRESQL' | 'CLOUD_FIRESTORE' | 'LOCAL_JSON_SNAPSHOT';
     databaseId: string;
     projectId: string;
     isProduction: boolean;
     firestoreConfigured: boolean;
+    supabaseConfigured: boolean;
     usingServiceAccount: boolean;
     authIdentity: string;
     liveCloudConnected: boolean;
@@ -1136,6 +1185,32 @@ export class FoodDatabase {
     remediationStep?: string;
     cloudError?: string;
   }> {
+    if (isSupabaseConfigured()) {
+      const probe = await testSupabaseConnection();
+      const isConnected = probe.connected;
+      return {
+        storageMode: isConnected ? 'supabase_postgresql_active' : 'local_resilient_snapshot',
+        storageType: isConnected ? 'Supabase PostgreSQL (Production Primary)' : 'Local File JSON Snapshot (Development/Degraded Fallback)',
+        isUsingFallback: !isConnected,
+        activePersistenceType: isConnected ? 'SUPABASE_POSTGRESQL' : 'LOCAL_JSON_SNAPSHOT',
+        databaseId: 'supabase',
+        projectId: 'epqpyieszdwyzrcbeqey',
+        isProduction: foodConfig.isProduction,
+        firestoreConfigured: isFirestoreAdminConfigured(),
+        supabaseConfigured: true,
+        usingServiceAccount: true,
+        authIdentity: 'service_role',
+        liveCloudConnected: isConnected,
+        canRead: true,
+        canWrite: isConnected ? true : !foodConfig.isProduction,
+        diagnosticReason: isConnected ? 'SUPABASE_CONNECTED' : 'SUPABASE_UNREACHABLE',
+        diagnosticDetail: isConnected 
+          ? 'Terhubung langsung ke Supabase PostgreSQL cloud database.' 
+          : `Gagal menghubungi Supabase: ${probe.error}`,
+        cloudError: probe.error
+      };
+    }
+
     const firestoreCheck = await testFirestoreConnection();
     const isConnected = firestoreCheck.connected;
     return {
@@ -1147,6 +1222,7 @@ export class FoodDatabase {
       projectId: firestoreCheck.projectId,
       isProduction: foodConfig.isProduction,
       firestoreConfigured: isFirestoreAdminConfigured(),
+      supabaseConfigured: false,
       usingServiceAccount: firestoreCheck.usingServiceAccount,
       authIdentity: firestoreCheck.authIdentity,
       liveCloudConnected: isConnected,
@@ -1160,22 +1236,111 @@ export class FoodDatabase {
   }
 
   /**
-   * Synchronize state with Firebase Firestore as Primary Storage.
+   * Synchronize state with Supabase PostgreSQL or Firebase Firestore as Primary Storage.
    */
   public async init() {
-    // Mode produksi: Wajib terhubung ke Cloud Firestore. Dilarang diam-diam fallback ke penyimpanan lokal.
+    // Mode produksi: Wajib terhubung ke Cloud Database. Dilarang diam-diam fallback ke penyimpanan lokal.
     if (foodConfig.isProduction) {
-      if (!isUsingServiceAccount() || !getAdminDb()) {
+      if (isSupabaseConfigured()) {
+        const probe = await testSupabaseConnection();
+        if (!probe.connected) {
+          throw new Error(`[TumpangFood DB] FATAL: Mode produksi gagal terhubung ke Supabase PostgreSQL (${probe.error}). Operasi dihentikan untuk mencegah modifikasi lokal tanpa sinkronisasi cloud.`);
+        }
+      } else if (!isUsingServiceAccount() || !getAdminDb()) {
         const diag = getFirestoreDiagnosticStatus();
-        throw new Error(`[TumpangFood DB] FATAL: Mode produksi mewajibkan Cloud Firestore aktif dengan Firebase Admin SDK. (${diag.reason}: ${diag.detail})`);
-      }
-      const probe = await testFirestoreConnection();
-      if (!probe.connected) {
-        throw new Error(`[TumpangFood DB] FATAL: Mode produksi gagal terhubung ke Cloud Firestore (${probe.diagnosticReason}: ${probe.error || probe.diagnosticDetail}). Operasi dihentikan untuk mencegah modifikasi lokal tanpa sinkronisasi cloud.`);
+        throw new Error(`[TumpangFood DB] FATAL: Mode produksi mewajibkan Cloud Firestore atau Supabase aktif. (${diag.reason}: ${diag.detail})`);
+      } else {
+        const probe = await testFirestoreConnection();
+        if (!probe.connected) {
+          throw new Error(`[TumpangFood DB] FATAL: Mode produksi gagal terhubung ke Cloud Firestore (${probe.diagnosticReason}: ${probe.error || probe.diagnosticDetail}). Operasi dihentikan untuk mencegah modifikasi lokal tanpa sinkronisasi cloud.`);
+        }
       }
     }
 
-    // 1. Check if Firebase Admin SDK has valid explicit credentials
+    // 1. Supabase PostgreSQL as Primary Storage when configured
+    if (isSupabaseConfigured()) {
+      const probe = await testSupabaseConnection();
+      if (!probe.connected) {
+        console.warn(`[TumpangFood DB] Supabase belum terhubung (${probe.error}), beroperasi dengan penyimpanan lokal resilien.`);
+        this.isInitialized = true;
+        return;
+      }
+
+      this.isInitialized = true;
+      try {
+        console.log('[TumpangFood DB] Syncing with Supabase database:', foodConfig.supabase.url);
+
+        const [
+          remoteConfigs,
+          remoteMerchants,
+          remoteCats,
+          remoteItems,
+          remoteDrivers,
+          remoteOrders,
+          remoteSets,
+          remoteRegs,
+          remoteTestis,
+          remoteLogs
+        ] = await Promise.all([
+          fetchFromSupabase('systemConfig', { limit: 1 }),
+          fetchFromSupabase('merchants'),
+          fetchFromSupabase('categories'),
+          fetchFromSupabase('menuItems'),
+          fetchFromSupabase('drivers'),
+          fetchFromSupabase('orders', { limit: 500, orderBy: { column: 'created_at', ascending: false } }),
+          fetchFromSupabase('settlements', { limit: 500, orderBy: { column: 'created_at', ascending: false } }),
+          fetchFromSupabase('partnerRegistrations'),
+          fetchFromSupabase('testimonials'),
+          fetchFromSupabase('auditLogs', { limit: 50, orderBy: { column: 'created_at', ascending: false } })
+        ]);
+
+        if (remoteConfigs && remoteConfigs.length > 0) {
+          this.data.systemConfig = { ...initialConfig, ...remoteConfigs[0] };
+          this.bootstrapMasterAccount();
+        }
+        if (remoteMerchants && remoteMerchants.length > 0) {
+          this.data.merchants = remoteMerchants;
+        }
+        if (remoteCats && remoteCats.length > 0) {
+          this.data.categories = remoteCats;
+        }
+        if (remoteItems && remoteItems.length > 0) {
+          this.data.menuItems = remoteItems;
+        }
+        if (remoteDrivers && remoteDrivers.length > 0) {
+          this.data.drivers = remoteDrivers;
+        }
+        if (remoteOrders && remoteOrders.length > 0) {
+          this.data.orders = remoteOrders;
+        }
+        if (remoteSets && remoteSets.length > 0) {
+          this.data.settlements = remoteSets;
+        }
+        if (remoteRegs && remoteRegs.length > 0) {
+          this.data.partnerRegistrations = remoteRegs;
+        }
+        if (remoteTestis && remoteTestis.length > 0) {
+          this.data.testimonials = remoteTestis;
+        }
+        if (remoteLogs && remoteLogs.length > 0) {
+          this.data.auditLogs = remoteLogs;
+        }
+
+        this.ensureStructure();
+        this.save();
+        this.createBackup();
+        console.log('[TumpangFood DB] Supabase PostgreSQL synchronization successful (Primary Store Active).');
+        return;
+      } catch (err: any) {
+        if (foodConfig.isProduction) {
+          this.isInitialized = false;
+          throw new Error(`[Produksi] Sinkronisasi data dengan Supabase gagal: ${err.message}. Operasi database ditolak demi integritas data.`);
+        }
+        console.error('[TumpangFood DB] Supabase sync failed, continuing locally:', err.message);
+      }
+    }
+
+    // 2. Check if Firebase Admin SDK has valid explicit credentials
     if (!isUsingServiceAccount() || !getAdminDb()) {
       const diag = getFirestoreDiagnosticStatus();
       console.warn(`[TumpangFood DB] Firestore Admin SDK tidak terkonfigurasi (${diag.reason}), beroperasi dengan penyimpanan lokal.`);
@@ -1183,7 +1348,7 @@ export class FoodDatabase {
       return;
     }
 
-    // 2. Perform live connection probe to verify actual Firestore Cloud accessibility
+    // 3. Perform live connection probe to verify actual Firestore Cloud accessibility
     const probe = await testFirestoreConnection();
     if (!probe.connected) {
       console.warn(`[TumpangFood DB] Firestore Cloud belum terhubung (${probe.diagnosticReason}: ${probe.error || probe.diagnosticDetail}). Beroperasi dengan penyimpanan lokal.`);
@@ -1192,6 +1357,7 @@ export class FoodDatabase {
     }
 
     this.isInitialized = true;
+
 
     try {
       console.log('[TumpangFood DB] Syncing with Firestore database via Admin SDK:', foodConfig.databaseId);
@@ -1433,8 +1599,17 @@ export class FoodDatabase {
   // --- PRODUCTION PERSISTENCE SAFEGUARD ---
   public async ensureProductionCloudReady(actionName: string): Promise<void> {
     if (!foodConfig.isProduction) return;
+
+    if (isSupabaseConfigured()) {
+      const probe = await testSupabaseConnection();
+      if (!probe.connected) {
+        throw new Error(`[Produksi] Koneksi Supabase PostgreSQL tidak tersedia (${probe.error}). Operasi "${actionName}" dibatalkan demi integritas data.`);
+      }
+      return;
+    }
+
     if (!isFirestoreAdminConfigured()) {
-      throw new Error(`[Produksi] Cloud Firestore belum dikonfigurasi. Operasi "${actionName}" dibatalkan demi integritas data.`);
+      throw new Error(`[Produksi] Database produksi (Supabase / Cloud Firestore) belum dikonfigurasi. Operasi "${actionName}" dibatalkan demi integritas data.`);
     }
     const probe = await testFirestoreConnection();
     if (!probe.connected) {
@@ -2391,10 +2566,41 @@ export class FoodDatabase {
     if (!merchantId) return [];
     let orders = this.getOrdersByMerchant(merchantId);
 
-    // Sync from Firestore Admin if configured
-    if (isFirestoreAdminConfigured()) {
+    // 1. Sync from Supabase PostgreSQL if configured (Strict filtered query, ZERO whole-table scans)
+    if (isSupabaseConfigured()) {
       try {
-        const remoteOrders = await safeAdminGetDocs('orders');
+        const remoteOrders = await fetchOrdersByMerchantFromSupabase(merchantId);
+        if (Array.isArray(remoteOrders) && remoteOrders.length > 0) {
+          let updatedAny = false;
+          for (const ro of remoteOrders) {
+            if (!ro || !ro.id) continue;
+            const existingIdx = this.data.orders.findIndex(o => o.id === ro.id);
+            if (existingIdx === -1) {
+              this.data.orders.unshift(ro as Order);
+              updatedAny = true;
+            } else {
+              const localOrder = this.data.orders[existingIdx];
+              if (ro.updatedAt && (!localOrder.updatedAt || new Date(ro.updatedAt).getTime() > new Date(localOrder.updatedAt).getTime())) {
+                this.data.orders[existingIdx] = ro as Order;
+                updatedAny = true;
+              } else if (ro.status === OrderStatus.PAYMENT_VERIFIED && localOrder.status !== OrderStatus.PAYMENT_VERIFIED) {
+                this.data.orders[existingIdx] = ro as Order;
+                updatedAny = true;
+              }
+            }
+          }
+          if (updatedAny) {
+            this.save();
+            orders = this.getOrdersByMerchant(merchantId);
+          }
+        }
+      } catch (err) {
+        console.warn('[TumpangFood DB] Error during remote Supabase orders sync for merchant:', err);
+      }
+    } else if (isFirestoreAdminConfigured()) {
+      // 2. Sync from Firestore Admin with strict WHERE query to avoid quota exhaustion
+      try {
+        const remoteOrders = await safeAdminGetDocs('orders', ref => ref.where('merchantId', '==', merchantId));
         if (Array.isArray(remoteOrders) && remoteOrders.length > 0) {
           let updatedAny = false;
           for (const ro of remoteOrders) {
@@ -2426,6 +2632,7 @@ export class FoodDatabase {
 
     return orders;
   }
+
 
   public getOrdersByDriver(driverId: string): Order[] {
     this.reloadFromDiskIfNeeded();
