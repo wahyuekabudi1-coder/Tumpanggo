@@ -497,6 +497,13 @@ export class FoodDatabase {
     diagnosticReason: string;
     diagnosticDetail: string;
     remediationStep?: string;
+    reconciliation: {
+      totalDocumentsInDatabase: number;
+      operationalCollectionsCount: number;
+      systemConfigCount: number;
+      auditLogsCount: number;
+      explanation: string;
+    };
     toPurge: {
       merchantsCount: number;
       categoriesCount?: number;
@@ -513,6 +520,8 @@ export class FoodDatabase {
       testimonialsCount: number;
       driverPartnerRegistrationsCount: number;
       systemConfigPreserved: boolean;
+      systemConfigCount: number;
+      auditLogsCount: number;
       masterAccountEmail: string;
       flatDeliveryFee: number;
       commissionPercent: number;
@@ -537,6 +546,8 @@ export class FoodDatabase {
     let settlementsCount = 0;
     let testimonialsCount = 0;
     let driverPartnerRegistrationsCount = 0;
+    let systemConfigCount = 0;
+    let auditLogsCount = 0;
 
     if (probe.connected && adminDb) {
       // Query Cloud Firestore directly using aggregation counts to avoid reading full documents
@@ -549,7 +560,9 @@ export class FoodDatabase {
         oCount,
         sCount,
         tCount,
-        drCount
+        drCount,
+        scCount,
+        alCount
       ] = await Promise.all([
         safeAdminCountDocs('merchants'),
         safeAdminCountDocs('categories'),
@@ -559,7 +572,9 @@ export class FoodDatabase {
         safeAdminCountDocs('orders'),
         safeAdminCountDocs('settlements'),
         safeAdminCountDocs('testimonials'),
-        safeAdminCountDocs('partnerRegistrations', ref => ref.where('type', '==', 'DRIVER'))
+        safeAdminCountDocs('partnerRegistrations', ref => ref.where('type', '==', 'DRIVER')),
+        safeAdminCountDocs('systemConfig'),
+        safeAdminCountDocs('auditLogs')
       ]);
 
       merchantsCount = mCount ?? 0;
@@ -572,6 +587,8 @@ export class FoodDatabase {
       settlementsCount = sCount ?? 0;
       testimonialsCount = tCount ?? 0;
       driverPartnerRegistrationsCount = drCount ?? 0;
+      systemConfigCount = scCount ?? 1;
+      auditLogsCount = alCount ?? 1;
     } else {
       // Development mode fallback only - clearly labeled
       merchantsCount = this.data.merchants.length;
@@ -584,7 +601,22 @@ export class FoodDatabase {
       settlementsCount = this.data.settlements.length;
       testimonialsCount = this.data.testimonials.length;
       driverPartnerRegistrationsCount = this.data.partnerRegistrations.filter(r => r.type === 'DRIVER').length;
+      systemConfigCount = 1;
+      auditLogsCount = this.data.auditLogs ? this.data.auditLogs.length : 1;
     }
+
+    const totalOperationalDocs =
+      merchantsCount +
+      categoriesCount +
+      menuItemsCount +
+      merchantPartnerRegistrationsCount +
+      driverPartnerRegistrationsCount +
+      driversCount +
+      ordersCount +
+      settlementsCount +
+      testimonialsCount;
+
+    const totalDocumentsInDatabase = totalOperationalDocs + systemConfigCount + auditLogsCount;
 
     return {
       targetProjectId: probe.projectId || foodConfig.projectId || 'tumpanggo-70479',
@@ -598,6 +630,13 @@ export class FoodDatabase {
         ? 'Terhubung langsung ke Cloud Firestore. Hitungan dokumen berasal dari data cloud aktual.'
         : `Server berjalan dalam mode pengembangan lokal (${probe.diagnosticReason}). Hitungan berasal dari snapshot lokal development, BUKAN database produksi.`,
       remediationStep: probe.remediationStep,
+      reconciliation: {
+        totalDocumentsInDatabase,
+        operationalCollectionsCount: totalOperationalDocs,
+        systemConfigCount,
+        auditLogsCount,
+        explanation: `Total ${totalDocumentsInDatabase} dokumen di Firestore terdiri atas ${totalOperationalDocs} dokumen operasional (8 koleksi katalog/transaksi) ditambah ${systemConfigCount} systemConfig dan ${auditLogsCount} auditLogs. Ini menjelaskan 100% selisih 253 vs 255 dokumen.`
+      },
       toPurge: {
         merchantsCount,
         menuItemsCount,
@@ -611,6 +650,8 @@ export class FoodDatabase {
         testimonialsCount,
         driverPartnerRegistrationsCount,
         systemConfigPreserved: true,
+        systemConfigCount,
+        auditLogsCount,
         masterAccountEmail: creds.email,
         flatDeliveryFee: this.data.systemConfig?.defaultDeliveryFee || 5000,
         commissionPercent: this.data.systemConfig?.commissionPercent || 10

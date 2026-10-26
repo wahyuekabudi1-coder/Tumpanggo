@@ -300,7 +300,8 @@ adminRouter.post(['/firestore-export-compile', '/admin/firestore-export-compile'
       success: true,
       manifest: compiled.manifest,
       sqlContent: compiled.sqlContent,
-      reportMarkdown: compiled.reportMarkdown
+      reportMarkdown: compiled.reportMarkdown,
+      orphanedRecordsJson: compiled.orphanedRecordsJson
     });
   } catch (err: any) {
     res.status(500).json({ error: err.message || 'Gagal mengompilasi berkas ekspor Supabase' });

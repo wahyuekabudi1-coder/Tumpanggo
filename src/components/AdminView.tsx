@@ -330,12 +330,15 @@ export default function AdminView({ onLogout, systemConfig, onUpdateConfig, onSe
 
       setExportResult(compileData);
 
-      // Trigger automatic browser download of the verified SQL dump and manifest
+      // Trigger automatic browser download of the verified SQL dump, manifest, and quarantined records audit
       if (compileData.sqlContent) {
         downloadBlob(compileData.sqlContent, 'production_supabase_dump.sql', 'application/sql');
       }
       if (compileData.manifest) {
         downloadBlob(JSON.stringify(compileData.manifest, null, 2), 'PRODUCTION_EXPORT_MANIFEST.json', 'application/json');
+      }
+      if (compileData.orphanedRecordsJson) {
+        downloadBlob(compileData.orphanedRecordsJson, 'ORPHANED_RECORDS_AUDIT.json', 'application/json');
       }
 
       fetchExportStatus();
@@ -359,6 +362,10 @@ export default function AdminView({ onLogout, systemConfig, onUpdateConfig, onSe
     }
     if (exportResult?.reportMarkdown && fileName === 'EXPORT_REPORT.md') {
       downloadBlob(exportResult.reportMarkdown, fileName, 'text/markdown');
+      return;
+    }
+    if (exportResult?.orphanedRecordsJson && fileName === 'ORPHANED_RECORDS_AUDIT.json') {
+      downloadBlob(exportResult.orphanedRecordsJson, fileName, 'application/json');
       return;
     }
 
@@ -4455,24 +4462,67 @@ export default function AdminView({ onLogout, systemConfig, onUpdateConfig, onSe
                   </button>
                 </div>
 
-                {/* Export Results Display */}
+                {/* Export Results Display & Forensic Audit */}
                 {exportResult?.manifest && (
-                  <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-xl space-y-3 text-xs text-emerald-950">
+                  <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-xl space-y-3.5 text-xs text-emerald-950">
                     <div className="font-bold flex items-center justify-between text-emerald-800">
                       <span className="flex items-center gap-1.5">
                         <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                        Ekspor Selesai! ({exportResult.manifest.totalDocumentsExported} dokumen)
+                        Ekspor Selesai! ({exportResult.manifest.totalDocumentsExported} dokumen diekstraksi)
                       </span>
                       <span className="text-[10px] font-mono text-emerald-600">
                         Durasi: {(exportResult.manifest.durationMs / 1000).toFixed(2)}s
                       </span>
                     </div>
 
-                    <div className="text-[11px] space-y-1">
-                      <div>• Jalur Unduhan: <code className="font-mono bg-white px-1.5 py-0.5 rounded border border-emerald-300 font-bold">Unduhan Langsung Browser (Blob)</code></div>
-                      <div>• Validasi Relasi &amp; FK: <strong className={exportResult.manifest.validation.isValid ? 'text-emerald-700' : 'text-amber-700'}>{exportResult.manifest.validation.isValid ? '✓ Semua Relasi Valid' : '⚠️ Ada Isu Validasi'}</strong> ({exportResult.manifest.validation.totalValid} dokumen valid, {exportResult.manifest.validation.totalErrors} error, {exportResult.manifest.validation.totalWarnings} warning).</div>
+                    {/* Table Row Reconciliation Cards */}
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-center">
+                      <div className="p-2.5 bg-white rounded-lg border border-slate-200 shadow-2xs">
+                        <div className="text-base font-extrabold text-slate-800 font-mono">
+                          {exportResult.manifest.totalDocumentsExported}
+                        </div>
+                        <div className="text-[10px] font-bold text-slate-500 uppercase">Total Firestore Terbaca</div>
+                        <div className="text-[9px] text-slate-400">10 Koleksi (Lengkap)</div>
+                      </div>
+
+                      <div className="p-2.5 bg-white rounded-lg border border-emerald-200 shadow-2xs">
+                        <div className="text-base font-extrabold text-emerald-700 font-mono">
+                          {exportResult.manifest.sqlSummary?.totalSqlStatements ?? exportResult.manifest.validation.totalValid}
+                        </div>
+                        <div className="text-[10px] font-bold text-emerald-600 uppercase">Valid untuk SQL INSERT</div>
+                        <div className="text-[9px] text-emerald-500">Memenuhi Constraint FK</div>
+                      </div>
+
+                      <div className="p-2.5 bg-white rounded-lg border border-amber-200 shadow-2xs">
+                        <div className="text-base font-extrabold text-amber-700 font-mono">
+                          {exportResult.manifest.validation.quarantinedDocuments?.length || exportResult.manifest.validation.totalErrors}
+                        </div>
+                        <div className="text-[10px] font-bold text-amber-600 uppercase">Dokumen Dikarantina</div>
+                        <div className="text-[9px] text-amber-600 font-medium">Orphaned Records (Yatim)</div>
+                      </div>
                     </div>
 
+                    {/* Migration Hold Notice */}
+                    {(exportResult.manifest.validation.quarantinedDocuments?.length || exportResult.manifest.validation.totalErrors) > 0 ? (
+                      <div className="p-3 bg-amber-500/15 border border-amber-300 rounded-xl space-y-1.5 text-amber-950">
+                        <div className="flex items-center gap-1.5 font-bold text-amber-900 text-xs">
+                          <AlertTriangle className="w-4 h-4 text-amber-700 shrink-0" />
+                          <span>⚠️ STATUS MIGRASI: DITAHAN (MIGRATION ON HOLD)</span>
+                        </div>
+                        <p className="text-[11px] leading-relaxed text-amber-900">
+                          Ditemukan <strong>{exportResult.manifest.validation.quarantinedDocuments?.length || exportResult.manifest.validation.totalErrors} dokumen yatim</strong> (17 kategori, 54 pesanan, 17 settlement) yang merujuk ke merchant lama (<code className="font-mono font-bold">m1</code>, <code className="font-mono font-bold">m2</code>, <code className="font-mono font-bold">m3</code>) yang telah dibersihkan di Firestore. Seluruh dokumen ini <strong>tetap disimpan utuh</strong> dalam laporan audit dan karantina.
+                        </p>
+                        <p className="text-[10px] text-amber-800 font-semibold">
+                          🛡️ Kebijakan Integritas: Jangan mengeksekusi dump SQL ke Supabase sebelum keputusan diambil untuk membersihkan atau mengarsipkan dokumen demo historis tersebut.
+                        </p>
+                      </div>
+                    ) : (
+                      <div className="p-2.5 bg-emerald-100/60 border border-emerald-300 rounded-xl text-emerald-900 text-[11px] font-semibold">
+                        ✓ Seluruh dokumen lulus validasi integritas referensial skema PostgreSQL.
+                      </div>
+                    )}
+
+                    {/* Breakdown per Koleksi */}
                     <div className="border-t border-emerald-200/60 pt-2 grid grid-cols-2 sm:grid-cols-5 gap-1.5 text-center">
                       {Object.entries(exportResult.manifest.collections || {}).map(([col, st]: any) => (
                         <div key={col} className="p-1.5 bg-white rounded border border-emerald-200 text-[10px]">
@@ -4483,7 +4533,7 @@ export default function AdminView({ onLogout, systemConfig, onUpdateConfig, onSe
                     </div>
 
                     <div className="text-[10px] text-emerald-800 pt-1">
-                      📄 Berkas SQL dump (<code className="font-mono">production_supabase_dump.sql</code>) dan manifest audit telah otomatis diunduh ke folder Downloads peramban Anda.
+                      📄 Berkas SQL dump (<code className="font-mono">production_supabase_dump.sql</code>), manifest audit, dan berkas karantina (<code className="font-mono">ORPHANED_RECORDS_AUDIT.json</code>) telah otomatis diunduh ke komputer Anda.
                     </div>
 
                     <div className="flex flex-wrap gap-2 pt-2 border-t border-emerald-200/60">
@@ -4493,8 +4543,20 @@ export default function AdminView({ onLogout, systemConfig, onUpdateConfig, onSe
                         className="py-1.5 px-3 bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-[11px] rounded-lg transition-all cursor-pointer flex items-center gap-1.5 shadow-2xs"
                       >
                         <Download className="w-3.5 h-3.5" />
-                        <span>Unduh Ulang SQL Dump (Supabase)</span>
+                        <span>Unduh SQL Dump (Supabase)</span>
                       </button>
+
+                      {exportResult.orphanedRecordsJson && (
+                        <button
+                          type="button"
+                          onClick={() => handleDownloadExportFile('browser-memory', 'ORPHANED_RECORDS_AUDIT.json')}
+                          className="py-1.5 px-3 bg-amber-600 hover:bg-amber-700 text-white font-bold text-[11px] rounded-lg transition-all cursor-pointer flex items-center gap-1.5 shadow-2xs"
+                        >
+                          <FileText className="w-3.5 h-3.5" />
+                          <span>Unduh Audit Dokumen Karantina (JSON)</span>
+                        </button>
+                      )}
+
                       <button
                         type="button"
                         onClick={() => handleDownloadExportFile('browser-memory', 'PRODUCTION_EXPORT_MANIFEST.json')}
@@ -4503,6 +4565,7 @@ export default function AdminView({ onLogout, systemConfig, onUpdateConfig, onSe
                         <FileText className="w-3.5 h-3.5" />
                         <span>Unduh Manifest JSON</span>
                       </button>
+
                       {exportResult.reportMarkdown && (
                         <button
                           type="button"

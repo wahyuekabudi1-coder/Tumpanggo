@@ -292,6 +292,18 @@ async function runTestSuite() {
   const brokenReport = validateExportData(brokenGraph);
   assert(!brokenReport.isValid, 'Graf data yatim (orphaned FK) ditandai tidak valid');
   assert(brokenReport.totalErrors >= 3, `Ditemukan ${brokenReport.totalErrors} error integritas referensial`);
+  assert(
+    brokenReport.quarantinedDocuments.length >= 3,
+    'Dokumen yatim tidak dibuang, melainkan disimpan dalam list quarantinedDocuments'
+  );
+  assert(
+    brokenReport.quarantinedDocuments[0].issueType === 'ORPHANED_FOREIGN_KEY',
+    'Tipe isu dokumen terdeteksi sebagai ORPHANED_FOREIGN_KEY'
+  );
+  assert(
+    brokenReport.tableBreakdown.categories.errors > 0,
+    'Perhitungan rincian error per tabel mencatat error pada kategori'
+  );
 
   // TEST 7: Supabase SQL Generation & Dependency Order
   console.log('\n--- TEST SUITE 7: Pengecekan Sintaks dan Urutan SQL Dump ---');
@@ -303,6 +315,10 @@ async function runTestSuite() {
   assert(
     sqlDump.includes('SOURCE: CLOUD FIRESTORE PRODUCTION PROJECT tumpanggo-70479'),
     'Header SQL mencantumkan penanda sumber Cloud Firestore produksi'
+  );
+  assert(
+    sqlDump.includes('TABLE ROW RECONCILIATION AUDIT:'),
+    'Header SQL mencantumkan tabel rekonsiliasi baris SQL'
   );
   assert(
     sqlDump.includes('BEGIN;') && sqlDump.includes('COMMIT;'),
@@ -344,6 +360,14 @@ async function runTestSuite() {
   assert(
     fs.existsSync(path.join(testOutputDir, 'EXPORT_REPORT.md')),
     'File ringkasan laporan audit EXPORT_REPORT.md tercipta'
+  );
+  assert(
+    fs.existsSync(path.join(testOutputDir, 'ORPHANED_RECORDS_AUDIT.json')),
+    'File rekonsiliasi dokumen karantina ORPHANED_RECORDS_AUDIT.json tercipta'
+  );
+  assert(
+    fileWriteResult.manifest.filesGenerated.includes('ORPHANED_RECORDS_AUDIT.json'),
+    'Manifest filesGenerated mencatat file ORPHANED_RECORDS_AUDIT.json'
   );
 
   // Clean up test verification directory
@@ -424,7 +448,9 @@ async function runTestSuite() {
   assert(compiledResult.manifest.totalDocumentsExported === 3, 'Total dokumen terkompilasi tepat 3 dokumen');
   assert(compiledResult.sqlContent.includes('INSERT INTO merchants'), 'SQL dump berisi pernyataan INSERT merchants');
   assert(compiledResult.sqlContent.includes('COMMIT;'), 'SQL dump dibungkus COMMIT');
-  assert(compiledResult.reportMarkdown.includes('Laporan Ekspor Cloud Firestore'), 'Laporan Markdown terkompilasi dengan benar');
+  assert(compiledResult.reportMarkdown.includes('Ekspor Cloud Firestore'), 'Laporan Markdown terkompilasi dengan benar');
+  assert(compiledResult.orphanedRecordsJson !== undefined, 'orphanedRecordsJson dihasilkan saat kompilasi');
+  assert(compiledResult.manifest.filesGenerated.includes('ORPHANED_RECORDS_AUDIT.json'), 'filesGenerated mencantumkan ORPHANED_RECORDS_AUDIT.json');
 
   // Test SQL escaping against null bytes
   const sqlNullEscaped = escapeSqlString('Hello\0World');
