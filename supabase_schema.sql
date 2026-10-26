@@ -439,6 +439,15 @@ CREATE TABLE IF NOT EXISTS push_subscriptions (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+ALTER TABLE push_subscriptions ADD COLUMN IF NOT EXISTS type TEXT NOT NULL DEFAULT 'WEB_PUSH';
+ALTER TABLE push_subscriptions ADD COLUMN IF NOT EXISTS fcm_token TEXT;
+ALTER TABLE push_subscriptions ADD COLUMN IF NOT EXISTS subscription JSONB;
+ALTER TABLE push_subscriptions ADD COLUMN IF NOT EXISTS device_info TEXT NOT NULL DEFAULT '';
+ALTER TABLE push_subscriptions ADD COLUMN IF NOT EXISTS app_version TEXT NOT NULL DEFAULT '1.0.0';
+ALTER TABLE push_subscriptions ADD COLUMN IF NOT EXISTS user_agent TEXT NOT NULL DEFAULT '';
+ALTER TABLE push_subscriptions ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+ALTER TABLE push_subscriptions ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+
 CREATE INDEX IF NOT EXISTS idx_push_subs_entity ON push_subscriptions (role, entity_id);
 CREATE INDEX IF NOT EXISTS idx_push_subs_fcm_token ON push_subscriptions (fcm_token);
 ALTER TABLE push_subscriptions ENABLE ROW LEVEL SECURITY;

@@ -92,7 +92,11 @@ class TumpangFirebaseMessagingService : FirebaseMessagingService() {
             }
         }
 
-        fun unregisterTokenFromBackendAsync(fcmToken: String, merchantId: String?) {
+        fun unregisterTokenFromBackendAsync(
+            fcmToken: String,
+            merchantId: String?,
+            authToken: String? = null
+        ) {
             if (fcmToken.isBlank()) return
             CoroutineScope(Dispatchers.IO).launch {
                 try {
@@ -103,12 +107,15 @@ class TumpangFirebaseMessagingService : FirebaseMessagingService() {
                         }
                     }
                     val requestBody = jsonPayload.toString().toRequestBody("application/json".toMediaType())
-                    val request = Request.Builder()
+                    val requestBuilder = Request.Builder()
                         .url("$SERVER_URL/api/push/unsubscribe")
                         .post(requestBody)
-                        .build()
 
-                    sharedHttpClient.newCall(request).execute().use { response ->
+                    if (!authToken.isNullOrBlank()) {
+                        requestBuilder.addHeader("Authorization", "Bearer $authToken")
+                    }
+
+                    sharedHttpClient.newCall(requestBuilder.build()).execute().use { response ->
                         Log.i(TAG, "Unbound FCM token from backend (HTTP ${response.code})")
                     }
                 } catch (e: Exception) {

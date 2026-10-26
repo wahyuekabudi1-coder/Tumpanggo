@@ -18,10 +18,10 @@
 import webpush from 'web-push';
 import { vapidConfig } from '../config';
 import { foodDb, PushNotificationEventRecord, PushSubscriptionRecord } from '../db';
-import { getAdminMessaging, isFirestoreAdminConfigured } from '../firebaseAdmin';
+import { getAdminMessaging } from '../firebaseAdmin';
 import { Order, OrderStatus } from '../../types';
 
-export const MERCHANT_ORDER_CHANNEL_ID = 'tumpanggo_merchant_orders';
+export const MERCHANT_ORDER_CHANNEL_ID = 'tumpanggo_merchant_orders_v2';
 export const MERCHANT_ORDER_CHANNEL_NAME = 'Pesanan Baru TumpangGo Merchant';
 export const MERCHANT_ORDER_SOUND_NAME = 'order_ringtone';
 
@@ -99,7 +99,7 @@ class PushNotificationService {
   }
 
   public isFcmServerConfigured(): boolean {
-    return Boolean(getAdminMessaging()) || isFirestoreAdminConfigured();
+    return Boolean(getAdminMessaging());
   }
 
   private emptyResult(extra?: Partial<PushDispatchResult>): PushDispatchResult {

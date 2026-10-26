@@ -75,6 +75,20 @@ pushRouter.post('/subscribe', async (req: any, res) => {
       });
     }
 
+    const cleanEntityId = entityId.trim();
+    if (cleanEntityId.length > 128) {
+      return res.status(400).json({ error: 'entityId melebihi batas panjang karakter yang diizinkan.' });
+    }
+
+    if (hasFcm && fcmToken.trim().length > 4096) {
+      return res.status(400).json({ error: 'Format fcmToken melebihi batas panjang yang sah.' });
+    }
+
+    // Prevent unprivileged CUSTOMER role from binding onto merchant_ or driver_ store namespaces
+    if (role === 'CUSTOMER' && (/^merchant_/i.test(cleanEntityId) || /^driver_/i.test(cleanEntityId))) {
+      return res.status(403).json({ error: 'Akses ditolak: Role CUSTOMER tidak diizinkan mendaftarkan notifikasi toko atau driver.' });
+    }
+
     // Strict authentication & store/driver ownership check
     if (role === 'MERCHANT' || role === 'DRIVER') {
       if (!user) {
@@ -82,7 +96,7 @@ pushRouter.post('/subscribe', async (req: any, res) => {
           error: `Akses ditolak: Autentikasi diperlukan untuk mendaftarkan notifikasi ${role === 'MERCHANT' ? 'toko' : 'driver'}.`
         });
       }
-      if (!isAuthorizedForEntity(user, role, entityId)) {
+      if (!isAuthorizedForEntity(user, role, cleanEntityId)) {
         return res.status(403).json({
           error: `Akses ditolak: Anda tidak memiliki wewenang untuk mendaftarkan notifikasi ${role === 'MERCHANT' ? 'toko' : 'driver'} ini.`
         });
@@ -90,7 +104,6 @@ pushRouter.post('/subscribe', async (req: any, res) => {
     }
 
     const subType = hasFcm ? 'FCM' : 'WEB_PUSH';
-    const cleanEntityId = entityId.trim();
     const nowIso = new Date().toISOString();
 
     const record: PushSubscriptionRecord = {
@@ -146,21 +159,54 @@ pushRouter.post('/subscribe', async (req: any, res) => {
 });
 
 // 3. Unsubscribe / Unbind a device on logout or token invalidation
-pushRouter.post('/unsubscribe', async (req, res) => {
+pushRouter.post('/unsubscribe', async (req: any, res) => {
   try {
     const { endpoint, fcmToken, subscriptionId, entityId } = req.body || {};
-    const identifier = endpoint || fcmToken || subscriptionId;
+    const user = req.user;
+    const cleanEndpoint = typeof endpoint === 'string' ? endpoint.trim() : '';
+    const cleanFcmToken = typeof fcmToken === 'string' ? fcmToken.trim() : '';
+    const cleanSubId = typeof subscriptionId === 'string' ? subscriptionId.trim() : '';
+    const cleanEntityId = typeof entityId === 'string' && entityId.trim() ? entityId.trim() : undefined;
 
-    if (!identifier || typeof identifier !== 'string' || !identifier.trim()) {
+    const hasValidDeviceSecret =
+      cleanFcmToken.length > 10 ||
+      cleanEndpoint.startsWith('https://') ||
+      cleanEndpoint.startsWith('http://');
+
+    if (!hasValidDeviceSecret && !cleanSubId) {
       return res.status(400).json({
-        error: 'Salah satu identifier (endpoint, fcmToken, atau subscriptionId) wajib disertakan.'
+        error: 'Salah satu identifier yang sah (fcmToken, endpoint URL, atau subscriptionId) wajib disertakan.'
       });
     }
 
-    const removed = await foodDb.removePushSubscription(
-      identifier.trim(),
-      typeof entityId === 'string' && entityId.trim() ? entityId.trim() : undefined
-    );
+    // Unsubscribing by internal row ID (without possession of cryptographic device token/endpoint)
+    // strictly requires authentication and verified ownership of the target store/driver.
+    if (!hasValidDeviceSecret && cleanSubId) {
+      if (!user) {
+        return res.status(401).json({
+          error: 'Autentikasi diperlukan untuk menghapus langganan berdasarkan subscriptionId.'
+        });
+      }
+      if (cleanEntityId && (user.role === 'MERCHANT' || user.role === 'DRIVER')) {
+        if (!isAuthorizedForEntity(user, user.role, cleanEntityId)) {
+          return res.status(403).json({
+            error: 'Akses ditolak: Anda tidak berwenang menghapus langganan milik akun lain.'
+          });
+        }
+      }
+    }
+
+    // If an authenticated merchant/driver explicitly supplies an entityId, verify it belongs to them
+    if (user && cleanEntityId && (user.role === 'MERCHANT' || user.role === 'DRIVER')) {
+      if (!isAuthorizedForEntity(user, user.role, cleanEntityId)) {
+        return res.status(403).json({
+          error: 'Akses ditolak: entityId tidak sesuai dengan akun yang sedang login.'
+        });
+      }
+    }
+
+    const identifier = cleanEndpoint || cleanFcmToken || cleanSubId;
+    const removed = await foodDb.removePushSubscription(identifier, cleanEntityId);
 
     res.json({
       success: true,

@@ -27,7 +27,7 @@
         <!-- Default FCM notification channel & branding metadata -->
         <meta-data
             android:name="com.google.firebase.messaging.default_notification_channel_id"
-            android:value="tumpanggo_merchant_orders" />
+            android:value="tumpanggo_merchant_orders_v2" />
         <meta-data
             android:name="com.google.firebase.messaging.default_notification_icon"
             android:resource="@mipmap/ic_launcher" />

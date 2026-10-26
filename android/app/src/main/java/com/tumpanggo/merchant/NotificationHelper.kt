@@ -36,9 +36,20 @@ import kotlin.math.abs
 object NotificationHelper {
     private const val TAG = "NotificationHelper"
 
-    const val CHANNEL_ORDERS_ID = "tumpanggo_merchant_orders"
+    /**
+     * Increment CHANNEL_SOUND_VERSION (e.g., 2 -> 3) whenever `res/raw/order_ringtone.wav`
+     * is replaced with a newly finalized audio asset. Android 8.0+ locks channel sound URIs
+     * once created; bumping this version migrates devices to a fresh channel with the new sound
+     * while preserving explicit user mute preferences and removing obsolete channel IDs.
+     */
+    const val CHANNEL_SOUND_VERSION = 2
+    const val CHANNEL_ORDERS_ID = "tumpanggo_merchant_orders_v$CHANNEL_SOUND_VERSION"
     const val CHANNEL_ORDERS_NAME = "Pesanan Baru TumpangGo Merchant"
     const val CHANNEL_GENERAL_ID = "tumpanggo_merchant_general"
+    private val LEGACY_ORDER_CHANNEL_IDS = listOf(
+        "tumpanggo_merchant_orders",
+        "tumpanggo_merchant_orders_v1"
+    )
     const val GROUP_ORDERS = "com.tumpanggo.merchant.ORDERS"
     const val SUMMARY_NOTIFICATION_ID = 1001
     private const val TEST_NOTIFICATION_ID = 1002
@@ -47,6 +58,7 @@ object NotificationHelper {
     private const val KEY_PROCESSED_EVENTS = "processed_event_ids"
     private const val KEY_ACKNOWLEDGED_ORDERS = "acknowledged_order_ids"
     private const val KEY_ACTIVE_ORDERS_MAP = "active_orders_json"
+    private const val KEY_MIGRATED_CHANNEL_VERSION = "migrated_channel_sound_version"
 
     private val VIBRATION_PATTERN = longArrayOf(0, 500, 200, 500, 200, 800)
 
@@ -57,13 +69,40 @@ object NotificationHelper {
     }
 
     /**
-     * Creates notification channels idempotently.
-     * Android OS preserves user customizations if the channel already exists.
+     * Creates notification channels idempotently and migrates legacy channels when CHANNEL_SOUND_VERSION increases.
+     * Within the same CHANNEL_SOUND_VERSION, existing user channel customizations are strictly preserved.
      */
     fun createNotificationChannels(context: Context) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val notificationManager =
                 context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            val prefs = context.getSharedPreferences(STATE_PREFS, Context.MODE_PRIVATE)
+            val migratedVersion = prefs.getInt(KEY_MIGRATED_CHANNEL_VERSION, 0)
+
+            var initialImportance = NotificationManager.IMPORTANCE_HIGH
+
+            if (migratedVersion < CHANNEL_SOUND_VERSION) {
+                val candidateOldIds = LinkedHashSet<String>(LEGACY_ORDER_CHANNEL_IDS)
+                for (v in 1 until CHANNEL_SOUND_VERSION) {
+                    candidateOldIds.add("tumpanggo_merchant_orders_v$v")
+                }
+
+                for (oldId in candidateOldIds) {
+                    if (oldId == CHANNEL_ORDERS_ID) continue
+                    try {
+                        val oldChannel = notificationManager.getNotificationChannel(oldId)
+                        if (oldChannel != null) {
+                            if (oldChannel.importance == NotificationManager.IMPORTANCE_NONE) {
+                                initialImportance = NotificationManager.IMPORTANCE_NONE
+                            }
+                            notificationManager.deleteNotificationChannel(oldId)
+                            Log.i(TAG, "Migrated and removed legacy notification channel: $oldId -> $CHANNEL_ORDERS_ID")
+                        }
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Unable to clean up legacy channel $oldId: ${e.message}")
+                    }
+                }
+            }
 
             val soundUri = getOrderSoundUri(context)
             val audioAttributes = AudioAttributes.Builder()
@@ -74,7 +113,7 @@ object NotificationHelper {
             val ordersChannel = NotificationChannel(
                 CHANNEL_ORDERS_ID,
                 CHANNEL_ORDERS_NAME,
-                NotificationManager.IMPORTANCE_HIGH
+                initialImportance
             ).apply {
                 description = "Notifikasi pesanan baru masuk untuk mitra toko TumpangGo Merchant"
                 enableLights(true)
@@ -99,6 +138,10 @@ object NotificationHelper {
 
             notificationManager.createNotificationChannel(ordersChannel)
             notificationManager.createNotificationChannel(generalChannel)
+
+            if (migratedVersion < CHANNEL_SOUND_VERSION) {
+                prefs.edit().putInt(KEY_MIGRATED_CHANNEL_VERSION, CHANNEL_SOUND_VERSION).apply()
+            }
         }
     }
 
@@ -133,6 +176,7 @@ object NotificationHelper {
             put("appNotificationsEnabled", appNotificationsEnabled)
             put("channelId", CHANNEL_ORDERS_ID)
             put("channelName", CHANNEL_ORDERS_NAME)
+            put("channelSoundVersion", CHANNEL_SOUND_VERSION)
             put("channelExists", channelExists)
             put("channelImportance", channelImportance)
             put("channelBlocked", channelImportance == NotificationManager.IMPORTANCE_NONE)

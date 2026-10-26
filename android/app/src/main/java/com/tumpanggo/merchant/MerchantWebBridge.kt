@@ -94,6 +94,7 @@ class MerchantWebBridge(
         val prefs = context.getSharedPreferences(TumpangFirebaseMessagingService.PREFS_NAME, Context.MODE_PRIVATE)
         val fcmToken = prefs.getString(TumpangFirebaseMessagingService.KEY_FCM_TOKEN, null)
         val prevMerchantId = prefs.getString(TumpangFirebaseMessagingService.KEY_MERCHANT_ID, null)
+        val prevAuthToken = prefs.getString(TumpangFirebaseMessagingService.KEY_AUTH_TOKEN, null)
 
         prefs.edit()
             .remove(TumpangFirebaseMessagingService.KEY_MERCHANT_ID)
@@ -104,7 +105,11 @@ class MerchantWebBridge(
         NotificationHelper.clearAllMerchantNotifications(context.applicationContext)
 
         if (!fcmToken.isNullOrBlank()) {
-            TumpangFirebaseMessagingService.unregisterTokenFromBackendAsync(fcmToken, prevMerchantId)
+            TumpangFirebaseMessagingService.unregisterTokenFromBackendAsync(
+                fcmToken = fcmToken,
+                merchantId = prevMerchantId,
+                authToken = prevAuthToken
+            )
         }
     }
 

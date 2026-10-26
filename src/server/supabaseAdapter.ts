@@ -33,6 +33,7 @@ export interface SupabaseTestMockState {
   deleteError?: string;
   probeResult?: { connected: boolean; url: string; latencyMs?: number; error?: string };
   fetchResult?: any[];
+  tables?: Record<string, Map<string, any>>;
   onUpsert?: (collection: string, id: string, data: any) => void;
   onDelete?: (collection: string, id: string) => void;
 }
@@ -1099,12 +1100,18 @@ export async function safeSupabaseUpsertDocDetailed(
 ): Promise<{ success: boolean; error?: string }> {
   if (testSupabaseMock) {
     testSupabaseMock.onUpsert?.(collection, id, data);
-    if (testSupabaseMock.upsertSuccess !== undefined) {
-      if (!testSupabaseMock.upsertSuccess) {
-        const err = testSupabaseMock.upsertError || `Mocked Supabase upsert error for ${collection}/${id}`;
-        lastSupabaseError = err;
-        return { success: false, error: err };
+    if (testSupabaseMock.upsertSuccess === false) {
+      const err = testSupabaseMock.upsertError || `Mocked Supabase upsert error for ${collection}/${id}`;
+      lastSupabaseError = err;
+      return { success: false, error: err };
+    }
+    if (testSupabaseMock.tables) {
+      if (!testSupabaseMock.tables[collection]) {
+        testSupabaseMock.tables[collection] = new Map<string, any>();
       }
+      testSupabaseMock.tables[collection].set(id, JSON.parse(JSON.stringify({ ...data, id })));
+    }
+    if (testSupabaseMock.upsertSuccess !== undefined || testSupabaseMock.tables) {
       lastSupabaseError = null;
       return { success: true };
     }
@@ -1167,12 +1174,15 @@ export async function safeSupabaseDeleteDocDetailed(
 ): Promise<{ success: boolean; error?: string }> {
   if (testSupabaseMock) {
     testSupabaseMock.onDelete?.(collection, id);
-    if (testSupabaseMock.deleteSuccess !== undefined) {
-      if (!testSupabaseMock.deleteSuccess) {
-        const err = testSupabaseMock.deleteError || `Mocked Supabase delete error for ${collection}/${id}`;
-        lastSupabaseError = err;
-        return { success: false, error: err };
-      }
+    if (testSupabaseMock.deleteSuccess === false) {
+      const err = testSupabaseMock.deleteError || `Mocked Supabase delete error for ${collection}/${id}`;
+      lastSupabaseError = err;
+      return { success: false, error: err };
+    }
+    if (testSupabaseMock.tables?.[collection]) {
+      testSupabaseMock.tables[collection].delete(id);
+    }
+    if (testSupabaseMock.deleteSuccess !== undefined || testSupabaseMock.tables) {
       lastSupabaseError = null;
       return { success: true };
     }
@@ -1362,6 +1372,17 @@ export async function fetchPushSubscriptionsForEntityFromSupabase(
   if (testSupabaseMock?.fetchResult !== undefined) {
     return testSupabaseMock.fetchResult;
   }
+  if (testSupabaseMock?.tables) {
+    const cleanEntityId = String(entityId || '').trim();
+    const bareId = cleanEntityId.replace(/^merchant_/, '').replace(/^driver_/, '');
+    const map = testSupabaseMock.tables.pushSubscriptions;
+    if (!map) return [];
+    return Array.from(map.values()).filter((s: any) => {
+      if (!s || s.role !== role) return false;
+      const sBare = String(s.entityId || '').replace(/^merchant_/, '').replace(/^driver_/, '');
+      return s.entityId === cleanEntityId || sBare === bareId;
+    });
+  }
   const client = getSupabaseClient();
   if (!client || !entityId) return [];
 
@@ -1409,7 +1430,20 @@ export async function findPushSubscriptionInSupabase(params: {
   oldFcmToken?: string;
   endpoint?: string;
 }): Promise<any | null> {
-  if (testSupabaseMock) return null;
+  if (testSupabaseMock) {
+    const map = testSupabaseMock.tables?.pushSubscriptions;
+    if (!map) return null;
+    const tokens = [params.fcmToken, params.oldFcmToken].filter((t): t is string => Boolean(t && t.trim()));
+    for (const s of map.values()) {
+      if (tokens.length > 0 && s.fcmToken && tokens.includes(s.fcmToken)) {
+        return JSON.parse(JSON.stringify(s));
+      }
+      if (params.endpoint && s.subscription?.endpoint === params.endpoint.trim()) {
+        return JSON.parse(JSON.stringify(s));
+      }
+    }
+    return null;
+  }
   const client = getSupabaseClient();
   if (!client) return null;
 
@@ -1460,6 +1494,18 @@ export async function deletePushSubscriptionFromSupabaseByIdentifier(
 ): Promise<boolean> {
   if (testSupabaseMock) {
     testSupabaseMock.onDelete?.('pushSubscriptions', identifier);
+    const map = testSupabaseMock.tables?.pushSubscriptions;
+    if (map) {
+      const clean = identifier.trim();
+      const targetEntity = entityId?.trim();
+      for (const [k, s] of Array.from(map.entries())) {
+        const matchesIdOrToken = s.id === clean || s.fcmToken === clean || s.subscription?.endpoint === clean;
+        const matchesEntity = !targetEntity || s.entityId === targetEntity;
+        if (matchesIdOrToken && matchesEntity) {
+          map.delete(k);
+        }
+      }
+    }
     return testSupabaseMock.deleteSuccess !== false;
   }
   const client = getSupabaseClient();
@@ -1500,7 +1546,10 @@ export async function deletePushSubscriptionFromSupabaseByIdentifier(
  * Fetches a single push notification event by ID from Supabase for serverless deduplication.
  */
 export async function fetchPushEventByIdFromSupabase(eventId: string): Promise<any | null> {
-  if (testSupabaseMock) return null;
+  if (testSupabaseMock) {
+    const found = testSupabaseMock.tables?.pushNotificationEvents?.get(eventId);
+    return found ? JSON.parse(JSON.stringify(found)) : null;
+  }
   const client = getSupabaseClient();
   if (!client || !eventId) return null;
 
@@ -1525,11 +1574,23 @@ export async function fetchPushEventByIdFromSupabase(eventId: string): Promise<a
 }
 
 /**
- * Fetches recent FAILED or PENDING push outbox events for a merchant (within last 2 hours)
+ * Fetches recent FAILED/RETRYING/PENDING push outbox events for a merchant (within last 2 hours)
  * so retries can run safely on serverless requests without permanent background workers.
  */
 export async function fetchRetryablePushEventsFromSupabase(merchantId?: string, limit = 25): Promise<any[]> {
-  if (testSupabaseMock) return [];
+  if (testSupabaseMock) {
+    const map = testSupabaseMock.tables?.pushNotificationEvents;
+    if (!map) return [];
+    const cutoffMs = Date.now() - 2 * 60 * 60 * 1000;
+    return Array.from(map.values())
+      .filter((ev: any) => {
+        if (!['RETRYING', 'FAILED', 'PENDING'].includes(ev.status)) return false;
+        if ((Number(ev.attempts) || 0) >= 5) return false;
+        if (merchantId && ev.merchantId !== merchantId.trim()) return false;
+        return new Date(ev.createdAt || 0).getTime() >= cutoffMs;
+      })
+      .slice(0, limit);
+  }
   const client = getSupabaseClient();
   if (!client) return [];
 
