@@ -313,10 +313,17 @@ export function requireRole(allowedRoles: Array<'ADMIN' | 'MERCHANT' | 'DRIVER' 
       return res.status(401).json({ error: 'Akses ditolak: Autentikasi diperlukan. Silakan login terlebih dahulu.' });
     }
 
-    if (user.role === 'ADMIN' || user.role === 'MASTER_ADMIN') {
-      return next(); // Admin and Master Admin have universal administrative access
+    // Master Admin has universal administrative access across all roles
+    if (user.role === 'MASTER_ADMIN' || user.isMasterAdmin) {
+      return next();
     }
 
+    // Regular Admin has access if ADMIN is explicitly in allowedRoles
+    if (user.role === 'ADMIN' && allowedRoles.includes('ADMIN')) {
+      return next();
+    }
+
+    // For any other specific role match
     if (!allowedRoles.includes(user.role)) {
       return res.status(403).json({ error: `Akses ditolak: Peran ${user.role} tidak memiliki izin untuk tindakan ini.` });
     }

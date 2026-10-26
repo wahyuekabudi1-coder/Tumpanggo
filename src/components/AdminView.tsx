@@ -22,7 +22,7 @@ import {
   CheckCircle2, XCircle, ChevronRight, Sliders, ArrowDownRight, Wallet, LogOut,
   QrCode, ExternalLink, Trash2, Upload, Quote, Star, Filter, Receipt,
   Copy, Share2, Database, RotateCcw, AlertOctagon, Plus, Edit, ArrowLeft,
-  Utensils, ChefHat, Calendar, Lock, Mail, Tag, Menu
+  Utensils, ChefHat, Calendar, Lock, Mail, Tag, Menu, Download
 } from 'lucide-react';
 import Logo from './Logo.tsx';
 import EReceiptModal from './EReceiptModal.tsx';
@@ -216,6 +216,72 @@ export default function AdminView({ onLogout, systemConfig, onUpdateConfig, onSe
   const [executingRestore, setExecutingRestore] = useState(false);
   const [restoreResult, setRestoreResult] = useState<any | null>(null);
 
+  // --- CLOUD FIRESTORE PRODUCTION EXPORT STATES ---
+  const [exportStatus, setExportStatus] = useState<any | null>(null);
+  const [loadingExportStatus, setLoadingExportStatus] = useState(false);
+  const [executingExport, setExecutingExport] = useState(false);
+  const [exportResult, setExportResult] = useState<any | null>(null);
+  const [exportError, setExportError] = useState<string | null>(null);
+
+  const fetchExportStatus = async () => {
+    setLoadingExportStatus(true);
+    try {
+      const res = await fetch('/api/firestore-export-status');
+      const data = await res.json();
+      if (res.ok) {
+        setExportStatus(data);
+      }
+    } catch {
+      // Ignored if offline or non-master admin
+    } finally {
+      setLoadingExportStatus(false);
+    }
+  };
+
+  const handleExecuteFirestoreExport = async () => {
+    if (!window.confirm('KONFIRMASI EKSPOR FIRESTORE PRODUKSI:\n\nProses ini membaca data Cloud Firestore project tumpanggo-70479 secara bertahap (read-only cursor pagination).\n\n• Operasi 100% aman (tidak mengubah atau menghapus data produksi).\n• Menghasilkan dump JSON per koleksi, SQL dump terverifikasi, dan manifest audit.\n• Data TIDAK akan otomatis diimpor ke Supabase.\n\nLanjutkan ekspor sekarang?')) {
+      return;
+    }
+    setExecutingExport(true);
+    setExportResult(null);
+    setExportError(null);
+    try {
+      const res = await fetch('/api/firestore-export', { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'Gagal mengeksekusi ekspor Firestore produksi');
+      }
+      setExportResult(data);
+      fetchExportStatus();
+    } catch (err: any) {
+      setExportError(err.message || 'Terjadi kesalahan saat mengekspor data');
+    } finally {
+      setExecutingExport(false);
+    }
+  };
+
+  const handleDownloadExportFile = async (folderPath: string, fileName: string) => {
+    try {
+      const folderName = folderPath.split(/[/\\]/).filter(Boolean).pop() || folderPath;
+      const res = await fetch(`/api/firestore-export/download?folder=${encodeURIComponent(folderName)}&file=${encodeURIComponent(fileName)}`);
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || `HTTP ${res.status}: Gagal mengunduh berkas`);
+      }
+      const blob = await res.blob();
+      const blobUrl = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = blobUrl;
+      link.download = fileName;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(blobUrl);
+    } catch (err: any) {
+      alert(`Gagal mengunduh berkas: ${err.message}`);
+    }
+  };
+
   const fetchCleanSlatePlan = async () => {
     setLoadingCleanSlatePlan(true);
     setCleanSlatePlanError(null);
@@ -313,6 +379,7 @@ export default function AdminView({ onLogout, systemConfig, onUpdateConfig, onSe
   useEffect(() => {
     fetchAdminData();
     fetchCleanSlatePlan();
+    fetchExportStatus();
   }, []);
 
   const fetchAdminData = async () => {
@@ -4162,6 +4229,142 @@ export default function AdminView({ onLogout, systemConfig, onUpdateConfig, onSe
                     {executingRestore ? 'Memulihkan...' : 'Pulihkan'}
                   </button>
                 </div>
+              </div>
+
+              {/* MASTER ADMIN: EKSPOR DATA CLOUD FIRESTORE PRODUKSI (MIGRASI SUPABASE) */}
+              <div className="mt-8 pt-6 border-t border-slate-200 space-y-4">
+                <div className="flex items-center gap-2">
+                  <div className="w-8 h-8 rounded-xl bg-blue-100 text-blue-600 flex items-center justify-center">
+                    <Download className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h3 className="font-display font-bold text-sm text-slate-900">Ekspor Data Cloud Firestore Produksi (Migrasi Supabase)</h3>
+                    <p className="text-[11px] text-slate-500">Ekstraksi data murni read-only dengan cursor pagination bertahap dari project <code className="font-mono font-bold text-blue-600">tumpanggo-70479</code>.</p>
+                  </div>
+                </div>
+
+                <div className="p-4 bg-slate-50 rounded-xl border border-slate-200/80 space-y-3">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-slate-600 font-medium">Target Project Firestore:</span>
+                    <span className="font-mono font-bold text-slate-800">
+                      {exportStatus?.projectId || 'tumpanggo-70479'}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-slate-600 font-medium">Status Kredensial Admin:</span>
+                    <span className={`px-2 py-0.5 rounded-full font-bold text-[11px] ${
+                      exportStatus?.configured 
+                        ? 'bg-emerald-100 text-emerald-800' 
+                        : 'bg-amber-100 text-amber-800'
+                    }`}>
+                      {exportStatus?.configured ? '✓ Service Account Aktif' : 'Belum Dikonfigurasi'}
+                    </span>
+                  </div>
+
+                  {exportStatus?.authIdentity && (
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="text-slate-600 font-medium">Identitas Akun Layanan:</span>
+                      <span className="font-mono text-[11px] text-slate-700">
+                        {exportStatus.authIdentity}
+                      </span>
+                    </div>
+                  )}
+
+                  {exportError && (
+                    <div className="p-2.5 bg-red-50 text-red-700 rounded-lg text-xs flex items-center gap-2">
+                      <AlertTriangle className="w-4 h-4 shrink-0" />
+                      <span>{exportError}</span>
+                    </div>
+                  )}
+
+                  <div className="p-2.5 bg-blue-50 text-blue-900 rounded-lg text-[11px] leading-relaxed">
+                    🛡️ <strong>Keamanan &amp; Integritas Data:</strong> Proses ini <strong>100% READ-ONLY</strong> tanpa mengubah atau menghapus data Firestore. Seluruh ID asli, hash password PBKDF2, dan struktur relasional dipertahankan, serta divalidasi terhadap constraint PostgreSQL Supabase. Hasil ekspor <strong>TIDAK otomatis diimpor</strong> ke Supabase.
+                  </div>
+
+                  {/* Terminal CLI Instructions */}
+                  <div className="p-3 bg-slate-900 text-slate-100 rounded-xl text-[11px] space-y-1 font-mono">
+                    <div className="text-slate-400 font-sans font-bold text-[10px] uppercase tracking-wider">Perintah Ekspor via Terminal / CLI Server:</div>
+                    <div className="text-emerald-400">export FIREBASE_SERVICE_ACCOUNT_KEY="/path/to/service-account.json"</div>
+                    <div className="text-blue-300">npm run export:firestore:prod</div>
+                    <div className="text-slate-500 font-sans text-[10px] pt-1">
+                      * Jangan tempelkan private key ke chat. Eksekusi lokal menjaga kunci privat Anda tetap aman.
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex flex-col sm:flex-row gap-2.5">
+                  <button
+                    type="button"
+                    onClick={fetchExportStatus}
+                    disabled={loadingExportStatus}
+                    className="py-2.5 px-3 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl transition-all cursor-pointer flex items-center justify-center gap-1.5"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${loadingExportStatus ? 'animate-spin' : ''}`} />
+                    <span>Periksa Status</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleExecuteFirestoreExport}
+                    disabled={executingExport}
+                    className="flex-1 py-2.5 px-4 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-bold text-xs rounded-xl transition-all shadow-xs cursor-pointer flex items-center justify-center gap-1.5"
+                  >
+                    <Download className={`w-4 h-4 ${executingExport ? 'animate-bounce' : ''}`} />
+                    <span>{executingExport ? 'Mengekspor Data Firestore (Cursor Pagination)...' : 'Mulai Ekspor Firestore Produksi'}</span>
+                  </button>
+                </div>
+
+                {/* Export Results Display */}
+                {exportResult?.manifest && (
+                  <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-xl space-y-3 text-xs text-emerald-950">
+                    <div className="font-bold flex items-center justify-between text-emerald-800">
+                      <span className="flex items-center gap-1.5">
+                        <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                        Ekspor Selesai! ({exportResult.manifest.totalDocumentsExported} dokumen)
+                      </span>
+                      <span className="text-[10px] font-mono text-emerald-600">
+                        Durasi: {(exportResult.manifest.durationMs / 1000).toFixed(2)}s
+                      </span>
+                    </div>
+
+                    <div className="text-[11px] space-y-1">
+                      <div>• Folder Output: <code className="font-mono bg-white px-1.5 py-0.5 rounded border border-emerald-300 font-bold">{exportResult.manifest.outputDirectory}</code></div>
+                      <div>• Validasi Relasi &amp; FK: <strong className={exportResult.manifest.validation.isValid ? 'text-emerald-700' : 'text-amber-700'}>{exportResult.manifest.validation.isValid ? '✓ Semua Relasi Valid' : '⚠️ Ada Isu Validasi'}</strong> ({exportResult.manifest.validation.totalValid} dokumen valid, {exportResult.manifest.validation.totalErrors} error, {exportResult.manifest.validation.totalWarnings} warning).</div>
+                    </div>
+
+                    <div className="border-t border-emerald-200/60 pt-2 grid grid-cols-2 sm:grid-cols-5 gap-1.5 text-center">
+                      {Object.entries(exportResult.manifest.collections || {}).map(([col, st]: any) => (
+                        <div key={col} className="p-1.5 bg-white rounded border border-emerald-200 text-[10px]">
+                          <div className="font-mono font-bold text-slate-800">{st.exportedCount}</div>
+                          <div className="text-slate-500 truncate" title={col}>{col}</div>
+                        </div>
+                      ))}
+                    </div>
+
+                    <div className="text-[10px] text-emerald-800 pt-1">
+                      📄 Berkas SQL dump (<code className="font-mono">production_supabase_dump.sql</code>), manifest JSON, dan dump JSON per koleksi telah siap di folder output untuk direview.
+                    </div>
+
+                    <div className="flex flex-wrap gap-2 pt-2 border-t border-emerald-200/60">
+                      <button
+                        type="button"
+                        onClick={() => handleDownloadExportFile(exportResult.manifest.outputDirectory, 'production_supabase_dump.sql')}
+                        className="py-1.5 px-3 bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-[11px] rounded-lg transition-all cursor-pointer flex items-center gap-1.5 shadow-2xs"
+                      >
+                        <Download className="w-3.5 h-3.5" />
+                        <span>Unduh SQL Dump (Supabase)</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleDownloadExportFile(exportResult.manifest.outputDirectory, 'PRODUCTION_EXPORT_MANIFEST.json')}
+                        className="py-1.5 px-3 bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 font-bold text-[11px] rounded-lg transition-all cursor-pointer flex items-center gap-1.5"
+                      >
+                        <FileText className="w-3.5 h-3.5" />
+                        <span>Unduh Manifest JSON</span>
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           </div>

@@ -8,9 +8,13 @@
  * Strictly protected with Admin-only RBAC middleware.
  */
 
+import fs from 'fs';
+import path from 'path';
 import { Router, Request, Response } from 'express';
 import { foodDb } from '../db';
 import { requireRole } from '../auth';
+import { getFirestoreDiagnosticStatus, isUsingServiceAccount } from '../firebaseAdmin';
+import { executeProductionFirestoreExport } from '../services/firestoreProductionExportService';
 
 export const adminRouter = Router();
 
@@ -194,6 +198,92 @@ adminRouter.post('/clean-slate-restore', requireRole(['MASTER_ADMIN']), async (r
     res.json(result);
   } catch (err: any) {
     res.status(500).json({ error: err.message || 'Gagal memulihkan katalog merchant dari backup' });
+  }
+});
+
+// --- PRODUCTION FIRESTORE EXPORT PIPELINE (Master Admin Only) ---
+adminRouter.get(['/firestore-export-status', '/admin/firestore-export-status'], requireRole(['MASTER_ADMIN']), async (req: Request, res: Response) => {
+  try {
+    const diag = getFirestoreDiagnosticStatus();
+    const isConfigured = isUsingServiceAccount();
+    const exportsDir = path.resolve(process.cwd(), 'exports');
+    let recentExports: string[] = [];
+    if (fs.existsSync(exportsDir)) {
+      recentExports = fs.readdirSync(exportsDir).filter(f => f.startsWith('production_firestore_dump_'));
+    }
+    res.json({
+      configured: isConfigured,
+      projectId: diag.projectId,
+      authIdentity: diag.authIdentity,
+      diagnosticReason: diag.reason,
+      diagnosticDetail: diag.detail,
+      remediation: diag.remediation,
+      recentExports
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Gagal memeriksa status ekspor Firestore' });
+  }
+});
+
+adminRouter.post(['/firestore-export', '/admin/firestore-export'], requireRole(['MASTER_ADMIN']), async (req: Request, res: Response) => {
+  try {
+    const actorId = req.user?.userId || req.user?.email || 'master-admin';
+    const result = await executeProductionFirestoreExport();
+    if (!result.success) {
+      return res.status(500).json({ error: result.error, manifest: result.manifest });
+    }
+    foodDb.log(actorId, `Executed production Firestore export: ${result.manifest.totalDocumentsExported} docs exported`, 'ADMIN');
+    res.json(result);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Gagal mengeksekusi ekspor Firestore produksi' });
+  }
+});
+
+// Secure, authenticated file download endpoint (Master Admin Only)
+// Strictly prevents path traversal attacks; streams files with proper Content-Disposition
+adminRouter.get(['/firestore-export/download', '/admin/firestore-export/download'], requireRole(['MASTER_ADMIN']), async (req: Request, res: Response) => {
+  try {
+    const requestedFolder = String(req.query.folder || '').trim();
+    const requestedFile = String(req.query.file || '').trim();
+
+    if (!requestedFolder || !requestedFile) {
+      return res.status(400).json({ error: 'Parameter folder dan file wajib disertakan.' });
+    }
+
+    // Strict validation against path traversal
+    if (requestedFolder.includes('..') || requestedFile.includes('..') || requestedFile.includes('/') || requestedFile.includes('\\')) {
+      return res.status(400).json({ error: 'Nama berkas atau folder tidak valid.' });
+    }
+
+    const baseExportsDir = path.resolve(process.cwd(), 'exports');
+    const targetFolder = path.resolve(baseExportsDir, requestedFolder);
+    const targetFilePath = path.resolve(targetFolder, requestedFile);
+
+    // Verify target file path stays strictly inside baseExportsDir
+    if (!targetFilePath.startsWith(baseExportsDir)) {
+      return res.status(403).json({ error: 'Akses folder di luar direktori ekspor ditolak.' });
+    }
+
+    if (!fs.existsSync(targetFilePath) || !fs.statSync(targetFilePath).isFile()) {
+      return res.status(404).json({ error: 'Berkas ekspor tidak ditemukan di server.' });
+    }
+
+    // Set appropriate headers for download
+    res.setHeader('Content-Disposition', `attachment; filename="${path.basename(targetFilePath)}"`);
+    if (targetFilePath.endsWith('.sql')) {
+      res.setHeader('Content-Type', 'application/sql; charset=utf-8');
+    } else if (targetFilePath.endsWith('.json')) {
+      res.setHeader('Content-Type', 'application/json; charset=utf-8');
+    } else if (targetFilePath.endsWith('.md')) {
+      res.setHeader('Content-Type', 'text/markdown; charset=utf-8');
+    } else {
+      res.setHeader('Content-Type', 'application/octet-stream');
+    }
+
+    const stream = fs.createReadStream(targetFilePath);
+    stream.pipe(res);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Gagal mengunduh berkas ekspor.' });
   }
 });
 

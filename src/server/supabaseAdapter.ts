@@ -16,7 +16,29 @@ import {
 
 let supabaseClient: SupabaseClient | null = null;
 
+export interface SupabaseTestMockState {
+  isConfigured?: boolean;
+  client?: any;
+  upsertSuccess?: boolean;
+  upsertError?: string;
+  deleteSuccess?: boolean;
+  deleteError?: string;
+  probeResult?: { connected: boolean; url: string; latencyMs?: number; error?: string };
+  fetchResult?: any[];
+  onUpsert?: (collection: string, id: string, data: any) => void;
+  onDelete?: (collection: string, id: string) => void;
+}
+
+let testSupabaseMock: SupabaseTestMockState | null = null;
+
+export function __setSupabaseMockForTesting(mock: SupabaseTestMockState | null): void {
+  testSupabaseMock = mock;
+}
+
 export function isSupabaseConfigured(): boolean {
+  if (testSupabaseMock && testSupabaseMock.isConfigured !== undefined) {
+    return testSupabaseMock.isConfigured;
+  }
   return foodConfig.supabase.isConfigured;
 }
 
@@ -474,12 +496,22 @@ export function mapEntityFromDb(collection: string, row: any): any {
 // Live Supabase Database Operations
 // -----------------------------------------------------------------------------
 
+let lastSupabaseError: string | null = null;
+
+export function getLastSupabaseError(): string | null {
+  return lastSupabaseError;
+}
+
 export async function testSupabaseConnection(): Promise<{
   connected: boolean;
   url: string;
   latencyMs?: number;
   error?: string;
 }> {
+  if (testSupabaseMock?.probeResult !== undefined) {
+    return { ...testSupabaseMock.probeResult };
+  }
+
   const client = getSupabaseClient();
   if (!client) {
     return {
@@ -497,6 +529,7 @@ export async function testSupabaseConnection(): Promise<{
       .limit(1);
 
     if (error) {
+      lastSupabaseError = error.message;
       return {
         connected: false,
         url: foodConfig.supabase.url,
@@ -505,12 +538,14 @@ export async function testSupabaseConnection(): Promise<{
       };
     }
 
+    lastSupabaseError = null;
     return {
       connected: true,
       url: foodConfig.supabase.url,
       latencyMs: Date.now() - start
     };
   } catch (err: any) {
+    lastSupabaseError = err.message;
     return {
       connected: false,
       url: foodConfig.supabase.url,
@@ -520,16 +555,37 @@ export async function testSupabaseConnection(): Promise<{
   }
 }
 
-export async function safeSupabaseUpsertDoc(
+export async function safeSupabaseUpsertDocDetailed(
   collection: string,
   id: string,
   data: any
-): Promise<boolean> {
+): Promise<{ success: boolean; error?: string }> {
+  if (testSupabaseMock) {
+    testSupabaseMock.onUpsert?.(collection, id, data);
+    if (testSupabaseMock.upsertSuccess !== undefined) {
+      if (!testSupabaseMock.upsertSuccess) {
+        const err = testSupabaseMock.upsertError || `Mocked Supabase upsert error for ${collection}/${id}`;
+        lastSupabaseError = err;
+        return { success: false, error: err };
+      }
+      lastSupabaseError = null;
+      return { success: true };
+    }
+  }
+
   const client = getSupabaseClient();
-  if (!client) return false;
+  if (!client) {
+    const msg = 'Klien Supabase belum terkonfigurasi.';
+    lastSupabaseError = msg;
+    return { success: false, error: msg };
+  }
 
   const table = COLLECTION_TO_TABLE[collection];
-  if (!table) return false;
+  if (!table) {
+    const msg = `Tabel Supabase tidak ditemukan untuk koleksi "${collection}".`;
+    lastSupabaseError = msg;
+    return { success: false, error: msg };
+  }
 
   try {
     const row = mapEntityToDb(collection, { ...data, id });
@@ -539,24 +595,57 @@ export async function safeSupabaseUpsertDoc(
 
     if (error) {
       console.warn(`[SupabaseAdapter] Upsert failed for table ${table} id ${id}:`, error.message);
-      return false;
+      lastSupabaseError = error.message;
+      return { success: false, error: error.message };
     }
-    return true;
+    lastSupabaseError = null;
+    return { success: true };
   } catch (err: any) {
     console.warn(`[SupabaseAdapter] Exception during upsert for ${table} id ${id}:`, err.message);
-    return false;
+    lastSupabaseError = err.message;
+    return { success: false, error: err.message };
   }
 }
 
-export async function safeSupabaseDeleteDoc(
+export async function safeSupabaseUpsertDoc(
+  collection: string,
+  id: string,
+  data: any
+): Promise<boolean> {
+  const result = await safeSupabaseUpsertDocDetailed(collection, id, data);
+  return result.success;
+}
+
+export async function safeSupabaseDeleteDocDetailed(
   collection: string,
   id: string
-): Promise<boolean> {
+): Promise<{ success: boolean; error?: string }> {
+  if (testSupabaseMock) {
+    testSupabaseMock.onDelete?.(collection, id);
+    if (testSupabaseMock.deleteSuccess !== undefined) {
+      if (!testSupabaseMock.deleteSuccess) {
+        const err = testSupabaseMock.deleteError || `Mocked Supabase delete error for ${collection}/${id}`;
+        lastSupabaseError = err;
+        return { success: false, error: err };
+      }
+      lastSupabaseError = null;
+      return { success: true };
+    }
+  }
+
   const client = getSupabaseClient();
-  if (!client) return false;
+  if (!client) {
+    const msg = 'Klien Supabase belum terkonfigurasi.';
+    lastSupabaseError = msg;
+    return { success: false, error: msg };
+  }
 
   const table = COLLECTION_TO_TABLE[collection];
-  if (!table) return false;
+  if (!table) {
+    const msg = `Tabel Supabase tidak ditemukan untuk koleksi "${collection}".`;
+    lastSupabaseError = msg;
+    return { success: false, error: msg };
+  }
 
   try {
     const { error } = await client
@@ -566,13 +655,24 @@ export async function safeSupabaseDeleteDoc(
 
     if (error) {
       console.warn(`[SupabaseAdapter] Delete failed for table ${table} id ${id}:`, error.message);
-      return false;
+      lastSupabaseError = error.message;
+      return { success: false, error: error.message };
     }
-    return true;
+    lastSupabaseError = null;
+    return { success: true };
   } catch (err: any) {
     console.warn(`[SupabaseAdapter] Exception during delete for ${table} id ${id}:`, err.message);
-    return false;
+    lastSupabaseError = err.message;
+    return { success: false, error: err.message };
   }
+}
+
+export async function safeSupabaseDeleteDoc(
+  collection: string,
+  id: string
+): Promise<boolean> {
+  const result = await safeSupabaseDeleteDocDetailed(collection, id);
+  return result.success;
 }
 
 export async function fetchFromSupabase(
@@ -583,6 +683,9 @@ export async function fetchFromSupabase(
     orderBy?: { column: string; ascending?: boolean };
   }
 ): Promise<any[]> {
+  if (testSupabaseMock?.fetchResult !== undefined) {
+    return testSupabaseMock.fetchResult;
+  }
   const client = getSupabaseClient();
   if (!client) return [];
 
