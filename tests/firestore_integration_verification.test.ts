@@ -14,6 +14,7 @@
  * 7. Prevention of duplicate records and fallback transparency
  */
 
+import fs from 'fs';
 import { foodConfig, validateProductionEnvironment } from '../src/server/config';
 import {
   initFirebaseAdmin,
@@ -50,6 +51,11 @@ function markBlocked(title: string, reason: string) {
 }
 
 async function runAllSuites() {
+  const initialDbContent = fs.existsSync(foodConfig.localDbFile) 
+    ? fs.readFileSync(foodConfig.localDbFile, 'utf8') 
+    : null;
+
+  try {
   console.log('================================================================================');
   console.log('  TUMPANG GO — FIRESTORE CLOUD INTEGRATION & PRODUCTION VERIFICATION');
   console.log('================================================================================\n');
@@ -492,6 +498,11 @@ async function runAllSuites() {
 
   if (stats.failed > 0) {
     process.exit(1);
+  }
+  } finally {
+    if (initialDbContent && fs.existsSync(foodConfig.localDbFile)) {
+      fs.writeFileSync(foodConfig.localDbFile, initialDbContent, 'utf8');
+    }
   }
 }
 

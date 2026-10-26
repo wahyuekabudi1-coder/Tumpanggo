@@ -14,6 +14,8 @@
  * 8. Zero calls to Firestore Admin when Supabase is active
  */
 
+import fs from 'fs';
+import { foodConfig } from '../src/server/config';
 import { foodDb } from '../src/server/db';
 import { __setSupabaseMockForTesting, SupabaseTestMockState } from '../src/server/supabaseAdapter';
 import { OrderStatus } from '../src/types';
@@ -32,6 +34,10 @@ function assert(condition: boolean, testName: string, detail?: string) {
 }
 
 async function runAuditSuite() {
+  const initialDbContent = fs.existsSync(foodConfig.localDbFile) 
+    ? fs.readFileSync(foodConfig.localDbFile, 'utf8') 
+    : null;
+
   console.log('\n======================================================');
   console.log('🧪 RUNNING SUPABASE UNIFIED PERSISTENCE AUDIT TEST SUITE');
   console.log('======================================================\n');
@@ -343,6 +349,10 @@ async function runAuditSuite() {
   } finally {
     // Restore mock state
     __setSupabaseMockForTesting(null);
+    if (initialDbContent && fs.existsSync(foodConfig.localDbFile)) {
+      fs.writeFileSync(foodConfig.localDbFile, initialDbContent, 'utf8');
+      (foodDb as any).data = JSON.parse(initialDbContent);
+    }
   }
 
   console.log('\n======================================================');

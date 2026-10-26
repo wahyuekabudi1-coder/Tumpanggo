@@ -100,6 +100,9 @@ export function classifyRecord(
   const isWarungOmbay = 
     nameLower.includes('ombay') || 
     idLower.includes('ombay') || 
+    idLower === 'm_dql2xw0' ||
+    idLower === 'item_dc1ut1c' ||
+    doc?.merchantId === 'm_dql2xw0' ||
     (doc?.merchantId && String(doc.merchantId).toLowerCase().includes('ombay')) ||
     (doc?.merchantName && String(doc.merchantName).toLowerCase().includes('ombay'));
 

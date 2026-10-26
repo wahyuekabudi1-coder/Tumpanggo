@@ -26,11 +26,78 @@ ON CONFLICT (id) DO UPDATE SET
   qris_image = EXCLUDED.qris_image,
   system_open = EXCLUDED.system_open;
 
--- 2. Merchants (0 real records)
+-- 2. Merchants (1 real record: Warung Ombay - Official Owner Business)
+INSERT INTO merchants (id, name, owner_name, phone, email, password_hash, address, latitude, longitude, open_time, close_time, bank_name, bank_account, bank_holder, active, rating, cook_time_estimate, image, business_photo, description, category, qris_image, is_activated, created_at, updated_at)
+VALUES (
+  'm_dql2xw0',
+  'Warung Ombay',
+  'Pemilik Warung Ombay',
+  '081234567890',
+  'warung.ombay@gmail.com',
+  'pbkdf2$10000$63b038d9c483e7a406af26fe70502e92$666958558d2203dfe85baee6af50244835d23db8517baec269d269df9c37be52087041d0fc666126016c2787fe93304aab302fc9303dfe5d59557af9df8e961d',
+  'Kecamatan Tumpang, Kabupaten Malang',
+  -7.9942,
+  112.7667,
+  '08:00',
+  '21:00',
+  'Bank BRI',
+  '1234567890',
+  'Warung Ombay',
+  true,
+  5.0,
+  '15-30 min',
+  '/placeholder-food.jpg',
+  '/placeholder-food.jpg',
+  'Warung makan resmi pemilik sistem khas kuliner Tumpang',
+  'Nasi & Lauk',
+  '/qris-merchant.png',
+  true,
+  '2026-10-26T00:00:00.000Z',
+  '2026-10-26T00:00:00.000Z'
+)
+ON CONFLICT (id) DO UPDATE SET
+  name = EXCLUDED.name,
+  owner_name = EXCLUDED.owner_name,
+  phone = EXCLUDED.phone,
+  email = EXCLUDED.email,
+  address = EXCLUDED.address,
+  active = EXCLUDED.active,
+  category = EXCLUDED.category,
+  updated_at = EXCLUDED.updated_at;
 
--- 3. Categories (0 records)
+-- 3. Categories (1 record)
+INSERT INTO categories (id, merchant_id, name, order_index)
+VALUES (
+  'cat_ombay_utama',
+  'm_dql2xw0',
+  'Menu Utama',
+  1
+)
+ON CONFLICT (id) DO UPDATE SET
+  name = EXCLUDED.name,
+  order_index = EXCLUDED.order_index;
 
--- 4. Menu Items (0 records)
+-- 4. Menu Items (1 record: Nasi Rendang - Unavailable)
+INSERT INTO menu_items (id, merchant_id, category_id, name, description, price, available, image, created_at, updated_at)
+VALUES (
+  'item_dc1ut1c',
+  'm_dql2xw0',
+  'cat_ombay_utama',
+  'Nasi Rendang',
+  'Nasi Rendang daging sapi empuk khas Warung Ombay',
+  10000,
+  false,
+  'https://images.unsplash.com/photo-1546069901-ba9599a7e63c',
+  '2026-10-26T00:00:00.000Z',
+  '2026-10-26T00:00:00.000Z'
+)
+ON CONFLICT (id) DO UPDATE SET
+  name = EXCLUDED.name,
+  description = EXCLUDED.description,
+  price = EXCLUDED.price,
+  available = EXCLUDED.available,
+  image = EXCLUDED.image,
+  updated_at = EXCLUDED.updated_at;
 
 -- 5. Drivers (0 records)
 

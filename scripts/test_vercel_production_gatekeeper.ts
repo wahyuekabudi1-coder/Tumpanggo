@@ -15,6 +15,7 @@
  */
 
 import http from 'http';
+import fs from 'fs';
 import handler, { getAppModule } from '../api/index';
 import { foodConfig } from '../src/server/config';
 import { __setFirestoreMockForTesting } from '../src/server/firebaseAdmin';
@@ -30,6 +31,10 @@ function setMock(mock: any) {
 }
 
 async function run() {
+  const initialDbContent = fs.existsSync(foodConfig.localDbFile)
+    ? fs.readFileSync(foodConfig.localDbFile, 'utf8')
+    : null;
+
   console.log('======================================================================');
   console.log('🛡️  PENGUJIAN GERBANG PRODUKSI & PERSISTENSI VERCEL SERVERLESS');
   console.log('======================================================================\n');
@@ -261,6 +266,9 @@ async function run() {
     if (originalAdminEmail) process.env.FOOD_ADMIN_EMAIL = originalAdminEmail;
     if (originalAdminPassword) process.env.FOOD_ADMIN_PASSWORD = originalAdminPassword;
     server.close();
+    if (initialDbContent && fs.existsSync(foodConfig.localDbFile)) {
+      fs.writeFileSync(foodConfig.localDbFile, initialDbContent, 'utf8');
+    }
   }
 
   console.log('\n======================================================================');
