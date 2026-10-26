@@ -139,15 +139,19 @@ const safeFirestoreSetDoc = safeCloudSetDoc;
 
 export interface PushSubscriptionRecord {
   id: string;
+  type?: 'WEB_PUSH' | 'FCM';
   role: 'MERCHANT' | 'DRIVER' | 'CUSTOMER';
   entityId: string;
-  subscription: {
+  fcmToken?: string;
+  subscription?: {
     endpoint: string;
     keys: {
       p256dh: string;
       auth: string;
     };
   };
+  deviceInfo?: string;
+  appVersion?: string;
   userAgent?: string;
   createdAt: string;
   updatedAt: string;
@@ -556,7 +560,7 @@ export class FoodDatabase {
         throw new Error(`[Produksi] Koneksi Supabase PostgreSQL tidak aktif (${supabaseProbe.error}). Dokumen produksi tidak dapat dibaca.`);
       }
       isConnected = supabaseProbe.connected;
-      targetProjectId = 'epqpyieszdwyzrcbeqey';
+      targetProjectId = foodConfig.supabase.projectId;
       targetDatabaseId = 'supabase';
       storageMode = isConnected ? 'supabase_postgresql_verified' : 'development_local_snapshot';
       authIdentity = 'service_role';
@@ -1348,7 +1352,7 @@ export class FoodDatabase {
         isUsingFallback: !isConnected,
         activePersistenceType: isConnected ? 'SUPABASE_POSTGRESQL' : 'LOCAL_JSON_SNAPSHOT',
         databaseId: 'supabase',
-        projectId: 'epqpyieszdwyzrcbeqey',
+        projectId: foodConfig.supabase.projectId,
         isProduction: foodConfig.isProduction,
         firestoreConfigured: isFirestoreAdminConfigured(),
         supabaseConfigured: true,
@@ -3171,6 +3175,14 @@ export class FoodDatabase {
     this.data.orders.unshift(newOrder);
     this.save();
     this.log('CUSTOMER', `Created order ${newOrder.orderNumber} (ID: ${newOrder.id}) Total: Rp ${newOrder.total.toLocaleString()} (UniqueCode: ${newOrder.uniqueCode})`, 'CUSTOMER');
+
+    // Trigger push notification if order is already verified upon creation
+    if (newOrder.status === OrderStatus.PAYMENT_VERIFIED) {
+      import('./services/pushService').then(m => {
+        m.pushService.notifyNewVerifiedOrder(newOrder);
+      }).catch(() => {});
+    }
+
     return newOrder;
   }
 
@@ -4344,10 +4356,18 @@ export class FoodDatabase {
     return true;
   }
 
-  // --- WEB PUSH SUBSCRIPTIONS ---
+  // --- PUSH NOTIFICATION SUBSCRIPTIONS (WEB PUSH & ANDROID FCM) ---
   public savePushSubscription(sub: PushSubscriptionRecord): void {
     if (!this.data.pushSubscriptions) this.data.pushSubscriptions = [];
-    const idx = this.data.pushSubscriptions.findIndex(s => s.subscription.endpoint === sub.subscription.endpoint);
+    
+    // Deduplicate by fcmToken for FCM subscriptions, or endpoint for Web Push subscriptions
+    const idx = this.data.pushSubscriptions.findIndex(s => {
+      if (sub.fcmToken && s.fcmToken === sub.fcmToken) return true;
+      if (sub.subscription?.endpoint && s.subscription?.endpoint === sub.subscription.endpoint) return true;
+      if (s.id === sub.id) return true;
+      return false;
+    });
+
     if (idx >= 0) {
       this.data.pushSubscriptions[idx] = {
         ...this.data.pushSubscriptions[idx],
@@ -4358,17 +4378,42 @@ export class FoodDatabase {
       this.data.pushSubscriptions.push(sub);
     }
     this.save();
+
+    // Persist to Cloud persistence if configured
+    if (isCloudPersistenceConfigured()) {
+      safeCloudSetDoc('pushSubscriptions', sub.id, sub).catch(() => {});
+    }
   }
 
-  public removePushSubscription(endpoint: string): void {
+  public removePushSubscription(identifier: string): void {
     if (!this.data.pushSubscriptions) return;
-    this.data.pushSubscriptions = this.data.pushSubscriptions.filter(s => s.subscription.endpoint !== endpoint);
+    const target = this.data.pushSubscriptions.find(
+      s => (s.subscription?.endpoint && s.subscription.endpoint === identifier) ||
+           (s.fcmToken && s.fcmToken === identifier) ||
+           s.id === identifier
+    );
+    this.data.pushSubscriptions = this.data.pushSubscriptions.filter(
+      s => !(s.subscription?.endpoint && s.subscription.endpoint === identifier) &&
+           !(s.fcmToken && s.fcmToken === identifier) &&
+           s.id !== identifier
+    );
     this.save();
+
+    if (target && isCloudPersistenceConfigured()) {
+      safeCloudDeleteDoc('pushSubscriptions', target.id).catch(() => {});
+    }
   }
 
   public getPushSubscriptionsForEntity(role: 'MERCHANT' | 'DRIVER', entityId: string): PushSubscriptionRecord[] {
     if (!this.data.pushSubscriptions) return [];
-    return this.data.pushSubscriptions.filter(s => s.role === role && s.entityId === entityId);
+    const cleanEntityId = String(entityId || '').trim();
+    const cleanBareId = cleanEntityId.replace(/^merchant_/, '').replace(/^driver_/, '');
+
+    return this.data.pushSubscriptions.filter(s => {
+      if (s.role !== role) return false;
+      const sBareId = String(s.entityId || '').replace(/^merchant_/, '').replace(/^driver_/, '');
+      return s.entityId === cleanEntityId || sBareId === cleanBareId;
+    });
   }
 }
 

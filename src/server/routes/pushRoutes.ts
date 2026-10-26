@@ -2,13 +2,14 @@
  * @license
  * SPDX-License-Identifier: Apache-2.0
  * 
- * Web Push Notification Routes for TumpangGo
- * Manages VAPID public key retrieval, device subscription registration, and test dispatch.
+ * Push Notification Routes for TumpangGo
+ * Manages VAPID public key retrieval, Android FCM / Web Push device token registration,
+ * unsubscription, and test notification dispatch.
  */
 
 import { Router } from 'express';
 import { pushService } from '../services/pushService';
-import { foodDb } from '../db';
+import { foodDb, PushSubscriptionRecord } from '../db';
 
 export const pushRouter = Router();
 
@@ -21,10 +22,10 @@ pushRouter.get('/vapid-key', (req, res) => {
   });
 });
 
-// 2. Subscribe a device to receive push notifications
+// 2. Subscribe a device (Native Android FCM token or Web Push Subscription)
 pushRouter.post('/subscribe', (req: any, res) => {
   try {
-    const { role, entityId, subscription, userAgent } = req.body;
+    const { role, entityId, subscription, fcmToken, deviceInfo, appVersion, userAgent } = req.body;
     const user = req.user;
 
     if (!role || !['MERCHANT', 'DRIVER', 'CUSTOMER'].includes(role)) {
@@ -35,8 +36,14 @@ pushRouter.post('/subscribe', (req: any, res) => {
       return res.status(400).json({ error: 'entityId (ID toko atau ID driver) wajib disertakan.' });
     }
 
-    if (!subscription || !subscription.endpoint || !subscription.keys) {
-      return res.status(400).json({ error: 'Objek PushSubscription browser tidak lengkap.' });
+    // Must provide either an Android FCM token or a browser Web Push subscription
+    const hasFcm = Boolean(fcmToken && typeof fcmToken === 'string' && fcmToken.trim().length > 10);
+    const hasWebPush = Boolean(subscription && subscription.endpoint && subscription.keys);
+
+    if (!hasFcm && !hasWebPush) {
+      return res.status(400).json({
+        error: 'Pendaftaran memerlukan salah satu: fcmToken (Android FCM) atau subscription { endpoint, keys } (Web Push).'
+      });
     }
 
     // Role-based authorization guard
@@ -64,17 +71,24 @@ pushRouter.post('/subscribe', (req: any, res) => {
       }
     }
 
-    const record = {
-      id: 'sub_' + Math.random().toString(36).substring(2, 9) + Date.now().toString(36),
+    const subType = hasFcm ? 'FCM' : 'WEB_PUSH';
+    const cleanEntityId = entityId.trim();
+
+    const record: PushSubscriptionRecord = {
+      id: (hasFcm ? 'fcm_' : 'sub_') + Math.random().toString(36).substring(2, 9) + Date.now().toString(36),
+      type: subType,
       role: role as 'MERCHANT' | 'DRIVER' | 'CUSTOMER',
-      entityId: entityId.trim(),
-      subscription: {
+      entityId: cleanEntityId,
+      fcmToken: hasFcm ? fcmToken.trim() : undefined,
+      subscription: hasWebPush ? {
         endpoint: subscription.endpoint,
         keys: {
           p256dh: subscription.keys.p256dh,
           auth: subscription.keys.auth
         }
-      },
+      } : undefined,
+      deviceInfo: deviceInfo || (hasFcm ? 'Android Native Device' : 'Web Browser'),
+      appVersion: appVersion || '1.0.0',
       userAgent: userAgent || req.headers['user-agent'] || '',
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
@@ -84,7 +98,10 @@ pushRouter.post('/subscribe', (req: any, res) => {
 
     res.json({
       success: true,
-      message: 'Perangkat berhasil terdaftar untuk menerima notifikasi pesanan TumpangGo.',
+      type: subType,
+      message: hasFcm 
+        ? 'Perangkat Android APK berhasil didaftarkan untuk FCM Push Notification.'
+        : 'Browser Web Push berhasil didaftarkan untuk notifikasi pesanan TumpangGo.',
       subscriptionId: record.id
     });
   } catch (err: any) {
@@ -93,15 +110,17 @@ pushRouter.post('/subscribe', (req: any, res) => {
   }
 });
 
-// 3. Unsubscribe a device
+// 3. Unsubscribe a device (Supports endpoint, fcmToken, or subscriptionId)
 pushRouter.post('/unsubscribe', (req, res) => {
   try {
-    const { endpoint } = req.body;
-    if (!endpoint) {
-      return res.status(400).json({ error: 'Endpoint subscription wajib disertakan.' });
+    const { endpoint, fcmToken, subscriptionId } = req.body;
+    const identifier = endpoint || fcmToken || subscriptionId;
+
+    if (!identifier) {
+      return res.status(400).json({ error: 'Salah satu identifier (endpoint, fcmToken, atau subscriptionId) wajib disertakan.' });
     }
 
-    foodDb.removePushSubscription(endpoint);
+    foodDb.removePushSubscription(identifier);
     res.json({ success: true, message: 'Langganan notifikasi berhasil dihapus.' });
   } catch (err: any) {
     console.error('[PushRoutes] Error unsubscribing:', err);
@@ -143,33 +162,53 @@ pushRouter.post('/test', async (req: any, res) => {
       return res.status(400).json({ error: 'Role tidak didukung untuk tes notifikasi.' });
     }
 
-    let result: { sent: number; failed: number };
+    let result;
 
     if (role === 'MERCHANT') {
       result = await pushService.sendToMerchant(entityId, {
         title: '🔔 Tes Notifikasi Toko TumpangGo',
-        body: 'Notifikasi push berhasil terhubung! Anda akan menerima peringatan saat ada pesanan masuk meskipun layar tertutup.',
+        body: 'Notifikasi push berhasil terhubung! Anda akan menerima nada dering panggilan saat pesanan baru masuk meskipun aplikasi ditutup.',
         url: `/merchant?id=${encodeURIComponent(entityId)}`,
-        tag: 'test-push-' + Date.now()
+        tag: 'test-push-' + Date.now(),
+        channelId: 'tumpanggo_merchant_orders',
+        sound: 'order_ringtone',
+        data: {
+          role: 'MERCHANT',
+          type: 'TEST_NOTIFICATION',
+          merchantId: entityId
+        }
       });
     } else if (role === 'DRIVER') {
       result = await pushService.sendToDriver(entityId, {
         title: '🛵 Tes Notifikasi Driver TumpangGo',
         body: 'Notifikasi push berhasil terhubung! Anda akan menerima peringatan saat ditugaskan pesanan pengantaran.',
         url: `/driver?id=${encodeURIComponent(entityId)}`,
-        tag: 'test-push-' + Date.now()
+        tag: 'test-push-' + Date.now(),
+        channelId: 'tumpanggo_driver_orders',
+        sound: 'order_ringtone',
+        data: {
+          role: 'DRIVER',
+          type: 'TEST_NOTIFICATION',
+          driverId: entityId
+        }
       });
     } else {
       return res.status(400).json({ error: 'Role tidak didukung.' });
     }
 
+    const detailMsg = [];
+    if (result.sentFCM > 0) detailMsg.push(`${result.sentFCM} perangkat Android (FCM)`);
+    if (result.sentWebPush > 0) detailMsg.push(`${result.sentWebPush} browser (Web Push)`);
+
     res.json({
       success: true,
-      sent: result.sent,
-      failed: result.failed,
-      message: result.sent > 0
-        ? `Notifikasi terkirim ke ${result.sent} perangkat aktif!`
-        : 'Belum ada perangkat yang terdaftar atau izin notifikasi browser belum diberikan.'
+      totalSent: result.totalSent,
+      totalFailed: result.totalFailed,
+      sentFCM: result.sentFCM,
+      sentWebPush: result.sentWebPush,
+      message: result.totalSent > 0
+        ? `Notifikasi tes berhasil terkirim ke ${detailMsg.join(' dan ')}!`
+        : 'Belum ada perangkat Android (FCM) atau browser yang terdaftar untuk menerima notifikasi toko ini.'
     });
   } catch (err: any) {
     console.error('[PushRoutes] Error sending test push:', err);

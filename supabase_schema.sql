@@ -421,3 +421,25 @@ DROP POLICY IF EXISTS anon_read_published_testimonials ON testimonials;
 CREATE POLICY anon_read_published_testimonials ON testimonials 
   FOR SELECT TO anon 
   USING (status = 'published' AND consent_approved = true);
+
+-- -----------------------------------------------------------------------------
+-- 10. PUSH NOTIFICATION SUBSCRIPTIONS (Android FCM & Web Push)
+-- -----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS push_subscriptions (
+  id TEXT PRIMARY KEY,
+  role TEXT NOT NULL CHECK (role IN ('MERCHANT', 'DRIVER', 'CUSTOMER')),
+  entity_id TEXT NOT NULL,
+  type TEXT NOT NULL DEFAULT 'WEB_PUSH' CHECK (type IN ('WEB_PUSH', 'FCM')),
+  fcm_token TEXT,
+  subscription JSONB,
+  device_info TEXT NOT NULL DEFAULT '',
+  app_version TEXT NOT NULL DEFAULT '1.0.0',
+  user_agent TEXT NOT NULL DEFAULT '',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_push_subs_entity ON push_subscriptions (role, entity_id);
+CREATE INDEX IF NOT EXISTS idx_push_subs_fcm_token ON push_subscriptions (fcm_token);
+ALTER TABLE push_subscriptions ENABLE ROW LEVEL SECURITY;
+

@@ -1,0 +1,7 @@
+<resources>
+    <string name="app_name">TumpangGo Merchant</string>
+    <string name="notification_channel_orders">Pesanan Baru TumpangGo Merchant</string>
+    <string name="notification_channel_orders_desc">Notifikasi suara dan getaran saat pesanan baru masuk ke dapur</string>
+    <string name="notification_new_order_title">🔔 Pesanan Baru Masuk!</string>
+    <string name="notification_permission_rationale">TumpangGo Merchant membutuhkan izin notifikasi agar dapur Anda dapat menerima peringatan pesanan baru saat aplikasi ditutup.</string>
+</resources>

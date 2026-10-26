@@ -110,9 +110,28 @@ function resolveServerPort(): number {
   return 3000;
 }
 
-export function extractSupabaseProjectRef(key?: string): string | null {
-  if (!key || typeof key !== 'string') return null;
-  const clean = cleanEnvSecret(key);
+export function extractSupabaseProjectRef(val?: string): string | null {
+  if (!val || typeof val !== 'string') return null;
+  const clean = cleanEnvSecret(val);
+
+  // 1. Check if string itself is a direct project ref (e.g. 20-character alphanumeric)
+  if (/^[a-z0-9_-]{15,40}$/i.test(clean) && !clean.includes('.') && !clean.includes('/') && !clean.includes(':')) {
+    return clean.toLowerCase();
+  }
+
+  // 2. Check for db.<ref>.supabase.co or <ref>.supabase.co in URLs
+  const subMatch = clean.match(/(?:db\.)?([a-z0-9_-]{15,40})\.supabase\.co/i);
+  if (subMatch && subMatch[1] && !subMatch[1].includes('project-ref') && !subMatch[1].includes('your-project')) {
+    return subMatch[1].toLowerCase();
+  }
+
+  // 3. Check for postgres.<ref>@ or postgres.<ref>: (Supabase pooler URI)
+  const poolerMatch = clean.match(/postgres\.([a-z0-9_-]{15,40})[:@]/i);
+  if (poolerMatch && poolerMatch[1]) {
+    return poolerMatch[1].toLowerCase();
+  }
+
+  // 4. JWT service_role or anon key payload ref
   const parts = clean.split('.');
   if (parts.length >= 2) {
     try {
@@ -127,18 +146,43 @@ export function extractSupabaseProjectRef(key?: string): string | null {
 
 export function normalizeSupabaseUrl(raw?: string, key?: string): string {
   let url = cleanEnvSecret(raw);
+
+  // If url is a placeholder like https://<project-ref>.supabase.co or <project-ref>
+  if (url && (url.includes('<') || url.includes('>') || url.includes('[') || url.includes(']') || url.toLowerCase().includes('project-ref') || url.toLowerCase().includes('your-project'))) {
+    url = '';
+  }
+
+  // If url is a postgres/postgresql connection URI, extract ref from it
+  if (url && (url.startsWith('postgres://') || url.startsWith('postgresql://'))) {
+    const extracted = extractSupabaseProjectRef(url);
+    if (extracted) {
+      return `https://${extracted}.supabase.co`;
+    }
+    url = '';
+  }
+
   if (!url) {
-    const derivedRef = extractSupabaseProjectRef(key || process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_KEY);
+    const derivedRef = extractSupabaseProjectRef(
+      key || 
+      process.env.SUPABASE_SERVICE_ROLE_KEY || 
+      process.env.SUPABASE_SECRET_KEY || 
+      process.env.SUPABASE_KEY ||
+      process.env.DATABASE_URL ||
+      process.env.POSTGRES_URL
+    );
     if (derivedRef) {
       return `https://${derivedRef}.supabase.co`;
     }
     return '';
   }
 
-  // Handle accidental project ref e.g. "myprojectid12345678"
+  // Handle direct ref string (e.g. "epqpyieszdwyzrcbeqey")
   if (/^[a-z0-9_-]{15,40}$/i.test(url) && !url.includes('.')) {
     return `https://${url.toLowerCase()}.supabase.co`;
   }
+
+  // If url has db.<ref>.supabase.co, strip the "db." as REST API is hosted on root domain
+  url = url.replace(/^(https?:\/\/)?db\.([a-z0-9_-]+\.supabase\.co)/i, '$1$2');
 
   // Prepend https:// if protocol is missing
   if (!url.startsWith('http://') && !url.startsWith('https://')) {
@@ -178,8 +222,8 @@ export function validateProductionEnvironment(): { isValid: boolean; errors: str
   }
 
   const rawSupabaseKey = cleanEnvSecret(process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_KEY);
-  const rawSupabaseUrl = cleanEnvSecret(process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL);
-  const derivedRef = extractSupabaseProjectRef(rawSupabaseKey);
+  const rawSupabaseUrl = cleanEnvSecret(process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_REST_URL || process.env.DATABASE_URL || process.env.POSTGRES_URL);
+  const derivedRef = extractSupabaseProjectRef(rawSupabaseKey) || extractSupabaseProjectRef(process.env.DATABASE_URL) || extractSupabaseProjectRef(process.env.POSTGRES_URL);
   const hasSupabaseKey = Boolean(rawSupabaseKey && rawSupabaseKey.length >= 20);
   const hasSupabaseUrl = Boolean(rawSupabaseUrl || derivedRef);
 
@@ -190,6 +234,11 @@ export function validateProductionEnvironment(): { isValid: boolean; errors: str
     if (!hasSupabaseUrl) {
       errors.push('SUPABASE_URL wajib disetel pada lingkungan produksi (contoh: https://<project-ref>.supabase.co).');
     } else {
+      const origRaw = process.env.SUPABASE_URL || '';
+      if (origRaw.includes('<') || origRaw.includes('>') || origRaw.includes('[') || origRaw.includes(']')) {
+        errors.push(`SUPABASE_URL mengandung karakter placeholder literal ("${origRaw}"). Masukkan URL proyek Supabase asli dari Supabase Dashboard -> Project Settings -> API.`);
+      }
+
       const normalized = normalizeSupabaseUrl(rawSupabaseUrl, rawSupabaseKey);
       try {
         const parsed = new URL(normalized);
@@ -346,7 +395,8 @@ export const foodConfig = {
   supabase: {
     get url(): string {
       const key = cleanEnvSecret(process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_KEY);
-      return normalizeSupabaseUrl(process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL, key);
+      const raw = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_REST_URL || process.env.DATABASE_URL || process.env.POSTGRES_URL;
+      return normalizeSupabaseUrl(raw, key);
     },
     get projectId(): string {
       const u = this.url;
@@ -354,11 +404,14 @@ export const foodConfig = {
         if (u) {
           const host = new URL(u).hostname;
           const sub = host.split('.')[0];
-          if (sub) return sub;
+          if (sub && sub !== 'supabase' && sub !== 'db') return sub;
         }
       } catch {}
       const key = cleanEnvSecret(process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_KEY);
-      return extractSupabaseProjectRef(key) || 'supabase';
+      return extractSupabaseProjectRef(key) || 
+             extractSupabaseProjectRef(process.env.DATABASE_URL) || 
+             extractSupabaseProjectRef(process.env.POSTGRES_URL) || 
+             'supabase';
     },
     get serviceRoleKey(): string {
       return cleanEnvSecret(process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_KEY);
@@ -368,7 +421,8 @@ export const foodConfig = {
     },
     get isConfigured(): boolean {
       const key = cleanEnvSecret(process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_KEY);
-      const url = normalizeSupabaseUrl(process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL, key);
+      const raw = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_REST_URL || process.env.DATABASE_URL || process.env.POSTGRES_URL;
+      const url = normalizeSupabaseUrl(raw, key);
       return Boolean(key && key.length >= 20 && url && url.startsWith('http'));
     }
   },

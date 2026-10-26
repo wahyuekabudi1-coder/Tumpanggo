@@ -41,6 +41,7 @@ import {
 import { useCookingTicker } from '../hooks/useCookingCountdown.ts';
 import { useOrderRingtone } from '../hooks/useOrderRingtone.ts';
 import { useWebPush } from '../hooks/useWebPush.ts';
+import { useNativeBridge } from '../hooks/useNativeBridge.ts';
 import { usePullToRefresh } from '../hooks/usePullToRefresh.ts';
 import { PullToRefreshIndicator } from './PullToRefreshIndicator.tsx';
 
@@ -329,6 +330,29 @@ export default function MerchantView({ merchantId: rawMerchantId, onLogout, onSe
     clearStatusMessage: clearPushStatusMsg
   } = useWebPush('MERCHANT', effectiveMerchantId);
 
+  const {
+    isNativeApp,
+    fcmToken,
+    notifyOrderHandled,
+    playNativeTestSound,
+    requestNativeNotificationPermission
+  } = useNativeBridge(effectiveMerchantId, typeof window !== 'undefined' ? localStorage.getItem('tumpang_auth_token') : null);
+
+  // Listen for native Android intent when an order notification is tapped
+  useEffect(() => {
+    const handleOpenOrder = (e: any) => {
+      const targetId = e?.detail?.orderId;
+      if (targetId) {
+        setActiveTab('incoming');
+        setOperationalSubTab('perlu_masak');
+        dismissAlert();
+        notifyOrderHandled(targetId);
+      }
+    };
+    window.addEventListener('tumpang:openOrder', handleOpenOrder);
+    return () => window.removeEventListener('tumpang:openOrder', handleOpenOrder);
+  }, [dismissAlert, notifyOrderHandled]);
+
   // Menu editor states
   const [selectedMenuCategory, setSelectedMenuCategory] = useState<string>('ALL');
   const [editingItem, setEditingItem] = useState<Partial<MenuItem> | null>(null);
@@ -512,6 +536,7 @@ export default function MerchantView({ merchantId: rawMerchantId, onLogout, onSe
         })
       });
       if (res.ok) {
+        notifyOrderHandled(orderId);
         await fetchMerchantData(true);
         setActiveTab('incoming');
         setOperationalSubTab('cooking');
@@ -540,6 +565,7 @@ export default function MerchantView({ merchantId: rawMerchantId, onLogout, onSe
         })
       });
       if (res.ok) {
+        notifyOrderHandled(orderId);
         await fetchMerchantData(true);
         setActiveTab('incoming');
         setOperationalSubTab('ready');
@@ -572,6 +598,7 @@ export default function MerchantView({ merchantId: rawMerchantId, onLogout, onSe
         })
       });
       if (res.ok) {
+        notifyOrderHandled(orderId);
         setRejectModal(null);
         await fetchMerchantData(true);
       } else {
@@ -2597,8 +2624,52 @@ export default function MerchantView({ merchantId: rawMerchantId, onLogout, onSe
                   </div>
                 </div>
 
-                {/* Web Push Notification Settings */}
-                {isPushSupported && (
+                {/* Native Android APK Push Notification Status or Web Push Notification Settings */}
+                {isNativeApp ? (
+                  <div className="bg-emerald-50/70 rounded-2xl border border-emerald-200/90 p-4 sm:p-5 shadow-xs space-y-2.5">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-emerald-950 flex items-center gap-1.5">
+                        <Bell className="w-4 h-4 text-emerald-700 animate-pulse" />
+                        Aplikasi Android Native (FCM)
+                      </span>
+                      <span className="text-[10px] font-extrabold px-2.5 py-0.5 rounded-full bg-emerald-200 text-emerald-900">
+                        {fcmToken ? 'FCM Terhubung' : 'Memuat Kunci...'}
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-emerald-900/80 leading-relaxed">
+                      Peringatan pesanan baru dipicu langsung oleh sistem Android melalui Firebase Cloud Messaging. Suara panggilan telepon akan tetap berdering kencang saat HP terkunci atau aplikasi ditutup.
+                    </p>
+                    <div className="flex flex-wrap gap-2 pt-1">
+                      <button
+                        type="button"
+                        onClick={sendTestPush}
+                        disabled={pushLoading}
+                        className="min-h-[38px] px-3.5 py-1.5 bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-xs rounded-xl shadow-xs cursor-pointer flex items-center gap-1.5"
+                      >
+                        <Bell className="w-3.5 h-3.5" />
+                        {pushLoading ? 'Mengirim...' : 'Tes Notifikasi FCM'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={playNativeTestSound}
+                        className="min-h-[38px] px-3 py-1.5 bg-white border border-emerald-300 hover:bg-emerald-100 text-emerald-900 font-bold text-xs rounded-xl shadow-2xs cursor-pointer flex items-center gap-1.5"
+                      >
+                        <Volume2 className="w-3.5 h-3.5" />
+                        Tes Nada Dering Native
+                      </button>
+                      <button
+                        type="button"
+                        onClick={requestNativeNotificationPermission}
+                        className="min-h-[38px] px-3 py-1.5 bg-white border border-emerald-300 hover:bg-emerald-100 text-emerald-800 font-bold text-xs rounded-xl cursor-pointer"
+                      >
+                        Periksa Izin Android
+                      </button>
+                    </div>
+                    {pushStatusMsg && (
+                      <p className="text-[11px] font-semibold text-emerald-800 pt-1">{pushStatusMsg}</p>
+                    )}
+                  </div>
+                ) : isPushSupported && (
                   <div className="bg-white rounded-2xl border border-slate-200/90 p-4 sm:p-5 shadow-xs space-y-2.5">
                     <div className="flex items-center justify-between">
                       <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5">

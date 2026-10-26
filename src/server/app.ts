@@ -243,6 +243,8 @@ app.use(authenticateToken);
 
 // Health check endpoint - Distinguishes server process vitality from database readiness
 app.get('/api/health', async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+  res.setHeader('Pragma', 'no-cache');
   try {
     const foodStorageStatus = await foodDb.getStorageStatus();
     const isHealthy = foodStorageStatus.liveCloudConnected;
@@ -275,6 +277,8 @@ app.get('/api/health', async (req, res) => {
 
 // Dedicated Supabase PostgreSQL Connection Probe endpoint for on-demand validation
 app.get('/api/health/supabase-probe', async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+  res.setHeader('Pragma', 'no-cache');
   try {
     const probe = await testSupabaseConnection();
     res.status(probe.connected ? 200 : 503).json({

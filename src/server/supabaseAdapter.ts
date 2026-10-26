@@ -59,6 +59,19 @@ export function resetSupabaseClient(): void {
   currentClientKey = '';
 }
 
+interface UnderlyingFetchError {
+  message?: string;
+  name?: string;
+  cause?: any;
+  causeCode?: string;
+  causeSyscall?: string;
+  causeHostname?: string;
+  causeMessage?: string;
+  timestamp: number;
+}
+
+let lastUnderlyingFetchError: UnderlyingFetchError | null = null;
+
 export function getSupabaseClient(): SupabaseClient | null {
   if (!foodConfig.supabase.isConfigured) {
     return null;
@@ -76,17 +89,37 @@ export function getSupabaseClient(): SupabaseClient | null {
       },
       global: {
         headers: {
-          'x-application-name': 'tumpanggo-serverless',
-          'Connection': 'close'
+          'x-application-name': 'tumpanggo-serverless'
+          // NOTE: Do NOT include 'Connection: close'. Connection is a forbidden header in HTTP/2 (RFC 7540)
+          // and causes Cloudflare/Undici socket resets resulting in 'TypeError: fetch failed'.
         },
         fetch: async (input: RequestInfo | URL, init?: RequestInit) => {
-          let retries = 2;
-          let delay = 350;
+          let retries = 1;
+          let delay = 300;
           while (true) {
             try {
               return await fetch(input, init);
             } catch (err: any) {
-              if (init?.signal?.aborted || err?.name === 'AbortError' || retries <= 0) {
+              const cause = err?.cause || (err as any)?.originalError;
+              const causeCode = cause?.code ? String(cause.code) : undefined;
+              const causeSyscall = cause?.syscall ? String(cause.syscall) : undefined;
+              const causeHostname = cause?.hostname ? String(cause.hostname) : undefined;
+              const causeMsg = cause?.message ? String(cause.message) : undefined;
+
+              lastUnderlyingFetchError = {
+                message: err?.message,
+                name: err?.name,
+                cause,
+                causeCode,
+                causeSyscall,
+                causeHostname,
+                causeMessage: causeMsg,
+                timestamp: Date.now()
+              };
+
+              const isAbort = init?.signal?.aborted || err?.name === 'AbortError';
+              const isStreamBody = init?.body && typeof (init.body as any)?.getReader === 'function';
+              if (isAbort || isStreamBody || retries <= 0) {
                 throw err;
               }
               retries--;
@@ -499,8 +532,41 @@ export const COLLECTION_TO_TABLE: Record<string, string> = {
   partnerRegistrations: 'partner_registrations',
   testimonials: 'testimonials',
   auditLogs: 'audit_logs',
-  systemConfig: 'system_config'
+  systemConfig: 'system_config',
+  pushSubscriptions: 'push_subscriptions'
 };
+
+function mapPushSubscriptionToDb(sub: any): Record<string, any> {
+  return {
+    id: sub.id,
+    role: sub.role,
+    entity_id: sub.entityId,
+    type: sub.type || (sub.fcmToken ? 'FCM' : 'WEB_PUSH'),
+    fcm_token: sub.fcmToken || null,
+    subscription: sub.subscription || null,
+    device_info: sub.deviceInfo || '',
+    app_version: sub.appVersion || '1.0.0',
+    user_agent: sub.userAgent || '',
+    created_at: sub.createdAt || new Date().toISOString(),
+    updated_at: sub.updatedAt || new Date().toISOString()
+  };
+}
+
+function mapPushSubscriptionFromDb(row: any): any {
+  return {
+    id: row.id,
+    role: row.role,
+    entityId: row.entity_id,
+    type: row.type,
+    fcmToken: row.fcm_token || undefined,
+    subscription: row.subscription || undefined,
+    deviceInfo: row.device_info,
+    appVersion: row.app_version,
+    userAgent: row.user_agent,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
+  };
+}
 
 export function mapEntityToDb(collection: string, data: any): Record<string, any> {
   switch (collection) {
@@ -514,6 +580,7 @@ export function mapEntityToDb(collection: string, data: any): Record<string, any
     case 'testimonials': return mapTestimonialToDb(data);
     case 'auditLogs': return mapAuditLogToDb(data);
     case 'systemConfig': return mapSystemConfigToDb(data);
+    case 'pushSubscriptions': return mapPushSubscriptionToDb(data);
     default: return { ...data };
   }
 }
@@ -530,6 +597,7 @@ export function mapEntityFromDb(collection: string, row: any): any {
     case 'testimonials': return mapTestimonialFromDb(row);
     case 'auditLogs': return mapAuditLogFromDb(row);
     case 'systemConfig': return mapSystemConfigFromDb(row);
+    case 'pushSubscriptions': return mapPushSubscriptionFromDb(row);
     default: return row;
   }
 }
@@ -585,10 +653,13 @@ export function formatSupabaseError(err: any): SupabaseDiagnosticDetail {
   const errName = String(err?.name || '');
   const details = sanitizeErrorText(String(err?.details || ''));
   const hint = sanitizeErrorText(String(err?.hint || ''));
-  const code = String(err?.code || '');
+  const rawCode = err?.code !== undefined && err?.code !== null ? String(err.code).trim() : '';
 
   // 1. Inspect whether this is a network / fetch-level failure (e.g. Node.js Undici fetch failed, ENOTFOUND, ECONNREFUSED)
   let cause = (err as any)?.cause || (err as any)?.originalError;
+  if (!cause && lastUnderlyingFetchError && (Date.now() - lastUnderlyingFetchError.timestamp < 30000)) {
+    cause = lastUnderlyingFetchError.cause;
+  }
   if (cause && Array.isArray((cause as any).errors) && (cause as any).errors.length > 0) {
     cause = (cause as any).errors[0];
   }
@@ -596,10 +667,10 @@ export function formatSupabaseError(err: any): SupabaseDiagnosticDetail {
     cause = cause.cause;
   }
 
-  const causeCode = String(cause?.code || '');
-  const causeSyscall = cause?.syscall ? String(cause.syscall) : undefined;
-  const causeHostname = cause?.hostname ? String(cause.hostname) : targetHost;
-  const causeMsg = sanitizeErrorText(cause?.message || '');
+  const causeCode = String(cause?.code || lastUnderlyingFetchError?.causeCode || '');
+  const causeSyscall = cause?.syscall ? String(cause.syscall) : (lastUnderlyingFetchError?.causeSyscall || undefined);
+  const causeHostname = cause?.hostname ? String(cause.hostname) : (lastUnderlyingFetchError?.causeHostname || targetHost);
+  const causeMsg = sanitizeErrorText(cause?.message || lastUnderlyingFetchError?.causeMessage || '');
 
   const isFetchNetworkFailure =
     rawMsg.includes('fetch failed') ||
@@ -612,7 +683,7 @@ export function formatSupabaseError(err: any): SupabaseDiagnosticDetail {
     causeCode === 'ETIMEDOUT' ||
     details.includes('ETIMEDOUT') ||
     details.includes('UND_ERR') ||
-    (!code && !hint && details.includes('Error:'));
+    (!rawCode && !hint && details.includes('Error:'));
 
   if (isFetchNetworkFailure) {
     // DNS Failure (ENOTFOUND, EAI_AGAIN)
@@ -624,7 +695,7 @@ export function formatSupabaseError(err: any): SupabaseDiagnosticDetail {
       causeMsg.includes('ENOTFOUND')
     ) {
       return {
-        message: `DNS resolution gagal (ENOTFOUND) untuk host "${causeHostname}". Host Supabase tidak ditemukan di internet. Periksa apakah SUPABASE_URL di Vercel sudah benar atau proyek Supabase aktif.`,
+        message: `DNS resolution gagal (ENOTFOUND) untuk host "${causeHostname}". Host Supabase tidak ditemukan di internet. Periksa apakah SUPABASE_URL di Vercel sudah benar atau proyek Supabase aktif / tidak di-pause.`,
         code: causeCode || 'ENOTFOUND',
         category: 'DNS',
         causeCode: causeCode || 'ENOTFOUND',
@@ -662,7 +733,7 @@ export function formatSupabaseError(err: any): SupabaseDiagnosticDetail {
       rawMsg.toLowerCase().includes('aborted')
     ) {
       return {
-        message: `Waktu koneksi ke Supabase (${causeHostname}) habis (Timeout). Latensi jaringan melebihi batas waktu 10 detik.`,
+        message: `Waktu koneksi ke Supabase (${causeHostname}) habis (Timeout). Latensi jaringan melebihi batas waktu.`,
         code: causeCode || 'ETIMEDOUT',
         category: 'NETWORK_TIMEOUT',
         causeCode: causeCode || 'ETIMEDOUT',
@@ -712,11 +783,12 @@ export function formatSupabaseError(err: any): SupabaseDiagnosticDetail {
       };
     }
 
-    // Generic fetch failed
+    // Generic fetch failed with actionable guidance
+    const netDetails = causeMsg || (details && !details.includes('TypeError: fetch failed') ? details : '');
     return {
-      message: causeMsg 
-        ? `Koneksi fetch ke Supabase (${causeHostname}) gagal [${causeCode || 'NETWORK_ERROR'}]: ${causeMsg}` 
-        : `Koneksi fetch ke Supabase (${causeHostname}) gagal tanpa respons server. Pastikan URL dan koneksi internet aktif.`,
+      message: netDetails 
+        ? `Koneksi fetch ke Supabase (${causeHostname}) gagal [${causeCode || 'NETWORK_ERROR'}]: ${netDetails}` 
+        : `Koneksi fetch ke Supabase (${causeHostname}) gagal tanpa respons server. Pastikan host SUPABASE_URL aktif dan tidak di-pause pada dashboard Supabase.`,
       code: causeCode || 'FETCH_FAILED',
       category: 'NETWORK',
       causeCode: causeCode || 'FETCH_FAILED',
@@ -727,44 +799,45 @@ export function formatSupabaseError(err: any): SupabaseDiagnosticDetail {
   }
 
   // 2. PostgREST structured error from actual server response
-  if (code === 'PGRST301' || rawMsg.toLowerCase().includes('jwt') || rawMsg.toLowerCase().includes('apikey')) {
+  if (rawCode === 'PGRST301' || rawMsg.toLowerCase().includes('jwt') || rawMsg.toLowerCase().includes('apikey')) {
     return {
       message: `Autentikasi Supabase gagal (HTTP 401/PGRST301): Kredensial SUPABASE_SERVICE_ROLE_KEY tidak valid atau token kedaluwarsa.`,
-      code: code || 'AUTH_FAILURE',
+      code: rawCode || 'AUTH_FAILURE',
       category: 'AUTH',
-      causeCode: code,
+      causeCode: rawCode || 'AUTH_FAILURE',
       causeMessage: rawMsg,
       causeHostname: targetHost
     };
   }
 
-  if (code === '42P01') {
+  if (rawCode === '42P01') {
     return {
       message: `Tabel database PostgreSQL tidak ditemukan di Supabase (${rawMsg}). Pastikan migrasi SQL Supabase (supabase_schema.sql) telah diaplikasikan di SQL Editor Supabase.`,
-      code,
+      code: rawCode,
       category: 'TABLE_NOT_FOUND',
-      causeCode: code,
+      causeCode: rawCode,
       causeMessage: rawMsg,
       causeHostname: targetHost
     };
   }
 
-  if (code === '42501') {
+  if (rawCode === '42501') {
     return {
       message: `Izin ditolak oleh Row Level Security (RLS) PostgreSQL: ${rawMsg}.`,
-      code,
+      code: rawCode,
       category: 'RLS_DENIED',
-      causeCode: code,
+      causeCode: rawCode,
       causeMessage: rawMsg,
       causeHostname: targetHost
     };
   }
 
+  const displayCode = rawCode && rawCode !== 'undefined' ? rawCode : undefined;
   return {
-    message: code ? `Supabase PostgREST error [${code}]: ${rawMsg}` : rawMsg,
-    code: code || undefined,
-    category: code ? 'HTTP_ERROR' : 'UNKNOWN',
-    causeCode: code || undefined,
+    message: displayCode ? `Supabase PostgREST error [${displayCode}]: ${rawMsg}` : (rawMsg || 'Kesalahan koneksi Supabase tanpa pesan error.'),
+    code: displayCode,
+    category: displayCode ? 'HTTP_ERROR' : 'UNKNOWN',
+    causeCode: displayCode,
     causeHostname: targetHost,
     causeMessage: rawMsg
   };
@@ -808,6 +881,27 @@ export async function testSupabaseConnection(): Promise<{
     };
   }
 
+  // Detect malformed host or placeholder literals
+  if (
+    targetHost === 'unknown-host' || 
+    targetHost.includes('<') || 
+    targetHost.includes('>') || 
+    targetHost.includes('[') || 
+    targetHost.includes(']') || 
+    targetHost === 'postgresql' || 
+    targetHost === 'postgres' ||
+    targetHost.includes('project-ref')
+  ) {
+    return {
+      connected: false,
+      url: foodConfig.supabase.url,
+      host: targetHost,
+      error: `Format SUPABASE_URL tidak sah ("${foodConfig.supabase.url}"). Harap setel URL HTTPS resmi proyek Supabase (contoh: https://<project-ref>.supabase.co).`,
+      category: 'CONFIG_MISSING',
+      errorCode: 'CONFIG_INVALID_URL'
+    };
+  }
+
   const client = getSupabaseClient();
   if (!client) {
     return {
@@ -825,7 +919,63 @@ export async function testSupabaseConnection(): Promise<{
   const timeoutId = setTimeout(() => controller.abort(), 10000);
 
   try {
-    // Probe primary operational table "merchants" first
+    // 1. Direct HTTPS REST Reachability Probe
+    // Tests raw network reachability and HTTP status codes (401, 403, 5xx) with full cause details
+    const probeKey = foodConfig.supabase.serviceRoleKey || foodConfig.supabase.anonKey;
+    try {
+      const restProbeRes = await fetch(`${foodConfig.supabase.url}/rest/v1/`, {
+        method: 'GET',
+        headers: {
+          'apikey': probeKey,
+          'Authorization': `Bearer ${probeKey}`
+        },
+        signal: controller.signal
+      });
+
+      if (restProbeRes.status === 401) {
+        lastSupabaseError = 'Autentikasi Supabase gagal (HTTP 401): SUPABASE_SERVICE_ROLE_KEY tidak valid atau token kedaluwarsa.';
+        return {
+          connected: false,
+          url: foodConfig.supabase.url,
+          host: targetHost,
+          latencyMs: Date.now() - start,
+          error: lastSupabaseError,
+          errorCode: 'PGRST301',
+          category: 'AUTH'
+        };
+      }
+
+      if (restProbeRes.status === 403) {
+        lastSupabaseError = 'Akses ke proyek Supabase ditolak (HTTP 403). Proyek mungkin dalam status paused atau IP/kredensial dibatasi.';
+        return {
+          connected: false,
+          url: foodConfig.supabase.url,
+          host: targetHost,
+          latencyMs: Date.now() - start,
+          error: lastSupabaseError,
+          errorCode: 'FORBIDDEN',
+          category: 'AUTH'
+        };
+      }
+    } catch (directErr: any) {
+      const formatted = formatSupabaseError(directErr);
+      lastSupabaseError = formatted.message;
+      return {
+        connected: false,
+        url: foodConfig.supabase.url,
+        host: targetHost,
+        latencyMs: Date.now() - start,
+        error: formatted.message,
+        errorCode: formatted.code,
+        category: formatted.category,
+        causeCode: formatted.causeCode,
+        causeSyscall: formatted.causeSyscall,
+        causeHostname: formatted.causeHostname,
+        causeMessage: formatted.causeMessage
+      };
+    }
+
+    // 2. Probe primary operational table "merchants" via Supabase client
     const { data: mData, error: mError } = await client
       .from('merchants')
       .select('id, name')

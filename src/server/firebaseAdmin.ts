@@ -15,6 +15,7 @@ import sharp from 'sharp';
 import * as admin from 'firebase-admin';
 import { initializeApp, getApps, cert, type App } from 'firebase-admin/app';
 import { getFirestore, type Firestore, type Transaction } from 'firebase-admin/firestore';
+import { getMessaging, type Messaging } from 'firebase-admin/messaging';
 import { foodConfig } from './config';
 
 /**
@@ -449,6 +450,27 @@ export function getAdminDb(): Firestore | null {
 
 export function getAdminApp(): App | null {
   return adminApp;
+}
+
+let testMockMessaging: any = null;
+
+export function __setMessagingMockForTesting(mock: any): void {
+  testMockMessaging = mock;
+}
+
+export function getAdminMessaging(): Messaging | null {
+  if (testMockMessaging) {
+    return testMockMessaging;
+  }
+  if (!adminApp || !isConfiguredWithServiceAccount) {
+    return null;
+  }
+  try {
+    return getMessaging(adminApp);
+  } catch (err) {
+    console.warn('[TumpangFood Admin] Failed to initialize Firebase Messaging:', err);
+    return null;
+  }
 }
 
 
